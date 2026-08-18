@@ -3,6 +3,7 @@ package link.mczihan.androidResourceDownload.feature.auth
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -120,11 +121,19 @@ fun LoginScreen(
                         if (it) showAgreementError = false
                     },
                 )
-                Column {
-                    Text("我已阅读并同意")
-                    TextButton(onClick = { showPolicy = true }) {
-                        Text("用户协议与隐私政策")
-                    }
+                Text(
+                    text = "我已阅读并同意",
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                TextButton(
+                    onClick = { showPolicy = true },
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text(
+                        text = "用户协议与隐私政策",
+                        maxLines = 1,
+                    )
                 }
             }
             if (showAgreementError) {
