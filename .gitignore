@@ -12,3 +12,12 @@ build/
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Backend artifacts
+backend/bin/
+backend/data/*.db
+backend/data/*.db-journal
+backend/.env
+backend/tmp/
+backend/coverage.out
+backend/coverage.html

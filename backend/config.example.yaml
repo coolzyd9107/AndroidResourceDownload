@@ -1,0 +1,69 @@
+app:
+  env: dev
+  name: webdavbox-backend
+
+server:
+  port: 8080
+  read-timeout-seconds: 15
+  write-timeout-seconds: 30
+
+database:
+  driver: sqlite
+  url: data/dev.db
+  max-open-conns: 20
+  max-idle-conns: 5
+  conn-max-lifetime-minutes: 30
+
+jwt:
+  secret: change-me-to-a-32-byte-random-string
+  access-ttl-seconds: 3600
+  refresh-ttl-days: 30
+  issuer: webdavbox-backend
+
+github:
+  client-id: ""
+  client-secret: ""
+  redirect-uri: https://api.example.com/callback
+  mock: false
+
+email:
+  mode: console
+  otp-ttl-seconds: 300
+  otp-max-attempts: 5
+  smtp:
+    host: ""
+    port: 465
+    username: ""
+    password: ""
+    from: no-reply@example.com
+
+webdav:
+  base-url: https://dav.example.com
+  readonly:
+    username: readonly_user
+    password: readonly_password
+    root-path: /
+  admin:
+    username: admin_user
+    password: admin_password
+    root-path: /
+  user-credential-ttl-seconds: 3600
+  admin-credential-ttl-seconds: 900
+
+credential:
+  secret: change-me-to-another-32-byte-random-string
+
+update:
+  secret: change-me-too-32-bytes
+  ttl-seconds: 300
+
+allowed-email-domains:
+  - qq.com
+  - mczihan.link
+admin-email-domains:
+  - mczihan.link
+user-email-domains:
+  - qq.com
+
+ratelimit:
+  enabled: true
