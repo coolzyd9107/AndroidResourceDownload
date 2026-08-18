@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AndroidResourceDownload" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">@color/theme_primary</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:navigationBarColor">@color/theme_surface</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
+    <style name="Theme.AndroidResourceDownload.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.AndroidResourceDownload</item>
+    </style>
+</resources>
