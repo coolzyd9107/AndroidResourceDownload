@@ -90,4 +90,31 @@ class WebDavPropFindParserTest {
         assertEquals("root", resource.displayName)
         assertEquals("etag", resource.etag)
     }
+
+    @Test
+    fun ignoresUndeclaredPrefixesOnMetadataAttributes() {
+        val xml = """<?xml version="1.0" encoding="UTF-8"?>
+            <D:multistatus xmlns:D="DAV:">
+              <D:response>
+                <D:href>/root/</D:href>
+                <D:propstat>
+                  <D:prop>
+                    <D:displayname>root</D:displayname>
+                    <D:getlastmodified ns0:dt="dateTime.rfc1123">Wed, 19 Aug 2026 10:00:00 GMT</D:getlastmodified>
+                  </D:prop>
+                  <D:status>HTTP/1.1 200 OK</D:status>
+                </D:propstat>
+              </D:response>
+            </D:multistatus>
+        """.trimIndent()
+
+        val resource = parser.parse(
+            ByteArrayInputStream(xml.toByteArray()),
+            endpoint,
+            endpoint.collectionUrlFor(WebDavPath.root()),
+        ).single()
+
+        assertEquals("root", resource.displayName)
+        assertTrue(resource.lastModifiedEpochMillis != null)
+    }
 }

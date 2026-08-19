@@ -29,6 +29,11 @@ class WebDavPropFindParser(
     ): List<WebDavResource> = try {
         val parser = parserFactory().apply {
             setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            if (this is KXmlParser) {
+                // Some WebDAV servers use undeclared prefixes on metadata
+                // attributes. They are irrelevant to the DAV properties below.
+                setFeature(KXML_RELAXED_FEATURE, true)
+            }
             // Let the XML declaration or BOM select UTF-8/UTF-16 instead of
             // corrupting non-UTF-8 WebDAV responses.
             setInput(BoundedInputStream(input, maximumResponseBytes), null)
@@ -288,6 +293,8 @@ class WebDavPropFindParser(
     companion object {
         const val DEFAULT_MAXIMUM_RESPONSE_BYTES: Long = 8L * 1024L * 1024L
         private const val DAV_NAMESPACE = "DAV:"
+        private const val KXML_RELAXED_FEATURE =
+            "http://xmlpull.org/v1/doc/features.html#relaxed"
         private val STATUS_CODE = Regex("(?:^|\\s)([1-5]\\d{2})(?:\\s|$)")
         private val GMT: TimeZone = TimeZone.getTimeZone("GMT")
         private val HTTP_DATE_PATTERNS = listOf(
