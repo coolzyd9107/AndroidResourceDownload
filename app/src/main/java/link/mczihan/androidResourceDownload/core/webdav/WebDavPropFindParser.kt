@@ -10,15 +10,13 @@ import java.util.TimeZone
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavResource
 import okhttp3.HttpUrl
+import org.kxml2.io.KXmlParser
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserException
-import org.xmlpull.v1.XmlPullParserFactory
 
 class WebDavPropFindParser(
     private val maximumResponseBytes: Long = DEFAULT_MAXIMUM_RESPONSE_BYTES,
-    private val parserFactory: () -> XmlPullParser = {
-        XmlPullParserFactory.newInstance().newPullParser()
-    },
+    private val parserFactory: () -> XmlPullParser = ::KXmlParser,
 ) {
     init {
         require(maximumResponseBytes > 0L) { "Maximum response size must be positive" }
@@ -41,7 +39,18 @@ class WebDavPropFindParser(
     } catch (error: XmlPullParserException) {
         val oversized = findCause<ResponseLimitExceeded>(error)
         if (oversized != null) throw WebDavException.ResponseTooLarge(maximumResponseBytes)
-        throw WebDavException.InvalidResponse("Malformed WebDAV PROPFIND response", error)
+        val detail = error.message
+            ?.substringBefore(" (position:")
+            ?.take(160)
+            ?.takeIf { it.isNotBlank() }
+        throw WebDavException.InvalidResponse(
+            if (detail == null) {
+                "Malformed WebDAV PROPFIND response"
+            } else {
+                "Malformed WebDAV PROPFIND response: $detail"
+            },
+            error,
+        )
     } catch (error: ResponseLimitExceeded) {
         throw WebDavException.ResponseTooLarge(maximumResponseBytes)
     } catch (error: IOException) {

@@ -75,4 +75,19 @@ class WebDavPropFindParserTest {
         assertTrue(error is WebDavException.InvalidResponse)
         assertTrue(error?.message?.contains("DAV multistatus") == true)
     }
+
+    @Test
+    fun parsesCompactUppercasePrefixResponseUsedBy123Pan() {
+        val xml = """<?xml version="1.0" encoding="UTF-8"?><D:multistatus xmlns:D="DAV:"><D:response><D:href>/root/</D:href><D:propstat><D:prop><D:displayname>root</D:displayname><D:resourcetype><D:collection/></D:resourcetype><D:getetag>etag</D:getetag></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat><D:propstat><D:prop><D:getcontentlength/></D:prop><D:status>HTTP/1.1 404 Not Found</D:status></D:propstat></D:response></D:multistatus>"""
+
+        val resource = parser.parse(
+            ByteArrayInputStream(xml.toByteArray()),
+            endpoint,
+            endpoint.collectionUrlFor(WebDavPath.root()),
+        ).single()
+
+        assertTrue(resource.isCollection)
+        assertEquals("root", resource.displayName)
+        assertEquals("etag", resource.etag)
+    }
 }

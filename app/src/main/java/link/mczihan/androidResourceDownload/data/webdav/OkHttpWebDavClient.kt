@@ -64,7 +64,16 @@ class OkHttpWebDavClient(
             val body = it.body ?: throw WebDavException.InvalidResponse(
                 "WebDAV PROPFIND response has no body",
             )
-            return propFindParser.parse(body.byteStream(), endpoint, url)
+            return try {
+                propFindParser.parse(body.byteStream(), endpoint, url)
+            } catch (error: WebDavException.InvalidResponse) {
+                val mediaType = body.contentType()?.toString() ?: "missing"
+                val contentEncoding = it.header("Content-Encoding") ?: "identity"
+                throw WebDavException.InvalidResponse(
+                    "${error.message}; Content-Type=$mediaType; Content-Encoding=$contentEncoding",
+                    error,
+                )
+            }
         }
     }
 
