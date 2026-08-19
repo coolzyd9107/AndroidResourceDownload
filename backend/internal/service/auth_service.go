@@ -23,9 +23,13 @@ type AuthService struct {
 	tokens     *TokenService
 	roles      *RoleService
 	emails     *EmailService
-	github     *GitHubClient
+	github     githubOAuthClient
 	log        *slog.Logger
 	audit      *repository.AuditLogRepo
+}
+
+type githubOAuthClient interface {
+	ExchangeAndFetch(ctx context.Context, code, redirectURI, codeVerifier string) (*GitHubUser, error)
 }
 
 // NewAuthService constructs an AuthService.
@@ -36,7 +40,7 @@ func NewAuthService(
 	tokens *TokenService,
 	roles *RoleService,
 	emails *EmailService,
-	github *GitHubClient,
+	github githubOAuthClient,
 	audit *repository.AuditLogRepo,
 	log *slog.Logger,
 ) *AuthService {
@@ -117,8 +121,8 @@ func (s *AuthService) EmailLogin(ctx context.Context, email, code, deviceID stri
 }
 
 // GithubLogin exchanges the OAuth code and signs the user in.
-func (s *AuthService) GithubLogin(ctx context.Context, code, deviceID string) (*dto.LoginResult, error) {
-	user, err := s.github.ExchangeAndFetch(ctx, code)
+func (s *AuthService) GithubLogin(ctx context.Context, code, redirectURI, codeVerifier, deviceID string) (*dto.LoginResult, error) {
+	user, err := s.github.ExchangeAndFetch(ctx, code, redirectURI, codeVerifier)
 	if err != nil {
 		s.auditEvent(ctx, "", "login_failed", map[string]string{"method": "github", "err": err.Error()})
 		return nil, response.ErrGithubAuthFailed
@@ -129,26 +133,32 @@ func (s *AuthService) GithubLogin(ctx context.Context, code, deviceID string) (*
 		return nil, err
 	}
 	now := time.Now()
+	githubEmail := normalizedOptionalEmail(user.Email)
+	userEmail, err := s.availableGithubUserEmail(user.ID, githubEmail)
+	if err != nil {
+		return nil, err
+	}
+	githubName := nonEmptyString(user.Name)
 	if existing == nil {
 		existing = &model.User{
 			ID:          uuid.NewString(),
 			GithubID:    &user.ID,
 			GithubLogin: ptrStr(user.Login),
-			Name:        ptrOrEmpty(user.Name),
+			Email:       userEmail,
+			Name:        githubName,
 			AvatarURL:   ptrOrEmpty(user.AvatarURL),
-			Role:        model.RoleUser,
 			Status:      model.UserStatusActive,
 			CreatedAt:   now,
 			UpdatedAt:   now,
 		}
 	} else {
 		existing.GithubLogin = ptrStr(user.Login)
-		existing.Name = ptrOrEmpty(user.Name)
+		existing.Email = userEmail
+		existing.Name = githubName
 		existing.AvatarURL = ptrOrEmpty(user.AvatarURL)
 		existing.UpdatedAt = now
 	}
 
-	// Admin whitelist check.
 	whitelist, err := s.adminGH.Get(user.ID)
 	if err != nil {
 		return nil, err
@@ -156,14 +166,15 @@ func (s *AuthService) GithubLogin(ctx context.Context, code, deviceID string) (*
 	if whitelist != nil {
 		existing.Role = model.RoleAdmin
 		existing.RoleSource = ptrStr(string(model.RoleSourceGithubWhitelist))
-	} else if existing.RoleSource == nil || *existing.RoleSource == "" {
+	} else {
 		existing.Role = model.RoleUser
+		existing.RoleSource = ptrStr(string(model.RoleSourceGithubDefault))
 	}
 
 	if err := s.upsertUser(existing); err != nil {
 		return nil, err
 	}
-	if err := s.ensureIdentity(existing.ID, "github", int64ToString(user.ID), &user.Login, nil); err != nil {
+	if err := s.ensureIdentity(existing.ID, "github", int64ToString(user.ID), githubEmail, ptrOrEmpty(user.Login)); err != nil {
 		return nil, err
 	}
 
@@ -236,21 +247,37 @@ func (s *AuthService) Logout(ctx context.Context, userID, refreshToken string) e
 	return nil
 }
 
+func (s *AuthService) availableGithubUserEmail(githubID int64, email *string) (*string, error) {
+	if email == nil {
+		return nil, nil
+	}
+	owner, err := s.users.GetByEmail(*email)
+	if err != nil {
+		return nil, err
+	}
+	if owner != nil && (owner.GithubID == nil || *owner.GithubID != githubID) {
+		return nil, nil
+	}
+	return cloneString(email), nil
+}
+
 func (s *AuthService) ensureIdentity(userID, provider, providerUserID string, email, login *string) error {
 	identity, err := s.identities.GetByProvider(provider, providerUserID)
 	if err != nil {
 		return err
 	}
 	if identity != nil {
-		return nil
+		identity.Email = cloneString(email)
+		identity.ProviderLogin = cloneString(login)
+		return s.identities.Update(identity)
 	}
 	return s.identities.Create(&model.AuthIdentity{
 		ID:             uuid.NewString(),
 		UserID:         userID,
 		Provider:       provider,
 		ProviderUserID: providerUserID,
-		Email:          email,
-		ProviderLogin:  login,
+		Email:          cloneString(email),
+		ProviderLogin:  cloneString(login),
 		CreatedAt:      time.Now(),
 	})
 }
@@ -332,6 +359,31 @@ func ptrOrEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func nonEmptyString(value *string) *string {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil
+	}
+	return ptrStr(*value)
+}
+
+func normalizedOptionalEmail(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	email := strings.ToLower(strings.TrimSpace(*value))
+	if email == "" {
+		return nil
+	}
+	return &email
+}
+
+func cloneString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	return ptrStr(*value)
 }
 
 func derefString(p *string) string {

@@ -16,20 +16,20 @@ import (
 
 // GitHubUser is the subset of https://api.github.com/user the backend uses.
 type GitHubUser struct {
-	ID        int64  `json:"id"`
-	Login     string `json:"login"`
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	AvatarURL string `json:"avatar_url"`
+	ID        int64   `json:"id"`
+	Login     string  `json:"login"`
+	Name      *string `json:"name"`
+	Email     *string `json:"email"`
+	AvatarURL string  `json:"avatar_url"`
 }
 
 // GitHubClient speaks to the GitHub OAuth + REST endpoints. The zero value
 // is not usable; call NewGitHubClient.
 type GitHubClient struct {
-	cfg          *config.GithubConfig
-	httpClient   *http.Client
-	tokenURL     string
-	userURL      string
+	cfg        *config.GithubConfig
+	httpClient *http.Client
+	tokenURL   string
+	userURL    string
 }
 
 // NewGitHubClient builds a client with the configured timeouts.
@@ -47,20 +47,25 @@ var ErrGithubAuthFailed = errors.New("github_service: authentication failed")
 
 // ExchangeAndFetch performs the full OAuth dance. When cfg.Mock is true it
 // returns a deterministic fixture instead of calling GitHub.
-func (c *GitHubClient) ExchangeAndFetch(ctx context.Context, code string) (*GitHubUser, error) {
+func (c *GitHubClient) ExchangeAndFetch(ctx context.Context, code, redirectURI, codeVerifier string) (*GitHubUser, error) {
+	if err := c.validateOAuthRequest(code, redirectURI, codeVerifier); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrGithubAuthFailed, err)
+	}
 	if c.cfg.Mock {
+		name := "Mock User"
+		email := "mock@qq.com"
 		return &GitHubUser{
 			ID:        99999999,
 			Login:     "mock-user",
-			Name:      "Mock User",
-			Email:     "mock@qq.com",
+			Name:      &name,
+			Email:     &email,
 			AvatarURL: "https://avatars.githubusercontent.com/u/99999999",
 		}, nil
 	}
 	if c.cfg.ClientID == "" || c.cfg.ClientSecret == "" {
 		return nil, fmt.Errorf("%w: missing client credentials", ErrGithubAuthFailed)
 	}
-	accessToken, err := c.exchangeCode(ctx, code)
+	accessToken, err := c.exchangeCode(ctx, code, redirectURI, codeVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrGithubAuthFailed, err)
 	}
@@ -71,14 +76,45 @@ func (c *GitHubClient) ExchangeAndFetch(ctx context.Context, code string) (*GitH
 	return user, nil
 }
 
-func (c *GitHubClient) exchangeCode(ctx context.Context, code string) (string, error) {
+func (c *GitHubClient) validateOAuthRequest(code, redirectURI, codeVerifier string) error {
+	if code == "" {
+		return errors.New("missing authorization code")
+	}
+	if c.cfg.RedirectURI == "" {
+		return errors.New("redirect URI is not configured")
+	}
+	if redirectURI != c.cfg.RedirectURI {
+		return errors.New("redirect URI does not match configuration")
+	}
+	if !validPKCECodeVerifier(codeVerifier) {
+		return errors.New("invalid PKCE code verifier")
+	}
+	return nil
+}
+
+func validPKCECodeVerifier(codeVerifier string) bool {
+	if len(codeVerifier) < 43 || len(codeVerifier) > 128 {
+		return false
+	}
+	for _, ch := range codeVerifier {
+		if (ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '-' || ch == '.' || ch == '_' || ch == '~' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func (c *GitHubClient) exchangeCode(ctx context.Context, code, redirectURI, codeVerifier string) (string, error) {
 	form := url.Values{}
 	form.Set("client_id", c.cfg.ClientID)
 	form.Set("client_secret", c.cfg.ClientSecret)
 	form.Set("code", code)
-	if c.cfg.RedirectURI != "" {
-		form.Set("redirect_uri", c.cfg.RedirectURI)
-	}
+	form.Set("redirect_uri", redirectURI)
+	form.Set("code_verifier", codeVerifier)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {

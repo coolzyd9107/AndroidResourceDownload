@@ -28,7 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import link.mczihan.androidResourceDownload.domain.model.LoginMethod
+import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
 
@@ -40,6 +40,17 @@ fun ProfileScreen(
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val displayEmail = user.email?.trim().takeUnless { it.isNullOrEmpty() } ?: "未提供邮箱"
+    val displayName = user.name?.trim().takeUnless { it.isNullOrEmpty() }
+        ?: when (user.loginType) {
+            LoginType.GITHUB -> "GitHub 用户"
+            LoginType.EMAIL -> user.email
+                ?.substringBefore('@')
+                ?.trim()
+                .takeUnless { it.isNullOrEmpty() }
+                ?: "邮箱用户"
+        }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -68,7 +79,7 @@ fun ProfileScreen(
                 modifier = Modifier.size(72.dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
-            Text(user.name, style = MaterialTheme.typography.headlineSmall)
+            Text(displayName, style = MaterialTheme.typography.headlineSmall)
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.secondaryContainer,
@@ -84,10 +95,13 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                ProfileLine("邮箱", user.email)
+                ProfileLine("邮箱", displayEmail)
                 ProfileLine(
                     "登录方式",
-                    if (user.loginMethod == LoginMethod.GITHUB) "GitHub" else "邮箱验证码",
+                    when (user.loginType) {
+                        LoginType.GITHUB -> "GitHub"
+                        LoginType.EMAIL -> "邮箱验证码"
+                    },
                 )
             }
             Button(

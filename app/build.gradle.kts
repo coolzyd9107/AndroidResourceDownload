@@ -11,6 +11,21 @@ android {
     namespace = "link.mczihan.androidResourceDownload"
     compileSdk = 35
 
+    val apiBaseUrl = providers.gradleProperty("apiBaseUrl")
+        .orElse("https://api.example.invalid/")
+        .get()
+    val githubClientId = providers.gradleProperty("githubClientId")
+        .orElse("")
+        .get()
+    val oauthRedirectUri = providers.gradleProperty("oauthRedirectUri")
+        .orElse("link.mczihan.androidResourceDownload://oauth/callback")
+        .get()
+    val demoMode = providers.gradleProperty("demoMode")
+        .orElse("true")
+        .get()
+        .toBoolean()
+    fun buildConfigString(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
     defaultConfig {
         applicationId = "link.mczihan.androidResourceDownload"
         minSdk = 27
@@ -20,6 +35,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        buildConfigField("String", "API_BASE_URL", buildConfigString(apiBaseUrl))
+        buildConfigField("String", "GITHUB_CLIENT_ID", buildConfigString(githubClientId))
+        buildConfigField("String", "OAUTH_REDIRECT_URI", buildConfigString(oauthRedirectUri))
+        buildConfigField("boolean", "DEMO_MODE", demoMode.toString())
     }
 
     buildTypes {
@@ -90,6 +109,9 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.kxml2)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

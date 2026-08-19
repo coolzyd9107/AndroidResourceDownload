@@ -17,6 +17,7 @@ type RoleSource string
 
 const (
 	RoleSourceGithubWhitelist RoleSource = "github_whitelist"
+	RoleSourceGithubDefault   RoleSource = "github_default"
 	RoleSourceEmailDomain     RoleSource = "email_domain"
 )
 
@@ -30,17 +31,17 @@ const (
 
 // User mirrors 后端.md §14.1 (users).
 type User struct {
-	ID           string     `gorm:"primaryKey;size:36" json:"id"`
-	Email        *string    `gorm:"size:255;uniqueIndex" json:"email,omitempty"`
-	GithubID     *int64     `gorm:"uniqueIndex" json:"github_id,omitempty"`
-	GithubLogin  *string    `gorm:"size:255" json:"github_login,omitempty"`
-	Name         *string    `gorm:"size:255" json:"name,omitempty"`
-	AvatarURL    *string    `gorm:"type:text" json:"avatar_url,omitempty"`
-	Role         Role       `gorm:"size:20;not null;default:USER" json:"role"`
-	RoleSource   *string    `gorm:"size:30" json:"role_source,omitempty"`
-	Status       UserStatus `gorm:"size:20;not null;default:ACTIVE" json:"status"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID          string     `gorm:"primaryKey;size:36" json:"id"`
+	Email       *string    `gorm:"size:255;uniqueIndex" json:"email,omitempty"`
+	GithubID    *int64     `gorm:"uniqueIndex" json:"github_id,omitempty"`
+	GithubLogin *string    `gorm:"size:255" json:"github_login,omitempty"`
+	Name        *string    `gorm:"size:255" json:"name,omitempty"`
+	AvatarURL   *string    `gorm:"type:text" json:"avatar_url,omitempty"`
+	Role        Role       `gorm:"size:20;not null;default:USER" json:"role"`
+	RoleSource  *string    `gorm:"size:30" json:"role_source,omitempty"`
+	Status      UserStatus `gorm:"size:20;not null;default:ACTIVE" json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 func (User) TableName() string { return "users" }
@@ -87,10 +88,10 @@ func (RefreshToken) TableName() string { return "refresh_tokens" }
 
 // AdminGithubUser mirrors 后端.md §14.5.
 type AdminGithubUser struct {
-	GithubID   int64     `gorm:"primaryKey" json:"github_id"`
-	GithubLogin *string  `gorm:"size:255" json:"github_login,omitempty"`
-	Note       *string   `gorm:"type:text" json:"note,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	GithubID    int64     `gorm:"primaryKey" json:"github_id"`
+	GithubLogin *string   `gorm:"size:255" json:"github_login,omitempty"`
+	Note        *string   `gorm:"type:text" json:"note,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 func (AdminGithubUser) TableName() string { return "admin_github_users" }

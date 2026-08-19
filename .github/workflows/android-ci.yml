@@ -17,6 +17,27 @@ permissions:
   contents: read
 
 jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test and build backend
+        working-directory: backend
+        run: |
+          go test ./...
+          go vet ./...
+          go build ./cmd/server
+
   build-debug:
     runs-on: ubuntu-latest
     timeout-minutes: 30

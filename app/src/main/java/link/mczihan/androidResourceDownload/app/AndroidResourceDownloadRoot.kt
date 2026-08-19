@@ -31,12 +31,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
+import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.core.theme.AndroidResourceDownloadTheme
 import link.mczihan.androidResourceDownload.data.mock.initialMockDownloads
 import link.mczihan.androidResourceDownload.data.mock.mockTaskForFile
 import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
-import link.mczihan.androidResourceDownload.domain.model.LoginMethod
+import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
 import link.mczihan.androidResourceDownload.feature.auth.EmailVerificationScreen
@@ -84,33 +85,41 @@ fun AndroidResourceDownloadRoot(
                 composable(RootRoute.Login) {
                     LoginScreen(
                         onGithubLogin = {
-                            sessionUser = User(
-                                id = "mock-github-user",
-                                name = "GitHub 用户",
-                                email = "demo@qq.com",
-                                role = Role.USER,
-                                loginMethod = LoginMethod.GITHUB,
-                            )
-                            navController.navigate(RootRoute.Main) {
-                                popUpTo(RootRoute.Login) { inclusive = true }
+                            if (BuildConfig.DEMO_MODE) {
+                                sessionUser = User(
+                                    id = "mock-github-user",
+                                    name = "GitHub 用户",
+                                    email = "demo@qq.com",
+                                    role = Role.USER,
+                                    loginType = LoginType.GITHUB,
+                                )
+                                navController.navigate(RootRoute.Main) {
+                                    popUpTo(RootRoute.Login) { inclusive = true }
+                                }
                             }
                         },
-                        onEmailLogin = { navController.navigate(RootRoute.Email) },
+                        onEmailLogin = {
+                            if (BuildConfig.DEMO_MODE) {
+                                navController.navigate(RootRoute.Email)
+                            }
+                        },
                     )
                 }
                 composable(RootRoute.Email) {
                     EmailVerificationScreen(
                         onBack = { navController.popBackStack() },
                         onVerified = { email, role ->
-                            sessionUser = User(
-                                id = "mock-email-${email.hashCode()}",
-                                name = if (role == Role.ADMIN) "管理员" else "邮箱用户",
-                                email = email,
-                                role = role,
-                                loginMethod = LoginMethod.EMAIL,
-                            )
-                            navController.navigate(RootRoute.Main) {
-                                popUpTo(RootRoute.Login) { inclusive = true }
+                            if (BuildConfig.DEMO_MODE) {
+                                sessionUser = User(
+                                    id = "mock-email-${email.hashCode()}",
+                                    name = if (role == Role.ADMIN) "管理员" else "邮箱用户",
+                                    email = email,
+                                    role = role,
+                                    loginType = LoginType.EMAIL,
+                                )
+                                navController.navigate(RootRoute.Main) {
+                                    popUpTo(RootRoute.Login) { inclusive = true }
+                                }
                             }
                         },
                     )

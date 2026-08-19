@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.domain.model.Role
 
 @Composable
@@ -79,10 +80,25 @@ fun LoginScreen(
                 style = MaterialTheme.typography.headlineSmall,
             )
             Text(
-                text = "访问团队文件与下载任务",
+                text = "任意 GitHub 账号均可登录，访问权限由服务端分配。邮箱登录仅支持 qq.com 和 mczihan.link。",
                 modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = if (BuildConfig.DEMO_MODE) {
+                    "当前为演示模式，登录后使用演示账号和数据。"
+                } else {
+                    "登录暂不可用：演示模式已关闭，当前界面尚未接入真实后端认证流程。"
+                },
+                modifier = Modifier.padding(top = 12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (BuildConfig.DEMO_MODE) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(32.dp))
@@ -91,6 +107,7 @@ fun LoginScreen(
                     if (agreementAccepted) onGithubLogin() else showAgreementError = true
                 },
                 modifier = Modifier.fillMaxWidth(),
+                enabled = BuildConfig.DEMO_MODE,
             ) {
                 Icon(Icons.Default.Code, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -103,6 +120,7 @@ fun LoginScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp),
+                enabled = BuildConfig.DEMO_MODE,
             ) {
                 Icon(Icons.Default.Email, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -210,6 +228,13 @@ fun EmailVerificationScreen(
                 text = "支持 qq.com 和 mczihan.link 邮箱",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (!BuildConfig.DEMO_MODE) {
+                Text(
+                    text = "邮箱登录暂不可用：当前界面尚未接入真实后端认证流程。",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             OutlinedTextField(
                 value = email,
                 onValueChange = {
@@ -233,6 +258,7 @@ fun EmailVerificationScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
+                enabled = BuildConfig.DEMO_MODE,
             ) {
                 Text(if (codeSent) "重新获取验证码" else "获取验证码")
             }
@@ -273,6 +299,7 @@ fun EmailVerificationScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
+                enabled = BuildConfig.DEMO_MODE,
             ) {
                 Text("登录")
             }

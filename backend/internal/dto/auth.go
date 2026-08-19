@@ -4,9 +4,10 @@ package dto
 
 // GitHubLoginRequest is the body for POST /api/v1/auth/github/login.
 type GitHubLoginRequest struct {
-	Code        string `json:"code" binding:"required"`
-	RedirectURI string `json:"redirectUri"`
-	DeviceID    string `json:"deviceId"`
+	Code         string `json:"code" binding:"required"`
+	RedirectURI  string `json:"redirectUri" binding:"required"`
+	CodeVerifier string `json:"codeVerifier" binding:"required,min=43,max=128"`
+	DeviceID     string `json:"deviceId"`
 }
 
 // EmailCodeRequest is the body for POST /api/v1/auth/email/code.
@@ -28,12 +29,12 @@ type RefreshTokenRequest struct {
 
 // UserDTO is the public projection of a user.
 type UserDTO struct {
-	ID         string  `json:"id"`
-	Name       *string `json:"name"`
-	Email      *string `json:"email"`
-	Role       string  `json:"role"`
-	AvatarURL  *string `json:"avatarUrl"`
-	LoginType  string  `json:"loginType"`
+	ID        string  `json:"id"`
+	Name      *string `json:"name"`
+	Email     *string `json:"email"`
+	Role      string  `json:"role"`
+	AvatarURL *string `json:"avatarUrl"`
+	LoginType string  `json:"loginType"`
 }
 
 // LoginResult is the payload returned by login + refresh endpoints.

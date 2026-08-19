@@ -70,7 +70,13 @@ func (h *AuthHandler) GithubLogin(c *gin.Context) {
 		writeBadRequest(c, 0, "missing_code")
 		return
 	}
-	result, err := h.auth.GithubLogin(c.Request.Context(), req.Code, req.DeviceID)
+	result, err := h.auth.GithubLogin(
+		c.Request.Context(),
+		req.Code,
+		req.RedirectURI,
+		req.CodeVerifier,
+		req.DeviceID,
+	)
 	if err != nil {
 		logRequestError(h.log, c, "github_login", err)
 		response.Fail(c, err)

@@ -333,7 +333,9 @@ func TestRefreshAndLogout(t *testing.T) {
 func TestGithubLoginMock(t *testing.T) {
 	env := newTestEnv(t)
 	code, body := env.doJSON(t, http.MethodPost, "/api/v1/auth/github/login", map[string]any{
-		"code": "ignored-when-mock",
+		"code":         "ignored-when-mock",
+		"redirectUri":  env.cfg.Github.RedirectURI,
+		"codeVerifier": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~",
 	}, "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "GITHUB", body["data"].(map[string]any)["user"].(map[string]any)["loginType"])

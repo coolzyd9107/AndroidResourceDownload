@@ -1,12 +1,12 @@
 # Android Resource Download
 
-这是一个面向 Android 的 WebDAV 文件客户端项目，计划提供受控登录、按角色浏览文件、可靠下载、管理员文件管理以及应用更新能力。产品与技术范围以 [Dev.md](Dev.md) 为准。
+这是一个面向 Android 的 WebDAV 文件客户端项目，当前按 v1.1 追加方案建设：Android 登录后获取后端下发的角色凭据，直接连接 WebDAV 完成列表、下载和管理员写操作。产品与技术范围以 [Dev.md](Dev.md) 与 [FRONTEND_APPEND_V1_1.md](docs/FRONTEND_APPEND_V1_1.md) 为准。
 
 ## 当前状态
 
-**Phase 1 scaffold / mock UI, not production-ready（阶段一脚手架 / Mock UI，尚不可用于生产环境）。**
+**Phase 2 foundation / v1.1 direct WebDAV integration in progress（阶段二基础设施 / v1.1 直连 WebDAV 接入中）。**
 
-当前仓库处于初始化阶段。真实 GitHub OAuth、邮箱验证码认证、WebDAV 读写、文件下载与断点续传、远程更新 URL 解析和 APK 更新尚未宣称完成。首轮实现先使用 Mock 后端建立可测试的页面、状态模型和导航，再按实施计划接入真实服务。
+首版 Mock UI 已保留为显式 Demo 模式。v1.1 正在接入真实后端认证、内存 WebDAV 凭据、Android 直连 WebDAV、PROPFIND 和 401 刷新；真实 OAuth、完整下载队列、SAF 管理员操作和 APK 安装仍未宣称完成。
 
 ## 目标技术栈
 
@@ -56,7 +56,8 @@ CI 仅生成使用 Android 默认 Debug 签名的调试包，不配置发布签�
 .
 ├── .github/workflows/android-ci.yml   # 远程 Debug CI
 ├── app/                               # Android 应用模块与 Mock UI
-├── docs/IMPLEMENTATION_PLAN.md        # 八阶段实施与验收计划
+├── docs/FRONTEND_APPEND_V1_1.md      # v1.1 Android 直连 WebDAV 契约
+├── backend/                           # Go 认证、凭据和更新 API
 ├── gradle/libs.versions.toml          # Gradle 版本目录
 ├── build.gradle.kts                   # 项目级构建配置
 ├── settings.gradle.kts                # 项目与模块设置

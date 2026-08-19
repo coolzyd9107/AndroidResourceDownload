@@ -2,7 +2,7 @@
 
 ## 项目基线
 
-本计划把 [Dev.md](../Dev.md) 的开发任务拆分为八个受 CI 门禁约束的阶段。当前状态为 **阶段一：初始脚手架 / Mock UI**，目标是先建立可编译、可测试、可迭代的 Android 工程，不把静态页面或 Mock 数据描述为真实业务能力。
+本计划把 [Dev.md](../Dev.md) 与 [v1.1 追加契约](FRONTEND_APPEND_V1_1.md) 的开发任务拆分为八个受 CI 门禁约束的阶段。当前状态为 **阶段二基础设施：认证/WebDAV 契约已落地，文件与下载业务接线进行中**。静态页面和 Demo 数据仍不代表真实业务已经全部完成。
 
 已确定的工程决策：
 
@@ -10,7 +10,10 @@
 - 最低支持 Android 8.1（API 27）。
 - 先实现 Mock 后端与 Repository 替身，稳定 UI 状态、导航和领域接口后，再接入真实认证、WebDAV 与更新服务。
 - GitHub Actions 只构建 Debug 变体，使用标准 Debug 签名；不配置发布签名、密钥或 Secrets。
-- 依赖版本以实际 Gradle 配置和 CI 验证结果为准，不在本计划中预设未经验证的版本。
+- 真实后端路由采用 `{code,message,data}` envelope；GitHub 不校验邮箱后缀，角色以后端返回为准，Email 登录保留域名规则。
+- Android 直连 WebDAV，当前已完成凭据 DTO、内存缓存、路径安全、PROPFIND 解析和 OkHttp 方法；凭据密码不落盘。
+- 当前 Android Debug 默认 `DEMO_MODE=true`；真实 API 地址和 OAuth 参数通过未提交 Gradle 属性注入。
+- GitHub Actions 同时执行 Android Debug 门禁和 backend Go test/vet/build。
 
 ## CI 门禁与实施顺序
 
@@ -22,7 +25,7 @@
 
 CI 成功后还应确认 `android-debug-apk` artifact 可下载。CI 不执行发布签名，也不要求开发者本地编译；涉及设备行为的阶段仍需记录模拟器或实体设备验证结果。若某阶段的基础接口尚不稳定，不提前把下一阶段绑定到真实后端，以免网络协议变化扩散到 UI。
 
-## 阶段一：项目初始化（当前）
+## 阶段一：项目初始化（已完成）
 
 **目标**
 
@@ -48,7 +51,7 @@ CI 成功后还应确认 `android-debug-apk` artifact 可下载。CI 不执行�
 - Mock 模型与后续真实接口耦合过深，增加替换成本。
 - 把占位交互误认为已完成认证、WebDAV 或下载能力。
 
-## 阶段二：登录模块
+## 阶段二：登录模块与 v1.1 基础设施（进行中）
 
 **目标**
 
@@ -56,10 +59,11 @@ CI 成功后还应确认 `android-debug-apk` artifact 可下载。CI 不执行�
 
 **交付物**
 
-- 登录页、Email 登录页和授权回调处理。
-- Auth Repository、会话状态、用户模型与普通用户/管理员角色模型。
-- access token、refresh token 和过期时间的加密存储；退出时清理敏感数据。
-- Mock Auth 实现、真实后端适配器与统一认证错误映射。
+- Android `User` 已迁移到 nullable `name/email` 与 `LoginType`。
+- 后端 DTO/Retrofit API 契约、统一 envelope 解码和加密会话存储基础。
+- GitHub PKCE/redirect URI 参数校验、任意邮箱登录和白名单角色降级。
+- WebDAV 凭据生命周期、Basic Auth、PROPFIND/HEAD/GET/PUT/MKCOL/DELETE/MOVE 协议核心。
+- 仍待完成：Custom Tabs OAuth 回调、文件 ViewModel/真实页面接线、SAF 上传、Room 下载任务、前台服务传输和更新安装。
 
 **验证**
 
