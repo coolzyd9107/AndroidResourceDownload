@@ -4,9 +4,9 @@
 
 ## 当前状态
 
-**Phase 2 foundation / v1.1 direct WebDAV integration in progress（阶段二基础设施 / v1.1 直连 WebDAV 接入中）。**
+**Phase 3 read-only browsing / v1.1 direct WebDAV integration in progress（阶段三只读浏览 / v1.1 直连 WebDAV 接入中）。**
 
-首版 Mock UI 已保留为显式 Demo 模式。v1.1 正在接入真实后端认证、内存 WebDAV 凭据、Android 直连 WebDAV、PROPFIND 和 401 刷新；真实 OAuth、完整下载队列、SAF 管理员操作和 APK 安装仍未宣称完成。
+首版 Mock UI 已保留为显式 Demo 模式。真实模式已接入 GitHub OAuth/邮箱认证、加密会话恢复、内存 WebDAV 凭据和 PROPFIND 目录浏览；完整下载队列、SAF 管理员操作和 APK 安装仍未完成。
 
 ## 目标技术栈
 

@@ -2,7 +2,7 @@
 
 ## 项目基线
 
-本计划把 [Dev.md](../Dev.md) 与 [v1.1 追加契约](FRONTEND_APPEND_V1_1.md) 的开发任务拆分为八个受 CI 门禁约束的阶段。当前状态为 **阶段二基础设施：认证/WebDAV 契约已落地，文件与下载业务接线进行中**。静态页面和 Demo 数据仍不代表真实业务已经全部完成。
+本计划把 [Dev.md](../Dev.md) 与 [v1.1 追加契约](FRONTEND_APPEND_V1_1.md) 的开发任务拆分为八个受 CI 门禁约束的阶段。当前状态为 **阶段三只读浏览：真实认证、会话恢复和 WebDAV 文件列表已接线，下载与写操作仍待实现**。静态页面和 Demo 数据仍不代表真实业务已经全部完成。
 
 已确定的工程决策：
 
@@ -63,7 +63,7 @@ CI 成功后还应确认 `android-debug-apk` artifact 可下载。CI 不执行�
 - 后端 DTO/Retrofit API 契约、统一 envelope 解码和加密会话存储基础。
 - GitHub PKCE/redirect URI 参数校验、任意邮箱登录和白名单角色降级。
 - WebDAV 凭据生命周期、Basic Auth、PROPFIND/HEAD/GET/PUT/MKCOL/DELETE/MOVE 协议核心。
-- 仍待完成：Custom Tabs OAuth 回调、文件 ViewModel/真实页面接线、SAF 上传、Room 下载任务、前台服务传输和更新安装。
+- 已完成 Custom Tabs OAuth 回调、真实认证状态驱动的根导航和文件 ViewModel 页面接线；仍待完成 SAF 上传、Room 下载任务、前台服务传输和更新安装。
 
 **验证**
 

@@ -51,6 +51,8 @@ fun LoginScreen(
     onGithubLogin: () -> Unit,
     onEmailLogin: () -> Unit,
     modifier: Modifier = Modifier,
+    busy: Boolean = false,
+    message: String? = null,
 ) {
     var agreementAccepted by rememberSaveable { mutableStateOf(false) }
     var showAgreementError by rememberSaveable { mutableStateOf(false) }
@@ -90,14 +92,14 @@ fun LoginScreen(
                 text = if (BuildConfig.DEMO_MODE) {
                     "当前为演示模式，登录后使用演示账号和数据。"
                 } else {
-                    "登录暂不可用：演示模式已关闭，当前界面尚未接入真实后端认证流程。"
+                    "真实登录已启用：邮箱验证码与 GitHub 授权由后端验证。"
                 },
                 modifier = Modifier.padding(top = 12.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (BuildConfig.DEMO_MODE) {
                     MaterialTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.error
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 },
                 textAlign = TextAlign.Center,
             )
@@ -107,7 +109,7 @@ fun LoginScreen(
                     if (agreementAccepted) onGithubLogin() else showAgreementError = true
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = BuildConfig.DEMO_MODE,
+                enabled = !busy,
             ) {
                 Icon(Icons.Default.Code, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -120,11 +122,22 @@ fun LoginScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp),
-                enabled = BuildConfig.DEMO_MODE,
+                enabled = !busy,
             ) {
                 Icon(Icons.Default.Email, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("使用邮箱验证码")
+            }
+            message?.let {
+                Text(
+                    text = it,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
             }
             Row(
                 modifier = Modifier
@@ -196,11 +209,17 @@ fun EmailVerificationScreen(
     onBack: () -> Unit,
     onVerified: (email: String, role: Role) -> Unit,
     modifier: Modifier = Modifier,
+    onRequestCode: ((email: String) -> Unit)? = null,
+    onLogin: ((email: String, code: String) -> Unit)? = null,
+    busy: Boolean = false,
+    message: String? = null,
+    codeSentEmail: String? = null,
 ) {
     var email by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
-    var codeSent by rememberSaveable { mutableStateOf(false) }
+    var localCodeSent by rememberSaveable { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val effectiveCodeSent = localCodeSent || codeSentEmail?.equals(email.trim(), ignoreCase = true) == true
 
     Scaffold(
         modifier = modifier,
@@ -228,19 +247,15 @@ fun EmailVerificationScreen(
                 text = "支持 qq.com 和 mczihan.link 邮箱",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (!BuildConfig.DEMO_MODE) {
-                Text(
-                    text = "邮箱登录暂不可用：当前界面尚未接入真实后端认证流程。",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
             OutlinedTextField(
                 value = email,
                 onValueChange = {
+                    if (it.trim() != email.trim()) {
+                        localCodeSent = false
+                        code = ""
+                    }
                     email = it
                     errorMessage = null
-                    codeSent = false
                 },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("邮箱") },
@@ -252,19 +267,21 @@ fun EmailVerificationScreen(
                 onClick = {
                     if (roleForAllowedEmail(email) == null) {
                         errorMessage = "请输入允许登录的邮箱"
+                    } else if (onRequestCode != null) {
+                        onRequestCode(email.trim())
                     } else {
-                        codeSent = true
+                        localCodeSent = true
                         errorMessage = null
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = BuildConfig.DEMO_MODE,
+                enabled = !busy,
             ) {
-                Text(if (codeSent) "重新获取验证码" else "获取验证码")
+                Text(if (effectiveCodeSent) "重新获取验证码" else "获取验证码")
             }
-            if (codeSent) {
+            if (effectiveCodeSent) {
                 Text(
-                    text = "验证码已发送",
+                    text = "验证码已发送，请在 5 分钟内输入",
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -278,12 +295,12 @@ fun EmailVerificationScreen(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("6 位验证码") },
                 singleLine = true,
-                enabled = codeSent,
+                enabled = effectiveCodeSent,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             )
-            errorMessage?.let { message ->
+            (errorMessage ?: message)?.let { text ->
                 Text(
-                    text = message,
+                    text = text,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -293,15 +310,16 @@ fun EmailVerificationScreen(
                     val role = roleForAllowedEmail(email)
                     when {
                         role == null -> errorMessage = "邮箱域名不受支持"
-                        !codeSent -> errorMessage = "请先获取验证码"
+                        !effectiveCodeSent -> errorMessage = "请先获取验证码"
                         code.length != 6 -> errorMessage = "请输入 6 位验证码"
+                        onLogin != null -> onLogin(email.trim(), code)
                         else -> onVerified(email.trim(), role)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = BuildConfig.DEMO_MODE,
+                enabled = !busy,
             ) {
-                Text("登录")
+                Text(if (busy) "登录中…" else "登录")
             }
         }
     }

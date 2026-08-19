@@ -16,19 +16,24 @@ class BackendWebDavCredentialLoader(
     private val nowEpochMillis: () -> Long = System::currentTimeMillis,
 ) : WebDavCredentialLoader {
     override suspend fun load(): WebDavCredential {
-        val session = authRepository.currentSession()
+        var session = authRepository.restoreSession()
             ?: throw WebDavException.CredentialUnavailable()
         val dto = try {
-            api.issueCredential(
+            var response = api.issueCredential(
                 authorization = "Bearer ${session.accessToken}",
                 request = WebDavCredentialRequestDto(),
-            ).let { response ->
-                if (!response.isSuccessful) {
-                    throw WebDavException.CredentialUnavailable()
-                }
-                response.body()?.dataOrThrow(response.code())
+            )
+            if (response.code() == 401) {
+                session = authRepository.refreshSession()
                     ?: throw WebDavException.CredentialUnavailable()
+                response = api.issueCredential(
+                    authorization = "Bearer ${session.accessToken}",
+                    request = WebDavCredentialRequestDto(),
+                )
             }
+            if (!response.isSuccessful) throw WebDavException.CredentialUnavailable()
+            response.body()?.dataOrThrow(response.code())
+                ?: throw WebDavException.CredentialUnavailable()
         } catch (error: WebDavException) {
             throw error
         } catch (error: Exception) {

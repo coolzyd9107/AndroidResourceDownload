@@ -1,5 +1,7 @@
 package link.mczihan.androidResourceDownload.app
 
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -22,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,6 +44,8 @@ import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
 import link.mczihan.androidResourceDownload.feature.auth.EmailVerificationScreen
+import link.mczihan.androidResourceDownload.feature.auth.AuthUiState
+import link.mczihan.androidResourceDownload.feature.auth.AuthViewModel
 import link.mczihan.androidResourceDownload.feature.auth.LoginScreen
 import link.mczihan.androidResourceDownload.feature.downloads.DownloadsScreen
 import link.mczihan.androidResourceDownload.feature.files.FilesScreen
@@ -68,8 +73,10 @@ private enum class ShellRoute(
 @Composable
 fun AndroidResourceDownloadRoot(
     themeViewModel: ThemeViewModel = hiltViewModel(),
+    authViewModel: AuthViewModel = hiltViewModel(),
 ) {
     val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
+    val authState by authViewModel.state.collectAsStateWithLifecycle()
     var sessionUser by remember { mutableStateOf<User?>(null) }
 
     AndroidResourceDownloadTheme(themeMode = themeMode) {
@@ -78,11 +85,27 @@ fun AndroidResourceDownloadRoot(
             color = MaterialTheme.colorScheme.background,
         ) {
             val navController = rememberNavController()
+            LaunchedEffect(authState) {
+                if (!BuildConfig.DEMO_MODE) {
+                    when (authState) {
+                        is AuthUiState.Authenticated -> navController.navigate(RootRoute.Main) {
+                            popUpTo(RootRoute.Login) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                        AuthUiState.Anonymous -> navController.navigate(RootRoute.Login) {
+                            popUpTo(navController.graph.id) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                        else -> Unit
+                    }
+                }
+            }
             NavHost(
                 navController = navController,
                 startDestination = RootRoute.Login,
             ) {
                 composable(RootRoute.Login) {
+                    val context = LocalContext.current
                     LoginScreen(
                         onGithubLogin = {
                             if (BuildConfig.DEMO_MODE) {
@@ -96,13 +119,28 @@ fun AndroidResourceDownloadRoot(
                                 navController.navigate(RootRoute.Main) {
                                     popUpTo(RootRoute.Login) { inclusive = true }
                                 }
+                            } else {
+                                val authorizationUrl = authViewModel.beginGithub()
+                                if (authorizationUrl == null) {
+                                    authViewModel.reportError("未配置 GitHub Client ID")
+                                } else {
+                                    CustomTabsIntent.Builder().build().launchUrl(
+                                        context,
+                                        Uri.parse(authorizationUrl),
+                                    )
+                                }
                             }
                         },
                         onEmailLogin = {
                             if (BuildConfig.DEMO_MODE) {
                                 navController.navigate(RootRoute.Email)
+                            } else {
+                                navController.navigate(RootRoute.Email)
                             }
                         },
+                        busy = authState is AuthUiState.Restoring ||
+                            authState is AuthUiState.Authenticating,
+                        message = (authState as? AuthUiState.Error)?.message,
                     )
                 }
                 composable(RootRoute.Email) {
@@ -122,10 +160,24 @@ fun AndroidResourceDownloadRoot(
                                 }
                             }
                         },
+                        onRequestCode = if (BuildConfig.DEMO_MODE) null else authViewModel::requestCode,
+                        onLogin = if (BuildConfig.DEMO_MODE) null else authViewModel::loginWithEmail,
+                        busy = authState is AuthUiState.SendingCode ||
+                            authState is AuthUiState.Authenticating,
+                        message = (authState as? AuthUiState.Error)?.message,
+                        codeSentEmail = when (val state = authState) {
+                            is AuthUiState.AwaitingCode -> state.email
+                            is AuthUiState.Error -> (state.recoverableState as? AuthUiState.AwaitingCode)?.email
+                            else -> null
+                        },
                     )
                 }
                 composable(RootRoute.Main) {
-                    val user = sessionUser
+                    val user = if (BuildConfig.DEMO_MODE) {
+                        sessionUser
+                    } else {
+                        (authState as? AuthUiState.Authenticated)?.session?.user
+                    }
                     if (user == null) {
                         LaunchedEffect(Unit) {
                             navController.navigate(RootRoute.Login) {
@@ -139,16 +191,24 @@ fun AndroidResourceDownloadRoot(
                             onThemeModeChange = themeViewModel::setThemeMode,
                             onProfile = { navController.navigate(RootRoute.Profile) },
                             onLogout = {
-                                sessionUser = null
-                                navController.navigate(RootRoute.Login) {
-                                    popUpTo(RootRoute.Main) { inclusive = true }
+                                if (BuildConfig.DEMO_MODE) {
+                                    sessionUser = null
+                                    navController.navigate(RootRoute.Login) {
+                                        popUpTo(RootRoute.Main) { inclusive = true }
+                                    }
+                                } else {
+                                    authViewModel.logout()
                                 }
                             },
                         )
                     }
                 }
                 composable(RootRoute.Profile) {
-                    val user = sessionUser
+                    val user = if (BuildConfig.DEMO_MODE) {
+                        sessionUser
+                    } else {
+                        (authState as? AuthUiState.Authenticated)?.session?.user
+                    }
                     if (user == null) {
                         LaunchedEffect(Unit) { navController.popBackStack() }
                     } else {
@@ -156,9 +216,13 @@ fun AndroidResourceDownloadRoot(
                             user = user,
                             onBack = { navController.popBackStack() },
                             onLogout = {
-                                sessionUser = null
-                                navController.navigate(RootRoute.Login) {
-                                    popUpTo(RootRoute.Main) { inclusive = true }
+                                if (BuildConfig.DEMO_MODE) {
+                                    sessionUser = null
+                                    navController.navigate(RootRoute.Login) {
+                                        popUpTo(RootRoute.Main) { inclusive = true }
+                                    }
+                                } else {
+                                    authViewModel.logout()
                                 }
                             },
                         )
@@ -232,8 +296,12 @@ private fun MainShell(
                     role = user.role,
                     onProfile = onProfile,
                     onDownload = { file ->
-                        tasks = listOf(mockTaskForFile(file)) + tasks
-                        showMessage("已加入下载任务")
+                        if (BuildConfig.DEMO_MODE) {
+                            tasks = listOf(mockTaskForFile(file)) + tasks
+                            showMessage("已加入下载任务")
+                        } else {
+                            showMessage("下载队列将在下一阶段接入")
+                        }
                     },
                     onMessage = ::showMessage,
                 )
@@ -257,7 +325,13 @@ private fun MainShell(
                 SettingsScreen(
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
-                    onCheckUpdate = { showUpdateDialog = true },
+                    onCheckUpdate = {
+                        if (BuildConfig.DEMO_MODE) {
+                            showUpdateDialog = true
+                        } else {
+                            showMessage("更新功能将在后续阶段接入")
+                        }
+                    },
                     onLogout = onLogout,
                 )
             }

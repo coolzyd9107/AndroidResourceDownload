@@ -47,6 +47,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.core.common.formatDate
 import link.mczihan.androidResourceDownload.core.common.formatFileSize
 import link.mczihan.androidResourceDownload.core.ui.ContentState
@@ -56,6 +59,7 @@ import link.mczihan.androidResourceDownload.core.ui.LoadingPane
 import link.mczihan.androidResourceDownload.data.mock.mockFilesForPath
 import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.model.Role
+import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,11 +70,14 @@ fun FilesScreen(
     onMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val viewModel = if (BuildConfig.DEMO_MODE) null else hiltViewModel<FilesViewModel>()
+    val realState = viewModel?.state?.collectAsStateWithLifecycle()?.value
     var currentPath by rememberSaveable { mutableStateOf("/") }
     var state by remember(currentPath) {
         mutableStateOf(fileStateForPath(currentPath))
     }
     var selectedFile by remember { mutableStateOf<FileNode?>(null) }
+    val displayedPath = realState?.path?.toString() ?: currentPath
 
     Scaffold(
         modifier = modifier,
@@ -80,7 +87,7 @@ fun FilesScreen(
                     Column {
                         Text("文件")
                         Text(
-                            text = currentPath,
+                            text = displayedPath,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -89,16 +96,26 @@ fun FilesScreen(
                     }
                 },
                 navigationIcon = {
-                    if (currentPath != "/") {
+                    if (displayedPath != "/") {
                         IconButton(onClick = {
-                            currentPath = currentPath.substringBeforeLast('/').ifEmpty { "/" }
+                            if (viewModel == null) {
+                                currentPath = currentPath.substringBeforeLast('/').ifEmpty { "/" }
+                            } else {
+                                viewModel.navigateUp()
+                            }
                         }) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回上一级")
                         }
                     }
                 },
                 actions = {
-                    IconButton(onClick = { state = fileStateForPath(currentPath) }) {
+                    IconButton(onClick = {
+                        if (viewModel == null) {
+                            state = fileStateForPath(currentPath)
+                        } else {
+                            viewModel.retry()
+                        }
+                    }) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新文件列表")
                     }
                     IconButton(onClick = onProfile) {
@@ -108,7 +125,7 @@ fun FilesScreen(
             )
         },
         floatingActionButton = {
-            if (role == Role.ADMIN) {
+            if (BuildConfig.DEMO_MODE && role == Role.ADMIN) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     ExtendedFloatingActionButton(
                         text = { Text("上传") },
@@ -124,35 +141,57 @@ fun FilesScreen(
             }
         },
     ) { innerPadding ->
-        when (val contentState = state) {
-            ContentState.Loading -> LoadingPane(Modifier.padding(innerPadding))
-            is ContentState.Empty -> EmptyPane(
-                message = contentState.message,
-                modifier = Modifier.padding(innerPadding),
-            )
-            is ContentState.Error -> ErrorPane(
-                message = contentState.message,
-                onRetry = { currentPath = "/" },
-                modifier = Modifier.padding(innerPadding),
-            )
-            is ContentState.Success -> FileList(
-                files = contentState.value,
-                onFileClick = { file ->
-                    if (file.isDirectory) {
-                        currentPath = file.path
-                    } else {
-                        selectedFile = file
-                    }
-                },
-                modifier = Modifier.padding(innerPadding),
-            )
+        if (viewModel == null) {
+            when (val contentState = state) {
+                ContentState.Loading -> LoadingPane(Modifier.padding(innerPadding))
+                is ContentState.Empty -> EmptyPane(
+                    message = contentState.message,
+                    modifier = Modifier.padding(innerPadding),
+                )
+                is ContentState.Error -> ErrorPane(
+                    message = contentState.message,
+                    onRetry = { state = fileStateForPath(currentPath) },
+                    modifier = Modifier.padding(innerPadding),
+                )
+                is ContentState.Success -> FileList(
+                    files = contentState.value,
+                    onFileClick = { file ->
+                        if (file.isDirectory) currentPath = file.path else selectedFile = file
+                    },
+                    modifier = Modifier.padding(innerPadding),
+                )
+            }
+        } else {
+            when (val contentState = realState) {
+                null, is FilesUiState.Loading -> LoadingPane(Modifier.padding(innerPadding))
+                is FilesUiState.Empty -> EmptyPane(
+                    message = "此目录为空",
+                    modifier = Modifier.padding(innerPadding),
+                )
+                is FilesUiState.Error -> ErrorPane(
+                    message = contentState.message,
+                    onRetry = viewModel::retry,
+                    modifier = Modifier.padding(innerPadding),
+                )
+                is FilesUiState.Success -> FileList(
+                    files = contentState.files,
+                    onFileClick = { file ->
+                        if (file.isDirectory) {
+                            viewModel.openDirectory(WebDavPath.parseDecoded(file.path))
+                        } else {
+                            selectedFile = file
+                        }
+                    },
+                    modifier = Modifier.padding(innerPadding),
+                )
+            }
         }
     }
 
     selectedFile?.let { file ->
         FileDetailsSheet(
             file = file,
-            isAdmin = role == Role.ADMIN,
+            isAdmin = BuildConfig.DEMO_MODE && role == Role.ADMIN,
             onDismiss = { selectedFile = null },
             onDownload = {
                 onDownload(file)
