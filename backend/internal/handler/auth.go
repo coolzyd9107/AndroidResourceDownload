@@ -2,6 +2,9 @@ package handler
 
 import (
 	"log/slog"
+	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -14,17 +17,22 @@ import (
 
 // AuthHandler exposes the /auth/* endpoints.
 type AuthHandler struct {
-	auth    *service.AuthService
-	limiter any
-	cfg     *config.Config
-	log     *slog.Logger
+	auth        *service.AuthService
+	githubOAuth *service.GithubOAuthService
+	limiter     any
+	cfg         *config.Config
+	log         *slog.Logger
 }
 
 // NewAuthHandler constructs an AuthHandler. The limiter argument is
 // accepted so future per-route limits can be added without changing the
 // constructor signature.
-func NewAuthHandler(auth *service.AuthService, limiter any, cfg *config.Config, log *slog.Logger) *AuthHandler {
-	return &AuthHandler{auth: auth, limiter: limiter, cfg: cfg, log: log}
+func NewAuthHandler(auth *service.AuthService, limiter any, cfg *config.Config, log *slog.Logger, githubOAuth ...*service.GithubOAuthService) *AuthHandler {
+	h := &AuthHandler{auth: auth, limiter: limiter, cfg: cfg, log: log}
+	if len(githubOAuth) > 0 {
+		h.githubOAuth = githubOAuth[0]
+	}
+	return h
 }
 
 // SendEmailCode handles POST /api/v1/auth/email/code.
@@ -59,27 +67,63 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 	response.OK(c, result)
 }
 
-// GithubLogin handles POST /api/v1/auth/github/login.
-func (h *AuthHandler) GithubLogin(c *gin.Context) {
-	var req dto.GitHubLoginRequest
+func (h *AuthHandler) GithubStart(c *gin.Context) {
+	if h.githubOAuth == nil {
+		response.Fail(c, response.ErrGithubAuthFailed)
+		return
+	}
+	if c.Query("code_challenge_method") != "S256" {
+		response.Fail(c, response.ErrGithubAuthFailed)
+		return
+	}
+	location, err := h.githubOAuth.Start(c.Query("code_challenge"), c.Query("app_state"), time.Now())
+	if err != nil {
+		response.Fail(c, response.ErrGithubAuthFailed)
+		return
+	}
+	c.Redirect(http.StatusFound, location)
+}
+
+func (h *AuthHandler) GithubCallback(c *gin.Context) {
+	if h.githubOAuth == nil {
+		response.Fail(c, response.ErrGithubAuthFailed)
+		return
+	}
+	if githubError := c.Query("error"); githubError != "" {
+		if redirect, appState, ok := h.githubOAuth.Cancelled(c.Query("state"), time.Now()); ok {
+			location := redirect + "?error=access_denied&app_state=" + url.QueryEscape(appState)
+			c.Header("Cache-Control", "no-store")
+			c.Header("Referrer-Policy", "no-referrer")
+			c.Redirect(http.StatusFound, location)
+			return
+		}
+		response.Fail(c, response.ErrGithubAuthFailed)
+		return
+	}
+	redirect, appState, code, err := h.githubOAuth.Callback(c.Request.Context(), c.Query("code"), c.Query("state"), time.Now())
+	if err != nil {
+		response.Fail(c, response.ErrGithubAuthFailed)
+		return
+	}
+	location := redirect + "?code=" + url.QueryEscape(code) + "&app_state=" + url.QueryEscape(appState)
+	c.Header("Cache-Control", "no-store")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Redirect(http.StatusFound, location)
+}
+
+func (h *AuthHandler) GithubComplete(c *gin.Context) {
+	if h.githubOAuth == nil {
+		response.Fail(c, response.ErrGithubAuthFailed)
+		return
+	}
+	var req dto.GitHubCompleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeBadRequest(c, 0, "invalid_request")
 		return
 	}
-	if req.Code == "" {
-		writeBadRequest(c, 0, "missing_code")
-		return
-	}
-	result, err := h.auth.GithubLogin(
-		c.Request.Context(),
-		req.Code,
-		req.RedirectURI,
-		req.CodeVerifier,
-		req.DeviceID,
-	)
+	result, err := h.githubOAuth.Complete(c.Request.Context(), req.Code, req.CodeVerifier, req.DeviceID, time.Now())
 	if err != nil {
-		logRequestError(h.log, c, "github_login", err)
-		response.Fail(c, err)
+		response.Fail(c, response.ErrGithubAuthFailed)
 		return
 	}
 	response.OK(c, result)

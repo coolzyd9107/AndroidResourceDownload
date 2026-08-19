@@ -6,7 +6,9 @@
 
 Android 使用后端实际路由和统一响应包络：
 
-- `POST /api/v1/auth/github/login`
+- `GET /api/v1/auth/github/start`
+- `GET /api/v1/auth/github/callback`
+- `POST /api/v1/auth/github/complete`
 - `POST /api/v1/auth/email/code`
 - `POST /api/v1/auth/email/login`
 - `POST /api/v1/auth/refresh`
@@ -30,8 +32,6 @@ ECDH-ES/A256GCM 不会在客户端单方面伪实现，也不会把长期密钥�
 
 ```properties
 apiBaseUrl=https://api.example.com/
-githubClientId=...
-oauthRedirectUri=link.mczihan.androidresourcedownload://oauth/callback
 demoMode=false
 ```
 
@@ -52,4 +52,4 @@ WebDAV `401` 只允许一次：失效当前 credential generation，单飞重新
 
 ## 后续阶段
 
-当前已接入真实 OAuth Custom Tabs、认证状态导航和文件 ViewModel；SAF 上传、Room 持久下载、前台服务队列和 APK 更新安装仍待实现。所有无真实服务依赖的测试由 GitHub Actions 执行，真实 OAuth/WebDAV 联调需要后端 Base URL、GitHub Client ID、回调 URI 与测试服务端配置。
+GitHub OAuth callback 由后端 HTTPS 接收，后端只通过 App deep link 返回短期一次性 code；App 以 PKCE verifier 兑换会话 token，随后再请求短期 WebDAV 凭据。URL 中禁止放 access/refresh token、WebDAV 地址、账号或密码。SAF 上传、Room 持久下载、前台服务队列和 APK 更新安装仍待实现。

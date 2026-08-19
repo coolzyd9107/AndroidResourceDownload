@@ -23,7 +23,10 @@ jwt:
 github:
   client-id: ""
   client-secret: ""
-  redirect-uri: https://api.example.com/callback
+  redirect-uri: https://api.example.com/api/v1/auth/github/callback
+  app-redirect-uri: link.mczihan.androidresourcedownload://oauth/callback
+  state-ttl-seconds: 600
+  completion-code-ttl-seconds: 90
   mock: false
 
 email:

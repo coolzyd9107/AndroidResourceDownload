@@ -19,9 +19,8 @@ interface AuthRepository {
         deviceId: String = "",
     ): AuthSession
 
-    suspend fun loginWithGitHub(
+    suspend fun completeGitHubLogin(
         code: String,
-        redirectUri: String,
         codeVerifier: String,
         deviceId: String = "",
     ): AuthSession

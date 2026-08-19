@@ -63,6 +63,7 @@ func main() {
 	credSvc := service.NewCredentialService(suite, service.NewWebDAVConfigAdapter(&cfg.WebDAV), repos.CredentialLogs)
 	updateSvc := service.NewUpdateService(suite, repos.AppVersions, repos.UpdateURLLogs, cfg.Update.TTLSeconds)
 	authSvc := service.NewAuthService(repos.Users, repos.Identities, repos.AdminGithub, tokens, roles, emails, github, repos.AuditLogs, log)
+	githubOAuth := service.NewGithubOAuthService(authSvc, github, repos.OAuthTransactions, &cfg.Github)
 	limiter := ratelimit.NewInMemory(ratelimit.DefaultRules()...)
 
 	gin.SetMode(gin.ReleaseMode)
@@ -81,6 +82,7 @@ func main() {
 		Credentials: credSvc,
 		Updates:     updateSvc,
 		Tokens:      tokens,
+		GithubOAuth: githubOAuth,
 	})
 
 	srv := &app.Server{

@@ -6,11 +6,14 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,6 +99,7 @@ func newTestEnvWithLogger(t *testing.T, log *slog.Logger) *testEnv {
 		Credentials: credSvc,
 		Updates:     updateSvc,
 		Tokens:      tokens,
+		GithubOAuth: service.NewGithubOAuthService(authSvc, github, repos.OAuthTransactions, &cfg.Github),
 	})
 
 	return &testEnv{router: r, cfg: cfg, repos: repos, emails: emails}
@@ -329,17 +333,47 @@ func TestRefreshAndLogout(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, code)
 }
 
-// TestGithubLoginMock uses the mock flag to simulate a GitHub login.
+// TestGithubLoginMock exercises the server callback and one-time completion grant.
 func TestGithubLoginMock(t *testing.T) {
 	env := newTestEnv(t)
-	code, body := env.doJSON(t, http.MethodPost, "/api/v1/auth/github/login", map[string]any{
-		"code":         "ignored-when-mock",
-		"redirectUri":  env.cfg.Github.RedirectURI,
-		"codeVerifier": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~",
+	verifier := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
+	digest := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(digest[:])
+	appState := "abcdefghijklmnopqrstuvwxyz123456"
+
+	start := httptest.NewRecorder()
+	env.router.ServeHTTP(start, httptest.NewRequest(http.MethodGet,
+		"/api/v1/auth/github/start?code_challenge="+url.QueryEscape(challenge)+"&code_challenge_method=S256&app_state="+appState, nil))
+	require.Equal(t, http.StatusFound, start.Code)
+	githubLocation, err := url.Parse(start.Header().Get("Location"))
+	require.NoError(t, err)
+	serverState := githubLocation.Query().Get("state")
+	require.NotEmpty(t, serverState)
+	assert.Equal(t, env.cfg.Github.RedirectURI, githubLocation.Query().Get("redirect_uri"))
+
+	callback := httptest.NewRecorder()
+	env.router.ServeHTTP(callback, httptest.NewRequest(http.MethodGet,
+		"/api/v1/auth/github/callback?code=mock-code&state="+url.QueryEscape(serverState), nil))
+	require.Equal(t, http.StatusFound, callback.Code)
+	appLocation, err := url.Parse(callback.Header().Get("Location"))
+	require.NoError(t, err)
+	grant := appLocation.Query().Get("code")
+	require.NotEmpty(t, grant)
+	assert.Equal(t, appState, appLocation.Query().Get("app_state"))
+	assert.NotContains(t, callback.Header().Get("Location"), "accessToken")
+	assert.NotContains(t, callback.Header().Get("Location"), verifier)
+
+	code, body := env.doJSON(t, http.MethodPost, "/api/v1/auth/github/complete", map[string]any{
+		"code": grant, "codeVerifier": verifier,
 	}, "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "GITHUB", body["data"].(map[string]any)["user"].(map[string]any)["loginType"])
 	assert.Equal(t, "USER", body["data"].(map[string]any)["user"].(map[string]any)["role"])
+
+	replayed, _ := env.doJSON(t, http.MethodPost, "/api/v1/auth/github/complete", map[string]any{
+		"code": grant, "codeVerifier": verifier,
+	}, "")
+	assert.NotEqual(t, http.StatusOK, replayed)
 }
 
 // --- helpers ---

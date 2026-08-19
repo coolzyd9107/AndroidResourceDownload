@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.data.auth.AuthRepository
 import link.mczihan.androidResourceDownload.domain.model.AuthSession
@@ -34,6 +37,7 @@ class AuthViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow<AuthUiState>(AuthUiState.Restoring)
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
+    private val githubCallbackMutex = Mutex()
 
     init {
         restore()
@@ -92,41 +96,52 @@ class AuthViewModel @Inject constructor(
     }
 
     fun beginGithub(): String? {
-        if (BuildConfig.GITHUB_CLIENT_ID.isBlank()) return null
+        if (BuildConfig.API_BASE_URL.contains("example.invalid")) return null
+        val baseUrl = runCatching {
+            BuildConfig.API_BASE_URL.trim().let {
+                if (it.endsWith('/')) it else "$it/"
+            }.toHttpUrl()
+        }.getOrNull() ?: return null
         val transaction = PendingOAuth(
-            state = Pkce.generateState(),
+            appState = Pkce.generateState(),
             verifier = Pkce.generateVerifier(),
-            redirectUri = BuildConfig.OAUTH_REDIRECT_URI,
             createdAtMillis = System.currentTimeMillis(),
         )
         pendingOAuthStore.save(transaction)
-        return "https://github.com/login/oauth/authorize" +
-            "?client_id=${transaction.encode(BuildConfig.GITHUB_CLIENT_ID)}" +
-            "&redirect_uri=${transaction.encode(transaction.redirectUri)}" +
-            "&state=${transaction.encode(transaction.state)}" +
-            "&code_challenge=${transaction.encode(Pkce.challengeFor(transaction.verifier))}" +
-            "&code_challenge_method=S256"
+        return baseUrl.newBuilder()
+            .addPathSegments("api/v1/auth/github/start")
+            .addQueryParameter("code_challenge", Pkce.challengeFor(transaction.verifier))
+            .addQueryParameter("code_challenge_method", "S256")
+            .addQueryParameter("app_state", transaction.appState)
+            .build()
+            .toString()
     }
 
     fun handleGithubCallback(uri: Uri) {
         if (uri.scheme != "link.mczihan.androidresourcedownload" ||
             uri.host != "oauth" || uri.path != "/callback"
         ) return setError("GitHub 回调地址无效")
-        uri.getQueryParameter("error")?.let { return setError("GitHub 登录被取消") }
-        val state = uri.getQueryParameter("state") ?: return setError("GitHub 回调缺少状态")
-        val code = uri.getQueryParameter("code") ?: return setError("GitHub 回调缺少授权码")
-        val pending = pendingOAuthStore.consumeIfValid(state, System.currentTimeMillis(), OAUTH_MAX_AGE)
+        val state = uri.getQueryParameter("app_state") ?: return setError("GitHub 回调缺少状态")
+        val pending = pendingOAuthStore.read()
+            ?.takeIf { it.appState == state && System.currentTimeMillis() - it.createdAtMillis in 0..OAUTH_MAX_AGE }
             ?: return setError("GitHub 登录状态已失效")
+        uri.getQueryParameter("error")?.let {
+            pendingOAuthStore.clear()
+            return setError("GitHub 登录被取消")
+        }
+        val code = uri.getQueryParameter("code") ?: return setError("GitHub 回调缺少授权码")
         viewModelScope.launch {
-            _state.value = AuthUiState.Authenticating
-            _state.value = try {
-                repository.loginWithGitHub(
-                    code,
-                    pending.redirectUri,
-                    pending.verifier,
-                ).asAuthenticatedState()
-            } catch (error: Exception) {
-                AuthUiState.Error(error.userMessage())
+            githubCallbackMutex.withLock {
+                if (_state.value is AuthUiState.Authenticated) return@withLock
+                _state.value = AuthUiState.Authenticating
+                _state.value = try {
+                    repository.completeGitHubLogin(
+                        code,
+                        pending.verifier,
+                    ).asAuthenticatedState().also { pendingOAuthStore.clear() }
+                } catch (error: Exception) {
+                    AuthUiState.Error(error.userMessage())
+                }
             }
         }
     }
@@ -152,9 +167,6 @@ class AuthViewModel @Inject constructor(
     }
 
     private fun Exception.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: "请求失败，请稍后重试"
-
-    private fun PendingOAuth.encode(value: String): String =
-        java.net.URLEncoder.encode(value, Charsets.UTF_8.name())
 
     private companion object {
         const val OAUTH_MAX_AGE = 10 * 60 * 1_000L

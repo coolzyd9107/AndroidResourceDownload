@@ -16,8 +16,8 @@
 
 ## Runtime Configuration
 
-- Debug builds default to `DEMO_MODE=true` and an invalid API URL. Inject real mode through uncommitted Gradle properties: `apiBaseUrl`, `githubClientId`, `oauthRedirectUri`, and `demoMode=false` (normally in `~/.gradle/gradle.properties` or `local.properties`).
-- The OAuth callback is also hard-coded in `AndroidManifest.xml` and validated in `AuthViewModel`; changing `oauthRedirectUri` alone does not change the accepted scheme/host/path.
+- Debug builds default to `DEMO_MODE=true` and an invalid API URL. Inject real mode through uncommitted Gradle properties: `apiBaseUrl` and `demoMode=false` (normally in `~/.gradle/gradle.properties` or `local.properties`). GitHub client credentials belong only on the backend.
+- The App callback is fixed as `link.mczihan.androidresourcedownload://oauth/callback` in `AndroidManifest.xml` and `AuthViewModel`; the backend `GITHUB_APP_REDIRECT_URI` must match it exactly.
 - Backend configuration is defaults plus environment variables, or YAML only when `CONFIG_FILE` names it. Despite `backend/README.md`, the server does not load `backend/.env`; export/source variables before `make run-sqlite`. SQLite paths are resolved relative to the process working directory, another reason to launch from `backend/`.
 - Server startup runs GORM `AutoMigrate`; files in `backend/migrations/` are reference SQL, not the executed migration path.
 

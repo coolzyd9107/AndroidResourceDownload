@@ -49,17 +49,15 @@ class DefaultAuthRepository(
         return persistLogin(response)
     }
 
-    override suspend fun loginWithGitHub(
+    override suspend fun completeGitHubLogin(
         code: String,
-        redirectUri: String,
         codeVerifier: String,
         deviceId: String,
     ): AuthSession {
         val response = executeBackendCall {
             authApi.loginWithGitHub(
-                GitHubLoginRequestDto(
+                GitHubCompleteRequestDto(
                     code = code,
-                    redirectUri = redirectUri,
                     codeVerifier = codeVerifier,
                     deviceId = deviceId,
                 ),

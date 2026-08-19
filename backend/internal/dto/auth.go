@@ -2,10 +2,9 @@
 // use camelCase to match the Android client conventions.
 package dto
 
-// GitHubLoginRequest is the body for POST /api/v1/auth/github/login.
-type GitHubLoginRequest struct {
+// GitHubCompleteRequest exchanges a one-time server grant for a session.
+type GitHubCompleteRequest struct {
 	Code         string `json:"code" binding:"required"`
-	RedirectURI  string `json:"redirectUri" binding:"required"`
 	CodeVerifier string `json:"codeVerifier" binding:"required,min=43,max=128"`
 	DeviceID     string `json:"deviceId"`
 }

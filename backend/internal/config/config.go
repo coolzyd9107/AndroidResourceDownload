@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -11,19 +12,19 @@ import (
 
 // Config is the fully parsed runtime configuration.
 type Config struct {
-	App                AppConfig                `mapstructure:"app"`
-	Server             ServerConfig             `mapstructure:"server"`
-	Database           DatabaseConfig           `mapstructure:"database"`
-	JWT                JWTConfig                `mapstructure:"jwt"`
-	Github             GithubConfig             `mapstructure:"github"`
-	Email              EmailConfig              `mapstructure:"email"`
-	WebDAV             WebDAVConfig             `mapstructure:"webdav"`
-	Credential         CredentialConfig         `mapstructure:"credential"`
-	Update             UpdateConfig             `mapstructure:"update"`
-	AllowedEmailDomains []string                `mapstructure:"allowed-email-domains"`
-	AdminEmailDomains   []string                `mapstructure:"admin-email-domains"`
-	UserEmailDomains    []string                `mapstructure:"user-email-domains"`
-	RateLimit           RateLimitConfig         `mapstructure:"ratelimit"`
+	App                 AppConfig        `mapstructure:"app"`
+	Server              ServerConfig     `mapstructure:"server"`
+	Database            DatabaseConfig   `mapstructure:"database"`
+	JWT                 JWTConfig        `mapstructure:"jwt"`
+	Github              GithubConfig     `mapstructure:"github"`
+	Email               EmailConfig      `mapstructure:"email"`
+	WebDAV              WebDAVConfig     `mapstructure:"webdav"`
+	Credential          CredentialConfig `mapstructure:"credential"`
+	Update              UpdateConfig     `mapstructure:"update"`
+	AllowedEmailDomains []string         `mapstructure:"allowed-email-domains"`
+	AdminEmailDomains   []string         `mapstructure:"admin-email-domains"`
+	UserEmailDomains    []string         `mapstructure:"user-email-domains"`
+	RateLimit           RateLimitConfig  `mapstructure:"ratelimit"`
 }
 
 type AppConfig struct {
@@ -32,8 +33,8 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
-	Port               int `mapstructure:"port"`
-	ReadTimeoutSeconds int `mapstructure:"read-timeout-seconds"`
+	Port                int `mapstructure:"port"`
+	ReadTimeoutSeconds  int `mapstructure:"read-timeout-seconds"`
 	WriteTimeoutSeconds int `mapstructure:"write-timeout-seconds"`
 }
 
@@ -53,17 +54,20 @@ type JWTConfig struct {
 }
 
 type GithubConfig struct {
-	ClientID     string `mapstructure:"client-id"`
-	ClientSecret string `mapstructure:"client-secret"`
-	RedirectURI  string `mapstructure:"redirect-uri"`
-	Mock         bool   `mapstructure:"mock"`
+	ClientID                 string `mapstructure:"client-id"`
+	ClientSecret             string `mapstructure:"client-secret"`
+	RedirectURI              string `mapstructure:"redirect-uri"`
+	AppRedirectURI           string `mapstructure:"app-redirect-uri"`
+	StateTTLSeconds          int    `mapstructure:"state-ttl-seconds"`
+	CompletionCodeTTLSeconds int    `mapstructure:"completion-code-ttl-seconds"`
+	Mock                     bool   `mapstructure:"mock"`
 }
 
 type EmailConfig struct {
-	Mode          string      `mapstructure:"mode"`
-	OtpTTLSeconds int         `mapstructure:"otp-ttl-seconds"`
+	Mode           string     `mapstructure:"mode"`
+	OtpTTLSeconds  int        `mapstructure:"otp-ttl-seconds"`
 	OtpMaxAttempts int        `mapstructure:"otp-max-attempts"`
-	SMTP          SMTPConfig  `mapstructure:"smtp"`
+	SMTP           SMTPConfig `mapstructure:"smtp"`
 }
 
 type SMTPConfig struct {
@@ -75,11 +79,11 @@ type SMTPConfig struct {
 }
 
 type WebDAVConfig struct {
-	BaseURL                   string             `mapstructure:"base-url"`
+	BaseURL                   string                 `mapstructure:"base-url"`
 	Readonly                  WebDAVCredentialConfig `mapstructure:"readonly"`
 	Admin                     WebDAVCredentialConfig `mapstructure:"admin"`
-	UserCredentialTTLSeconds  int                `mapstructure:"user-credential-ttl-seconds"`
-	AdminCredentialTTLSeconds int                `mapstructure:"admin-credential-ttl-seconds"`
+	UserCredentialTTLSeconds  int                    `mapstructure:"user-credential-ttl-seconds"`
+	AdminCredentialTTLSeconds int                    `mapstructure:"admin-credential-ttl-seconds"`
 }
 
 type WebDAVCredentialConfig struct {
@@ -93,8 +97,8 @@ type CredentialConfig struct {
 }
 
 type UpdateConfig struct {
-	Secret    string `mapstructure:"secret"`
-	TTLSeconds int   `mapstructure:"ttl-seconds"`
+	Secret     string `mapstructure:"secret"`
+	TTLSeconds int    `mapstructure:"ttl-seconds"`
 }
 
 type RateLimitConfig struct {
@@ -145,7 +149,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("jwt.issuer", "webdavbox-backend")
 	v.SetDefault("github.client-id", "")
 	v.SetDefault("github.client-secret", "")
-	v.SetDefault("github.redirect-uri", "https://api.example.com/callback")
+	v.SetDefault("github.redirect-uri", "https://api.example.com/api/v1/auth/github/callback")
+	v.SetDefault("github.app-redirect-uri", "link.mczihan.androidresourcedownload://oauth/callback")
+	v.SetDefault("github.state-ttl-seconds", 600)
+	v.SetDefault("github.completion-code-ttl-seconds", 90)
 	v.SetDefault("github.mock", false)
 	v.SetDefault("email.mode", "console")
 	v.SetDefault("email.otp-ttl-seconds", 300)
@@ -177,7 +184,8 @@ func bindEnvs(v *viper.Viper) {
 		"database.driver", "database.url",
 		"database.max-open-conns", "database.max-idle-conns", "database.conn-max-lifetime-minutes",
 		"jwt.secret", "jwt.access-ttl-seconds", "jwt.refresh-ttl-days", "jwt.issuer",
-		"github.client-id", "github.client-secret", "github.redirect-uri", "github.mock",
+		"github.client-id", "github.client-secret", "github.redirect-uri", "github.app-redirect-uri",
+		"github.state-ttl-seconds", "github.completion-code-ttl-seconds", "github.mock",
 		"email.mode", "email.otp-ttl-seconds", "email.otp-max-attempts",
 		"email.smtp.host", "email.smtp.port", "email.smtp.username", "email.smtp.password", "email.smtp.from",
 		"webdav.base-url",
@@ -207,6 +215,21 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Database.Driver != "sqlite" && cfg.Database.Driver != "postgres" {
 		return fmt.Errorf("config: database.driver must be sqlite or postgres")
+	}
+	if cfg.Github.StateTTLSeconds <= 0 || cfg.Github.CompletionCodeTTLSeconds <= 0 {
+		return fmt.Errorf("config: github OAuth TTLs must be > 0")
+	}
+	if cfg.App.Env == "prod" && !cfg.Github.Mock {
+		if cfg.Github.ClientID == "" || cfg.Github.ClientSecret == "" {
+			return fmt.Errorf("config: GitHub client credentials are required in prod")
+		}
+		callback, err := url.Parse(cfg.Github.RedirectURI)
+		if err != nil || callback.Scheme != "https" || callback.Host == "" {
+			return fmt.Errorf("config: github.redirect-uri must be an absolute HTTPS URL in prod")
+		}
+		if cfg.Github.AppRedirectURI != "link.mczihan.androidresourcedownload://oauth/callback" {
+			return fmt.Errorf("config: github.app-redirect-uri does not match the Android callback")
+		}
 	}
 	return nil
 }

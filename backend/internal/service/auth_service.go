@@ -186,6 +186,54 @@ func (s *AuthService) GithubLogin(ctx context.Context, code, redirectURI, codeVe
 	return buildLoginResult(existing, tokens, "GITHUB"), nil
 }
 
+// ProvisionGithubUser creates or updates the account without issuing tokens.
+// The server-owned OAuth callback uses this boundary before creating a grant.
+func (s *AuthService) ProvisionGithubUser(user *GitHubUser) (*model.User, error) {
+	if user == nil || user.ID <= 0 || strings.TrimSpace(user.Login) == "" {
+		return nil, response.ErrGithubAuthFailed
+	}
+	existing, err := s.users.GetByGithubID(user.ID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	githubEmail := normalizedOptionalEmail(user.Email)
+	userEmail, err := s.availableGithubUserEmail(user.ID, githubEmail)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		existing = &model.User{ID: uuid.NewString(), GithubID: &user.ID, GithubLogin: ptrStr(user.Login), Email: userEmail, Name: nonEmptyString(user.Name), AvatarURL: ptrOrEmpty(user.AvatarURL), Status: model.UserStatusActive, CreatedAt: now, UpdatedAt: now}
+	} else {
+		existing.GithubLogin = ptrStr(user.Login)
+		existing.Email = userEmail
+		existing.Name = nonEmptyString(user.Name)
+		existing.AvatarURL = ptrOrEmpty(user.AvatarURL)
+		existing.UpdatedAt = now
+	}
+	whitelist, err := s.adminGH.Get(user.ID)
+	if err != nil {
+		return nil, err
+	}
+	if whitelist != nil {
+		existing.Role = model.RoleAdmin
+		existing.RoleSource = ptrStr(string(model.RoleSourceGithubWhitelist))
+	} else {
+		existing.Role = model.RoleUser
+		existing.RoleSource = ptrStr(string(model.RoleSourceGithubDefault))
+	}
+	if err := s.upsertUser(existing); err != nil {
+		return nil, err
+	}
+	if err := s.ensureIdentity(existing.ID, "github", int64ToString(user.ID), githubEmail, ptrOrEmpty(user.Login)); err != nil {
+		return nil, err
+	}
+	if existing.Status != model.UserStatusActive {
+		return nil, response.ErrUnauthorized
+	}
+	return existing, nil
+}
+
 // Me returns the public projection of the user.
 func (s *AuthService) Me(userID string) (*dto.UserDTO, error) {
 	u, err := s.users.GetByID(userID)

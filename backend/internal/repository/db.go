@@ -57,6 +57,7 @@ func Migrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&model.User{},
 		&model.AuthIdentity{},
+		&model.OAuthTransaction{},
 		&model.EmailVerificationCode{},
 		&model.RefreshToken{},
 		&model.AdminGithubUser{},
@@ -69,30 +70,32 @@ func Migrate(db *gorm.DB) error {
 
 // Repos bundles every concrete repository for convenient DI.
 type Repos struct {
-	DB                 *gorm.DB
-	Users              *UserRepo
-	Identities         *IdentityRepo
-	EmailCodes         *EmailCodeRepo
-	RefreshTokens      *RefreshTokenRepo
-	AdminGithub        *AdminGithubRepo
-	AppVersions        *AppVersionRepo
-	UpdateURLLogs      *UpdateLogRepo
-	CredentialLogs     *CredentialLogRepo
-	AuditLogs          *AuditLogRepo
+	DB                *gorm.DB
+	Users             *UserRepo
+	Identities        *IdentityRepo
+	OAuthTransactions *OAuthTransactionRepo
+	EmailCodes        *EmailCodeRepo
+	RefreshTokens     *RefreshTokenRepo
+	AdminGithub       *AdminGithubRepo
+	AppVersions       *AppVersionRepo
+	UpdateURLLogs     *UpdateLogRepo
+	CredentialLogs    *CredentialLogRepo
+	AuditLogs         *AuditLogRepo
 }
 
 // New builds every repo from the supplied GORM handle.
 func New(db *gorm.DB) *Repos {
 	return &Repos{
-		DB:             db,
-		Users:          &UserRepo{db: db},
-		Identities:     &IdentityRepo{db: db},
-		EmailCodes:     &EmailCodeRepo{db: db},
-		RefreshTokens:  &RefreshTokenRepo{db: db},
-		AdminGithub:    &AdminGithubRepo{db: db},
-		AppVersions:    &AppVersionRepo{db: db},
-		UpdateURLLogs:  &UpdateLogRepo{db: db},
-		CredentialLogs: &CredentialLogRepo{db: db},
-		AuditLogs:      &AuditLogRepo{db: db},
+		DB:                db,
+		Users:             &UserRepo{db: db},
+		Identities:        &IdentityRepo{db: db},
+		OAuthTransactions: &OAuthTransactionRepo{db: db},
+		EmailCodes:        &EmailCodeRepo{db: db},
+		RefreshTokens:     &RefreshTokenRepo{db: db},
+		AdminGithub:       &AdminGithubRepo{db: db},
+		AppVersions:       &AppVersionRepo{db: db},
+		UpdateURLLogs:     &UpdateLogRepo{db: db},
+		CredentialLogs:    &CredentialLogRepo{db: db},
+		AuditLogs:         &AuditLogRepo{db: db},
 	}
 }

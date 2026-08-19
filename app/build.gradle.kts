@@ -14,12 +14,6 @@ android {
     val apiBaseUrl = providers.gradleProperty("apiBaseUrl")
         .orElse("https://api.example.invalid/")
         .get()
-    val githubClientId = providers.gradleProperty("githubClientId")
-        .orElse("")
-        .get()
-    val oauthRedirectUri = providers.gradleProperty("oauthRedirectUri")
-        .orElse("link.mczihan.androidresourcedownload://oauth/callback")
-        .get()
     val demoMode = providers.gradleProperty("demoMode")
         .orElse("true")
         .get()
@@ -36,8 +30,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         buildConfigField("String", "API_BASE_URL", buildConfigString(apiBaseUrl))
-        buildConfigField("String", "GITHUB_CLIENT_ID", buildConfigString(githubClientId))
-        buildConfigField("String", "OAUTH_REDIRECT_URI", buildConfigString(oauthRedirectUri))
         buildConfigField("boolean", "DEMO_MODE", demoMode.toString())
     }
 

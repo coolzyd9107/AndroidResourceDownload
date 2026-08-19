@@ -50,14 +50,31 @@ func (User) TableName() string { return "users" }
 type AuthIdentity struct {
 	ID             string    `gorm:"primaryKey;size:36" json:"id"`
 	UserID         string    `gorm:"size:36;not null;index" json:"user_id"`
-	Provider       string    `gorm:"size:20;not null" json:"provider"`
-	ProviderUserID string    `gorm:"size:255;not null" json:"provider_user_id"`
+	Provider       string    `gorm:"size:20;not null;uniqueIndex:idx_auth_provider_user" json:"provider"`
+	ProviderUserID string    `gorm:"size:255;not null;uniqueIndex:idx_auth_provider_user" json:"provider_user_id"`
 	ProviderLogin  *string   `gorm:"size:255" json:"provider_login,omitempty"`
 	Email          *string   `gorm:"size:255" json:"email,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
 func (AuthIdentity) TableName() string { return "auth_identities" }
+
+type OAuthTransaction struct {
+	ID                 string     `gorm:"primaryKey;size:36"`
+	StateHash          string     `gorm:"size:64;not null;uniqueIndex" json:"-"`
+	AppState           string     `gorm:"size:128;not null" json:"-"`
+	CodeChallenge      string     `gorm:"size:64;not null" json:"-"`
+	Status             string     `gorm:"size:24;not null;index"`
+	UserID             *string    `gorm:"size:36;index"`
+	CompletionCodeHash *string    `gorm:"size:64;uniqueIndex" json:"-"`
+	StateExpiresAt     time.Time  `gorm:"not null;index"`
+	CodeExpiresAt      *time.Time `gorm:"index"`
+	ConsumedAt         *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+func (OAuthTransaction) TableName() string { return "oauth_transactions" }
 
 // EmailVerificationCode mirrors 后端.md §14.3.
 type EmailVerificationCode struct {

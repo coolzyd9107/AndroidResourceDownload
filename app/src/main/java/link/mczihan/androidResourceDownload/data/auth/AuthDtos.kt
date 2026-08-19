@@ -6,9 +6,8 @@ import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
 
 @Serializable
-data class GitHubLoginRequestDto(
+data class GitHubCompleteRequestDto(
     val code: String,
-    val redirectUri: String,
     val codeVerifier: String,
     val deviceId: String = "",
 )

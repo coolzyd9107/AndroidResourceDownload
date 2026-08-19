@@ -7,9 +7,9 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 
 interface AuthApi {
-    @POST("/api/v1/auth/github/login")
+    @POST("/api/v1/auth/github/complete")
     suspend fun loginWithGitHub(
-        @Body request: GitHubLoginRequestDto,
+        @Body request: GitHubCompleteRequestDto,
     ): Response<BackendEnvelope<LoginResponseDto>>
 
     @POST("/api/v1/auth/email/code")

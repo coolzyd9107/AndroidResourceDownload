@@ -61,7 +61,7 @@ CI 成功后还应确认 `android-debug-apk` artifact 可下载。CI 不执行�
 
 - Android `User` 已迁移到 nullable `name/email` 与 `LoginType`。
 - 后端 DTO/Retrofit API 契约、统一 envelope 解码和加密会话存储基础。
-- GitHub PKCE/redirect URI 参数校验、任意邮箱登录和白名单角色降级。
+- GitHub 服务端 HTTPS callback、App PKCE 一次性登录票据、任意邮箱登录和白名单角色降级。
 - WebDAV 凭据生命周期、Basic Auth、PROPFIND/HEAD/GET/PUT/MKCOL/DELETE/MOVE 协议核心。
 - 已完成 Custom Tabs OAuth 回调、真实认证状态驱动的根导航和文件 ViewModel 页面接线；仍待完成 SAF 上传、Room 下载任务、前台服务传输和更新安装。
 

@@ -1,14 +1,15 @@
 package link.mczihan.androidResourceDownload.feature.auth
 
 import android.content.Context
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 data class PendingOAuth(
-    val state: String,
+    val appState: String,
     val verifier: String,
-    val redirectUri: String,
     val createdAtMillis: Long,
 )
 
@@ -16,13 +17,20 @@ data class PendingOAuth(
 class PendingOAuthStore @Inject constructor(
     @ApplicationContext context: Context,
 ) {
-    private val preferences = context.getSharedPreferences("oauth_pending", Context.MODE_PRIVATE)
+    private val preferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        EncryptedSharedPreferences.create(
+            "oauth_pending_secure_v1",
+            MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
+            context,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
 
     fun save(transaction: PendingOAuth) {
         preferences.edit()
-            .putString(KEY_STATE, transaction.state)
+            .putString(KEY_STATE, transaction.appState)
             .putString(KEY_VERIFIER, transaction.verifier)
-            .putString(KEY_REDIRECT, transaction.redirectUri)
             .putLong(KEY_CREATED, transaction.createdAtMillis)
             .apply()
     }
@@ -30,27 +38,16 @@ class PendingOAuthStore @Inject constructor(
     fun read(): PendingOAuth? {
         val state = preferences.getString(KEY_STATE, null) ?: return null
         val verifier = preferences.getString(KEY_VERIFIER, null) ?: return null
-        val redirect = preferences.getString(KEY_REDIRECT, null) ?: return null
-        return PendingOAuth(state, verifier, redirect, preferences.getLong(KEY_CREATED, 0L))
+        return PendingOAuth(state, verifier, preferences.getLong(KEY_CREATED, 0L))
     }
 
     fun clear() {
         preferences.edit().clear().apply()
     }
 
-    fun consumeIfValid(state: String, nowMillis: Long, maxAgeMillis: Long): PendingOAuth? {
-        val pending = read() ?: return null
-        if (pending.state != state || nowMillis - pending.createdAtMillis !in 0..maxAgeMillis) {
-            return null
-        }
-        clear()
-        return pending
-    }
-
     private companion object {
         const val KEY_STATE = "state"
         const val KEY_VERIFIER = "verifier"
-        const val KEY_REDIRECT = "redirect"
         const val KEY_CREATED = "created"
     }
 }

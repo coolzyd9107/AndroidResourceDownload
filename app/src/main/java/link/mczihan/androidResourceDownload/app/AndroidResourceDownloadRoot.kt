@@ -122,7 +122,7 @@ fun AndroidResourceDownloadRoot(
                             } else {
                                 val authorizationUrl = authViewModel.beginGithub()
                                 if (authorizationUrl == null) {
-                                    authViewModel.reportError("未配置 GitHub Client ID")
+                                    authViewModel.reportError("未配置有效的后端 API 地址")
                                 } else {
                                     CustomTabsIntent.Builder().build().launchUrl(
                                         context,

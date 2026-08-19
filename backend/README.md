@@ -2,6 +2,8 @@
 
 Android WebDAV 文件客户端配套后端服务。负责认证、角色识别、WebDAV 凭据加密下发、App 更新 URL 加密下发。
 
+GitHub OAuth App 的 callback 必须指向后端 HTTPS 地址，例如 `https://api.example.com/api/v1/auth/github/callback`。后端回到 Android 时只携带 90 秒有效的一次性 code；session token 和 WebDAV 凭据不会写入跳转 URL。
+
 - 语言：Go 1.23+
 - Web 框架：Gin
 - 数据库：PostgreSQL（生产）/ SQLite（本地开发与单元测试）
@@ -34,6 +36,8 @@ make run-sqlite
 | `EMAIL_MODE` | `console` | `console` / `smtp` |
 | `GITHUB_CLIENT_ID` | _empty_ | GitHub OAuth |
 | `GITHUB_CLIENT_SECRET` | _empty_ | GitHub OAuth |
+| `GITHUB_REDIRECT_URI` | _required_ | 后端 HTTPS callback，例如 `/api/v1/auth/github/callback` |
+| `GITHUB_APP_REDIRECT_URI` | `link.mczihan.androidresourcedownload://oauth/callback` | callback 完成后返回 App 的固定 URI |
 | `WEBDAV_BASE_URL` | `https://dav.example.com` | WebDAV 服务地址 |
 | `WEBDAV_READONLY_USERNAME` / `WEBDAV_READONLY_PASSWORD` | _empty_ | 普通用户凭据 |
 | `WEBDAV_ADMIN_USERNAME` / `WEBDAV_ADMIN_PASSWORD` | _empty_ | 管理员凭据 |

@@ -21,15 +21,16 @@ import (
 // Deps is the bag of collaborators every handler needs. Built in main and
 // passed to RegisterRoutes.
 type Deps struct {
-	Config      *config.Config
-	Logger      *slog.Logger
-	JWTIssuer   *jwt.Issuer
-	Limiter     *ratelimit.InMemoryLimiter
+	Config    *config.Config
+	Logger    *slog.Logger
+	JWTIssuer *jwt.Issuer
+	Limiter   *ratelimit.InMemoryLimiter
 
 	Auth        *service.AuthService
 	Credentials *service.CredentialService
 	Updates     *service.UpdateService
 	Tokens      *service.TokenService
+	GithubOAuth *service.GithubOAuthService
 }
 
 // RegisterRoutes attaches every endpoint to r.
@@ -39,10 +40,12 @@ func RegisterRoutes(r *gin.Engine, d *Deps) {
 	api := r.Group("/api/v1")
 
 	// Public auth endpoints.
-	authH := handler.NewAuthHandler(d.Auth, d.Limiter, d.Config, d.Logger)
+	authH := handler.NewAuthHandler(d.Auth, d.Limiter, d.Config, d.Logger, d.GithubOAuth)
 	api.POST("/auth/email/code", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.SendEmailCode)
 	api.POST("/auth/email/login", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.EmailLogin)
-	api.POST("/auth/github/login", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.GithubLogin)
+	api.GET("/auth/github/start", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.GithubStart)
+	api.GET("/auth/github/callback", authH.GithubCallback)
+	api.POST("/auth/github/complete", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.GithubComplete)
 	api.POST("/auth/refresh", authH.Refresh)
 
 	// Authenticated endpoints.

@@ -76,6 +76,31 @@ func (c *GitHubClient) ExchangeAndFetch(ctx context.Context, code, redirectURI, 
 	return user, nil
 }
 
+// ExchangeAndFetchServer performs the confidential-client exchange using the
+// callback URI configured on the server. Request data cannot override it.
+func (c *GitHubClient) ExchangeAndFetchServer(ctx context.Context, code string) (*GitHubUser, error) {
+	if code == "" || c.cfg.RedirectURI == "" {
+		return nil, ErrGithubAuthFailed
+	}
+	if c.cfg.Mock {
+		return &GitHubUser{ID: 99999999, Login: "mock-user", Name: ptr("Mock User"), Email: ptr("mock@qq.com")}, nil
+	}
+	if c.cfg.ClientID == "" || c.cfg.ClientSecret == "" {
+		return nil, fmt.Errorf("%w: missing client credentials", ErrGithubAuthFailed)
+	}
+	accessToken, err := c.exchangeCode(ctx, code, c.cfg.RedirectURI, "")
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrGithubAuthFailed, err)
+	}
+	user, err := c.fetchUser(ctx, accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrGithubAuthFailed, err)
+	}
+	return user, nil
+}
+
+func ptr(value string) *string { return &value }
+
 func (c *GitHubClient) validateOAuthRequest(code, redirectURI, codeVerifier string) error {
 	if code == "" {
 		return errors.New("missing authorization code")
@@ -114,7 +139,9 @@ func (c *GitHubClient) exchangeCode(ctx context.Context, code, redirectURI, code
 	form.Set("client_secret", c.cfg.ClientSecret)
 	form.Set("code", code)
 	form.Set("redirect_uri", redirectURI)
-	form.Set("code_verifier", codeVerifier)
+	if codeVerifier != "" {
+		form.Set("code_verifier", codeVerifier)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
