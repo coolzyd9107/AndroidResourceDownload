@@ -45,6 +45,7 @@ import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 fun DownloadsScreen(
     tasks: List<DownloadTask>,
     onStatusChange: (taskId: String, status: DownloadStatus) -> Unit,
+    onOpen: (DownloadTask) -> Unit,
     onMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -68,7 +69,7 @@ fun DownloadsScreen(
                     DownloadTaskItem(
                         task = task,
                         onStatusChange = { status -> onStatusChange(task.id, status) },
-                        onMessage = onMessage,
+                        onOpen = { onOpen(task) },
                     )
                 }
             }
@@ -80,7 +81,7 @@ fun DownloadsScreen(
 private fun DownloadTaskItem(
     task: DownloadTask,
     onStatusChange: (DownloadStatus) -> Unit,
-    onMessage: (String) -> Unit,
+    onOpen: () -> Unit,
 ) {
     val progress = if (task.totalBytes != null && task.totalBytes > 0L) {
         (task.downloadedBytes.toFloat() / task.totalBytes.toFloat()).coerceIn(0f, 1f)
@@ -107,11 +108,15 @@ private fun DownloadTaskItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (task.status == DownloadStatus.RUNNING || task.status == DownloadStatus.PAUSED) {
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                if (task.status == DownloadStatus.RUNNING) {
+                    if (task.totalBytes != null && task.totalBytes > 0L) {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
@@ -147,18 +152,34 @@ private fun DownloadTaskItem(
                             Icon(Icons.Default.Cancel, contentDescription = "取消下载")
                         }
                     }
-                    DownloadStatus.PENDING,
-                    DownloadStatus.PAUSED,
-                    -> FilledTonalIconButton(onClick = { onStatusChange(DownloadStatus.RUNNING) }) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "继续下载")
+                    DownloadStatus.PENDING -> IconButton(
+                        onClick = { onStatusChange(DownloadStatus.CANCELLED) },
+                    ) {
+                        Icon(Icons.Default.Cancel, contentDescription = "取消下载")
                     }
-                    DownloadStatus.FAILED,
-                    DownloadStatus.CANCELLED,
-                    -> FilledTonalIconButton(onClick = { onStatusChange(DownloadStatus.RUNNING) }) {
+                    DownloadStatus.PAUSED -> {
+                        FilledTonalIconButton(onClick = { onStatusChange(DownloadStatus.RUNNING) }) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "继续下载")
+                        }
+                        IconButton(onClick = { onStatusChange(DownloadStatus.CANCELLED) }) {
+                            Icon(Icons.Default.Cancel, contentDescription = "取消下载")
+                        }
+                    }
+                    DownloadStatus.FAILED -> {
+                        FilledTonalIconButton(onClick = { onStatusChange(DownloadStatus.RUNNING) }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "重试下载")
+                        }
+                        IconButton(onClick = { onStatusChange(DownloadStatus.CANCELLED) }) {
+                            Icon(Icons.Default.Cancel, contentDescription = "取消下载")
+                        }
+                    }
+                    DownloadStatus.CANCELLED -> FilledTonalIconButton(
+                        onClick = { onStatusChange(DownloadStatus.RUNNING) },
+                    ) {
                         Icon(Icons.Default.Refresh, contentDescription = "重试下载")
                     }
                     DownloadStatus.SUCCESS -> IconButton(
-                        onClick = { onMessage("正在打开 ${task.fileName}") },
+                        onClick = onOpen,
                     ) {
                         Icon(Icons.Default.FolderOpen, contentDescription = "打开文件")
                     }
@@ -170,7 +191,7 @@ private fun DownloadTaskItem(
 
 private fun taskProgressText(task: DownloadTask): String = when (task.status) {
     DownloadStatus.SUCCESS -> formatFileSize(task.totalBytes)
-    DownloadStatus.FAILED -> "下载中断，可从断点重试"
+    DownloadStatus.FAILED -> task.errorMessage ?: "下载中断，可从断点重试"
     DownloadStatus.CANCELLED -> "任务已取消"
     else -> "${formatFileSize(task.downloadedBytes)} / ${formatFileSize(task.totalBytes)}"
 }

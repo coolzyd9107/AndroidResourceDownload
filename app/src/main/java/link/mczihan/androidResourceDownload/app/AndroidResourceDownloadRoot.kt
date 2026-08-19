@@ -1,6 +1,11 @@
 package link.mczihan.androidResourceDownload.app
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -26,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -48,6 +54,7 @@ import link.mczihan.androidResourceDownload.feature.auth.AuthUiState
 import link.mczihan.androidResourceDownload.feature.auth.AuthViewModel
 import link.mczihan.androidResourceDownload.feature.auth.LoginScreen
 import link.mczihan.androidResourceDownload.feature.downloads.DownloadsScreen
+import link.mczihan.androidResourceDownload.feature.downloads.DownloadsViewModel
 import link.mczihan.androidResourceDownload.feature.files.FilesScreen
 import link.mczihan.androidResourceDownload.feature.profile.ProfileScreen
 import link.mczihan.androidResourceDownload.feature.settings.SettingsScreen
@@ -246,13 +253,32 @@ private fun MainShell(
     val currentRoute = backStackEntry?.destination?.route
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var tasks by remember {
+    var demoTasks by remember {
         mutableStateOf(if (BuildConfig.DEMO_MODE) initialMockDownloads() else emptyList())
     }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val downloadsViewModel = if (BuildConfig.DEMO_MODE) null else hiltViewModel<DownloadsViewModel>()
+    val persistedTasks = downloadsViewModel?.tasks?.collectAsStateWithLifecycle()?.value.orEmpty()
+    var pendingPermissionDownload by remember { mutableStateOf<link.mczihan.androidResourceDownload.domain.model.FileNode?>(null) }
 
     fun showMessage(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        pendingPermissionDownload?.let { downloadsViewModel?.enqueue(it) }
+        pendingPermissionDownload = null
+        if (!granted) showMessage("通知权限未开启，下载仍会在队列中执行")
+    }
+
+    LaunchedEffect(downloadsViewModel, user.id) {
+        downloadsViewModel?.bindOwner(user.id)
+    }
+    LaunchedEffect(downloadsViewModel) {
+        downloadsViewModel?.messages?.collect(::showMessage)
     }
 
     Scaffold(
@@ -299,10 +325,18 @@ private fun MainShell(
                     onProfile = onProfile,
                     onDownload = { file ->
                         if (BuildConfig.DEMO_MODE) {
-                            tasks = listOf(mockTaskForFile(file)) + tasks
+                            demoTasks = listOf(mockTaskForFile(file)) + demoTasks
                             showMessage("已加入下载任务")
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS,
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            pendingPermissionDownload = file
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
-                            showMessage("下载队列将在下一阶段接入")
+                            downloadsViewModel?.enqueue(file)
                         }
                     },
                     onMessage = ::showMessage,
@@ -310,16 +344,30 @@ private fun MainShell(
             }
             composable(ShellRoute.Downloads.route) {
                 DownloadsScreen(
-                    tasks = tasks,
+                    tasks = if (BuildConfig.DEMO_MODE) demoTasks else persistedTasks,
                     onStatusChange = { taskId, status ->
                         if (BuildConfig.DEMO_MODE) {
-                            tasks = tasks.map { task ->
+                            demoTasks = demoTasks.map { task ->
                                 if (task.id == taskId) {
                                     task.withMockStatus(status)
                                 } else {
                                     task
                                 }
                             }
+                        } else {
+                            when (status) {
+                                DownloadStatus.RUNNING -> downloadsViewModel?.retry(taskId)
+                                DownloadStatus.PAUSED -> downloadsViewModel?.pause(taskId)
+                                DownloadStatus.CANCELLED -> downloadsViewModel?.cancel(taskId)
+                                else -> Unit
+                            }
+                        }
+                    },
+                    onOpen = { task ->
+                        if (BuildConfig.DEMO_MODE) {
+                            showMessage("正在打开 ${task.fileName}")
+                        } else {
+                            downloadsViewModel?.open(task)
                         }
                     },
                     onMessage = ::showMessage,
@@ -347,7 +395,7 @@ private fun MainShell(
             onDismiss = { showUpdateDialog = false },
             onUpdate = {
                 showUpdateDialog = false
-                tasks = listOf(
+                demoTasks = listOf(
                     mockTaskForFile(
                         link.mczihan.androidResourceDownload.domain.model.FileNode(
                             name = "android-client-1.1.0.apk",
@@ -357,7 +405,7 @@ private fun MainShell(
                             mimeType = "application/vnd.android.package-archive",
                         ),
                     ),
-                ) + tasks
+                ) + demoTasks
                 showMessage("更新包已加入下载任务")
             },
         )

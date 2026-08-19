@@ -8,4 +8,8 @@ annotation class BackendHttpClient
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
+annotation class WebDavHttpClient
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
 annotation class BackendRetrofit

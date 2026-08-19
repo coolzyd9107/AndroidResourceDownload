@@ -17,6 +17,7 @@ import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.data.auth.AuthRepository
 import link.mczihan.androidResourceDownload.domain.model.AuthSession
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavCredentialProvider
+import link.mczihan.androidResourceDownload.service.DownloadQueueController
 
 sealed interface AuthUiState {
     data object Restoring : AuthUiState
@@ -34,6 +35,7 @@ class AuthViewModel @Inject constructor(
     private val pendingOAuthStore: PendingOAuthStore,
     private val credentialProvider: WebDavCredentialProvider,
     private val oauthCallbackBus: OAuthCallbackBus,
+    private val downloadQueueController: DownloadQueueController,
 ) : ViewModel() {
     private val _state = MutableStateFlow<AuthUiState>(AuthUiState.Restoring)
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
@@ -148,6 +150,9 @@ class AuthViewModel @Inject constructor(
 
     fun logout() {
         viewModelScope.launch {
+            (_state.value as? AuthUiState.Authenticated)?.session?.user?.id?.let { ownerId ->
+                runCatching { downloadQueueController.stop(ownerId) }
+            }
             runCatching { repository.logout() }
             credentialProvider.clear()
             pendingOAuthStore.clear()

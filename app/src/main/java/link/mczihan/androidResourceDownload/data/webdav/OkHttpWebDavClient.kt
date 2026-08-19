@@ -6,12 +6,14 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import link.mczihan.androidResourceDownload.core.webdav.WebDavEndpoint
 import link.mczihan.androidResourceDownload.core.webdav.WebDavPropFindParser
 import link.mczihan.androidResourceDownload.domain.webdav.CredentialLease
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavByteRange
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
+import link.mczihan.androidResourceDownload.domain.webdav.WebDavContentRange
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavCredentialProvider
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavDepth
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
@@ -23,6 +25,8 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavResource
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavStatusMapper
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavUpload
 import okhttp3.Authenticator
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.Credentials
 import okhttp3.HttpUrl
 import okhttp3.MediaType
@@ -41,6 +45,7 @@ class OkHttpWebDavClient(
     private val credentialProvider: WebDavCredentialProvider,
     okHttpClient: OkHttpClient = OkHttpClient(),
     private val propFindParser: WebDavPropFindParser = WebDavPropFindParser(),
+    private val retryAuthentication: Boolean = true,
 ) : WebDavClient {
     private val endpoint = WebDavEndpoint.create(endpoint)
     private val httpClient = okHttpClient.newBuilder()
@@ -127,13 +132,27 @@ class OkHttpWebDavClient(
             response.close()
             throw WebDavException.InvalidResponse("WebDAV GET response has no body")
         }
-        return WebDavReadResponse(
-            statusCode = response.code,
-            metadata = response.toMetadata(),
-            contentRange = response.header("Content-Range"),
-            stream = body.byteStream(),
-            closeAction = response::close,
-        )
+        return try {
+            val metadata = response.toMetadata()
+            val contentRange = if (response.code == 206) {
+                val requestedRange = range ?: throw WebDavException.InvalidResponse(
+                    "WebDAV returned a partial response without a Range request",
+                )
+                parseContentRange(response.header("Content-Range"), requestedRange, metadata.contentLength)
+            } else {
+                null
+            }
+            WebDavReadResponse(
+                statusCode = response.code,
+                metadata = metadata,
+                contentRange = contentRange,
+                stream = body.byteStream(),
+                closeAction = response::close,
+            )
+        } catch (error: Exception) {
+            response.close()
+            throw error
+        }
     }
 
     override suspend fun put(path: WebDavPath, upload: WebDavUpload) {
@@ -193,23 +212,39 @@ class OkHttpWebDavClient(
         val firstLease = credentialProvider.acquire()
         requirePermission(firstLease, requiredPermission)
         val firstResponse = executeOnce(factory(firstLease))
-        if (firstResponse.code != 401) return@withContext firstResponse
+        if (firstResponse.code != 401 || !retryAuthentication) return@withContext firstResponse
 
         firstResponse.close()
         credentialProvider.invalidate(firstLease.generation)
         val refreshedLease = credentialProvider.acquire()
         requirePermission(refreshedLease, requiredPermission)
-        executeOnce(factory(refreshedLease))
+        executeOnce(factory(refreshedLease)).also { response ->
+            if (response.code == 401) credentialProvider.invalidate(refreshedLease.generation)
+        }
     }
 
-    private fun executeOnce(request: Request): Response {
+    private suspend fun executeOnce(request: Request): Response {
         if (!endpoint.isSameOrigin(request.url)) {
             throw WebDavException.UnsafePath("WebDAV request escaped the configured origin")
         }
-        return try {
-            httpClient.newCall(request).execute()
-        } catch (error: IOException) {
-            throw WebDavException.Network(error)
+        return suspendCancellableCoroutine { continuation ->
+            val call = httpClient.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, error: IOException) {
+                        if (!continuation.isCancelled) {
+                            continuation.resumeWith(Result.failure(WebDavException.Network(error)))
+                        }
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        continuation.resume(response) { _, unconsumedResponse, _ ->
+                            unconsumedResponse.close()
+                        }
+                    }
+                },
+            )
         }
     }
 
@@ -232,9 +267,41 @@ class OkHttpWebDavClient(
     private fun Response.toMetadata(): WebDavMetadata = WebDavMetadata(
         contentLength = header("Content-Length")?.toLongOrNull()?.takeIf { it >= 0L },
         lastModifiedEpochMillis = header("Last-Modified")?.let(::parseHttpDate),
+        lastModified = header("Last-Modified"),
         contentType = header("Content-Type"),
         etag = header("ETag"),
+        acceptsByteRanges = header("Accept-Ranges")
+            ?.split(',')
+            ?.any { it.trim().equals("bytes", ignoreCase = true) }
+            ?: false,
     )
+
+    private fun parseContentRange(
+        value: String?,
+        requestedRange: WebDavByteRange,
+        responseLength: Long?,
+    ): WebDavContentRange {
+        val match = value?.let(CONTENT_RANGE_PATTERN::matchEntire)
+            ?: throw WebDavException.InvalidResponse("WebDAV 206 response has an invalid Content-Range")
+        val start = match.groupValues[1].toLongOrNull()
+        val end = match.groupValues[2].toLongOrNull()
+        val total = match.groupValues[3].takeUnless { it == "*" }?.toLongOrNull()
+        if (start == null || end == null || start != requestedRange.start ||
+            end < start || requestedRange.endInclusive?.let { end > it } == true ||
+            total?.let { it <= end } == true
+        ) {
+            throw WebDavException.InvalidResponse("WebDAV 206 response does not match the requested range")
+        }
+        val rangeLength = try {
+            Math.addExact(Math.subtractExact(end, start), 1L)
+        } catch (error: ArithmeticException) {
+            throw WebDavException.InvalidResponse("WebDAV Content-Range overflowed", error)
+        }
+        if (responseLength != null && responseLength != rangeLength) {
+            throw WebDavException.InvalidResponse("WebDAV 206 Content-Length does not match Content-Range")
+        }
+        return WebDavContentRange(start, end, total)
+    }
 
     private fun CredentialLease.basicAuthorization(): String =
         Credentials.basic(credential.username, credential.password, Charsets.UTF_8)
@@ -274,6 +341,7 @@ class OkHttpWebDavClient(
 
     companion object {
         private val GMT: TimeZone = TimeZone.getTimeZone("GMT")
+        private val CONTENT_RANGE_PATTERN = Regex("bytes (\\d+)-(\\d+)/(\\d+|\\*)")
         private val HTTP_DATE_PATTERNS = listOf(
             "EEE, dd MMM yyyy HH:mm:ss zzz",
             "EEEE, dd-MMM-yy HH:mm:ss zzz",

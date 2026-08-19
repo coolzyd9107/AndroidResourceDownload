@@ -1,11 +1,11 @@
 package link.mczihan.androidResourceDownload.data.webdav
 
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import link.mczihan.androidResourceDownload.domain.webdav.CredentialLease
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavByteRange
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavCredentialProvider
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavDepth
+import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavMetadata
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavReadResponse
@@ -18,40 +18,66 @@ class CredentialBackedWebDavClient(
     private val credentialProvider: WebDavCredentialProvider,
     private val okHttpClient: OkHttpClient,
 ) : WebDavClient {
-    private val operationMutex = Mutex()
-
-    private suspend fun client(): WebDavClient = operationMutex.withLock {
-        val credential = credentialProvider.acquire().credential
+    private fun client(lease: CredentialLease): WebDavClient {
+        val credential = lease.credential
         require(credential.baseUrl.isNotBlank()) { "WebDAV credential has no base URL" }
-        OkHttpWebDavClient(
+        return OkHttpWebDavClient(
             endpoint = credential.baseUrl.toHttpUrl().let { baseUrl ->
                 val root = credential.rootPath.toString().trim('/').takeIf { it.isNotEmpty() }
                 if (root == null) baseUrl else baseUrl.newBuilder()
                     .addPathSegments(root)
                     .build()
             },
-            credentialProvider = credentialProvider,
+            credentialProvider = FixedCredentialProvider(lease),
             okHttpClient = okHttpClient,
+            retryAuthentication = false,
         )
     }
 
-    override suspend fun propFind(path: WebDavPath, depth: WebDavDepth): List<WebDavResource> =
-        client().propFind(path, depth)
+    private suspend fun <T> execute(operation: suspend (WebDavClient) -> T): T {
+        val firstLease = credentialProvider.acquire()
+        try {
+            return operation(client(firstLease))
+        } catch (error: WebDavException.AuthenticationRequired) {
+            credentialProvider.invalidate(firstLease.generation)
+        }
 
-    override suspend fun head(path: WebDavPath): WebDavMetadata = client().head(path)
+        val refreshedLease = credentialProvider.acquire()
+        return try {
+            operation(client(refreshedLease))
+        } catch (error: WebDavException.AuthenticationRequired) {
+            credentialProvider.invalidate(refreshedLease.generation)
+            throw error
+        }
+    }
+
+    override suspend fun propFind(path: WebDavPath, depth: WebDavDepth): List<WebDavResource> =
+        execute { it.propFind(path, depth) }
+
+    override suspend fun head(path: WebDavPath): WebDavMetadata = execute { it.head(path) }
 
     override suspend fun get(
         path: WebDavPath,
         range: WebDavByteRange?,
         ifRange: String?,
-    ): WebDavReadResponse = client().get(path, range, ifRange)
+    ): WebDavReadResponse = execute { it.get(path, range, ifRange) }
 
-    override suspend fun put(path: WebDavPath, upload: WebDavUpload) = client().put(path, upload)
+    override suspend fun put(path: WebDavPath, upload: WebDavUpload) = execute { it.put(path, upload) }
 
-    override suspend fun makeCollection(path: WebDavPath) = client().makeCollection(path)
+    override suspend fun makeCollection(path: WebDavPath) = execute { it.makeCollection(path) }
 
-    override suspend fun delete(path: WebDavPath) = client().delete(path)
+    override suspend fun delete(path: WebDavPath) = execute { it.delete(path) }
 
     override suspend fun move(path: WebDavPath, destination: WebDavPath, overwrite: Boolean) =
-        client().move(path, destination, overwrite)
+        execute { it.move(path, destination, overwrite) }
+
+    private class FixedCredentialProvider(
+        private val lease: CredentialLease,
+    ) : WebDavCredentialProvider {
+        override suspend fun acquire(): CredentialLease = lease
+
+        override suspend fun invalidate(generation: Long) = Unit
+
+        override suspend fun clear() = Unit
+    }
 }

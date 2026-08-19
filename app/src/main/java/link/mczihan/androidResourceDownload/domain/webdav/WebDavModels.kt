@@ -16,8 +16,10 @@ data class WebDavResource(
 data class WebDavMetadata(
     val contentLength: Long?,
     val lastModifiedEpochMillis: Long?,
+    val lastModified: String?,
     val contentType: String?,
     val etag: String?,
+    val acceptsByteRanges: Boolean,
 )
 
 enum class WebDavDepth(val headerValue: String) {
@@ -39,6 +41,20 @@ data class WebDavByteRange(
     fun toHeaderValue(): String = "bytes=$start-${endInclusive?.toString().orEmpty()}"
 }
 
+data class WebDavContentRange(
+    val start: Long,
+    val endInclusive: Long,
+    val totalLength: Long?,
+) {
+    init {
+        require(start >= 0L) { "Content-Range start must not be negative" }
+        require(endInclusive >= start) { "Content-Range end must not precede its start" }
+        require(totalLength == null || totalLength > endInclusive) {
+            "Content-Range total must exceed its end"
+        }
+    }
+}
+
 class WebDavUpload(
     val contentLength: Long? = null,
     val contentType: String? = null,
@@ -54,7 +70,7 @@ class WebDavUpload(
 class WebDavReadResponse(
     val statusCode: Int,
     val metadata: WebDavMetadata,
-    val contentRange: String?,
+    val contentRange: WebDavContentRange?,
     val stream: InputStream,
     private val closeAction: () -> Unit,
 ) : Closeable {

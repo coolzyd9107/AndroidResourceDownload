@@ -9,6 +9,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavCredentialLoader
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPermission
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class BackendWebDavCredentialLoader(
     private val api: WebDavCredentialApi,
@@ -55,6 +56,14 @@ class BackendWebDavCredentialLoader(
         }
         val rootPath = try {
             WebDavPath.parseDecoded(dto.rootPath)
+        } catch (error: RuntimeException) {
+            throw WebDavException.CredentialUnavailable(error)
+        }
+        try {
+            dto.baseUrl.toHttpUrl().also { url ->
+                require(url.isHttps && url.username.isEmpty() && url.password.isEmpty())
+                require(url.query == null && url.fragment == null)
+            }
         } catch (error: RuntimeException) {
             throw WebDavException.CredentialUnavailable(error)
         }

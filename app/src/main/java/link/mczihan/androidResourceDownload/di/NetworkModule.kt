@@ -67,6 +67,11 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    @WebDavHttpClient
+    fun provideWebDavHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+
+    @Provides
+    @Singleton
     fun provideAuthApi(@BackendRetrofit retrofit: Retrofit): AuthApi = retrofit.create(AuthApi::class.java)
 
     @Provides
@@ -99,6 +104,6 @@ object NetworkModule {
     @Singleton
     fun provideWebDavClient(
         credentialProvider: WebDavCredentialProvider,
-        @BackendHttpClient client: OkHttpClient,
+        @WebDavHttpClient client: OkHttpClient,
     ): WebDavClient = CredentialBackedWebDavClient(credentialProvider, client)
 }
