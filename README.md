@@ -30,19 +30,28 @@
 
 ## GitHub Actions 构建
 
-项目使用名为 **Android CI** 的 GitHub Actions 工作流进行远程编译。工作流在推送到 `main`、面向 `main` 的 Pull Request 以及手动触发时运行。Android 构建从 Actions Variable `API_BASE_URL` 注入真实 HTTPS 后端地址，并以 `demoMode=false` 执行：
+项目使用名为 **Android CI** 的 GitHub Actions 工作流进行远程编译。工作流在推送到 `main`、面向 `main` 的 Pull Request 以及手动触发时运行。Android 构建从 Actions Variable `API_BASE_URL` 注入真实 HTTPS 后端地址，并以 `demoMode=false` 执行 Release 检查：
 
 ```text
-./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug
+./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease
 ```
 
-CI 仅生成使用 Android 默认 Debug 签名的真实模式调试包，不配置发布签名，不读取发布密钥或签名 Secrets。任务成功后，可进入 GitHub 仓库的 **Actions** 页面，打开对应的 **Android CI** 运行，在 **Artifacts** 区域下载 `android-real-debug-apk`；其中包含 `app-debug.apk`。
+所有事件先执行 `lintRelease`、`testReleaseUnitTest` 和无签名的 `assembleRelease`，这一步不接触发布密钥。推送到 `main` 或在 `main` 手动触发时，独立的签名 Job 进入受保护的 `release` Environment，从以下 Environment Secrets 读取发布签名并生成可安装的 `app-release.apk`：
+
+- `ANDROID_KEYSTORE_BASE64`：keystore 文件的 Base64 内容。
+- `ANDROID_KEYSTORE_PASSWORD`：keystore 密码。
+- `ANDROID_KEY_ALIAS`：发布密钥别名。
+- `ANDROID_KEY_PASSWORD`：发布密钥密码。
+
+`release` Environment 应将部署分支限制为 `main`，并按需要启用审批。任务成功后，可在对应 **Android CI** 运行的 **Artifacts** 区域下载 `android-real-release-apk`。keystore 文件只在 Runner 临时目录中解码，并在构建结束后删除；仓库不保存发布密钥。
+
+本地签名构建使用 `ANDROID_KEYSTORE_PATH` 指向 keystore 文件，并同时设置 `ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 和 `ANDROID_KEY_PASSWORD`；`ANDROID_KEYSTORE_BASE64` 仅供 CI 解码使用。
 
 远程 CI 是项目的编译与合并门禁，本工作流不要求本地编译。Android 项目脚手架、`gradlew` 和 `app` 模块提交后，工作流才具备实际构建输入。
 
 ## 可选的本地环境
 
-本地开发不是获取 Debug APK 的前提；需要修改或调试 Android 代码时，可准备：
+本地开发不是获取 Release APK 的前提；需要修改或调试 Android 代码时，可准备：
 
 - JDK 17
 - Android SDK，以及项目 Gradle 配置要求的平台与构建工具
@@ -54,7 +63,7 @@ CI 仅生成使用 Android 默认 Debug 签名的真实模式调试包，不配�
 
 ```text
 .
-├── .github/workflows/android-ci.yml   # 远程 Debug CI
+├── .github/workflows/android-ci.yml   # 远程 Release CI
 ├── app/                               # Android 应用模块与 Mock UI
 ├── docs/FRONTEND_APPEND_V1_1.md      # v1.1 Android 直连 WebDAV 契约
 ├── backend/                           # Go 认证、凭据和更新 API

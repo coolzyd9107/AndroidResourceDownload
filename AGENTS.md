@@ -8,7 +8,7 @@
 
 ## Verification
 
-- Android CI-equivalent gate: `./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug` (JDK 17; APK at `app/build/outputs/apk/debug/app-debug.apk`).
+- Android release gate: `./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease` (JDK 17). Local signing requires `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`; the signed APK is written to `app/build/outputs/apk/release/app-release.apk`.
 - Focus one Android test class with `./gradlew testDebugUnitTest --tests 'link.mczihan.androidResourceDownload.webdav.WebDavPathTest'`.
 - Backend CI-equivalent gate, from `backend/`: `go vet ./...`, `go build ./...`, then `go test -race -count=1 ./...`. `make test` runs the same race-enabled test command.
 - Focus backend tests from `backend/` with `go test ./internal/integration -run '^TestHealth$'` or replace the package/test regex. Integration tests use temporary SQLite and mock GitHub; they require no PostgreSQL, Redis, or external WebDAV service.

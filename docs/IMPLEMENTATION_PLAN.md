@@ -9,21 +9,21 @@
 - Android 包名：`link.mczihan.androidResourceDownload`。
 - 最低支持 Android 8.1（API 27）。
 - 先实现 Mock 后端与 Repository 替身，稳定 UI 状态、导航和领域接口后，再接入真实认证、WebDAV 与更新服务。
-- GitHub Actions 只构建 Debug 变体，使用标准 Debug 签名；不配置发布签名、密钥或 Secrets。
+- GitHub Actions 对所有事件执行 Release lint、单元测试和无签名打包；仅在 `main` 上通过受保护的 `release` Environment 注入正式签名并构建 Release APK。
 - 真实后端路由采用 `{code,message,data}` envelope；GitHub 不校验邮箱后缀，角色以后端返回为准，Email 登录保留域名规则。
 - Android 直连 WebDAV，当前已完成凭据 DTO、内存缓存、路径安全、PROPFIND 解析和 OkHttp 方法；凭据密码不落盘。
-- 当前 Android Debug 默认 `DEMO_MODE=true`；真实 API 地址和 OAuth 参数通过未提交 Gradle 属性注入。
-- GitHub Actions 同时执行 Android Debug 门禁和 backend Go test/vet/build。
+- 本地 Android 构建默认 `DEMO_MODE=true`；CI 通过 Gradle 属性注入真实 API 地址并设置 `demoMode=false`。
+- GitHub Actions 同时执行 Android Release 门禁和 backend Go test/vet/build。
 
 ## CI 门禁与实施顺序
 
 每个阶段都按“接口与模型 -> Mock/测试 -> UI 或基础设施 -> 真实集成 -> 异常路径”的顺序提交。面向 `main` 的 Pull Request 必须由远程 **Android CI** 执行以下命令并通过后才能合并：
 
 ```text
-./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug
+./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease
 ```
 
-CI 成功后还应确认 `android-real-debug-apk` artifact 可下载。该 artifact 通过 Actions Variable `API_BASE_URL` 注入真实 HTTPS 后端，并以 `demoMode=false` 构建。CI 不执行发布签名；涉及设备行为的阶段仍需记录模拟器或实体设备验证结果。
+推送到 `main` 或在 `main` 手动触发的 CI 成功后，还应确认 `android-real-release-apk` artifact 可下载。该 artifact 通过 Actions Variable `API_BASE_URL` 注入真实 HTTPS 后端，以 `demoMode=false` 构建，并使用受保护 `release` Environment 中的发布密钥签名。Pull Request 不读取签名 Secrets，但仍执行无签名打包；涉及设备行为的阶段仍需记录模拟器或实体设备验证结果。
 
 ## 阶段一：项目初始化（已完成）
 
@@ -37,11 +37,11 @@ CI 成功后还应确认 `android-real-debug-apk` artifact 可下载。该 artif
 - `core`、`data`、`domain`、`feature`、`di` 的初始职责边界。
 - 登录、文件列表、下载、设置、个人中心等页面的导航占位与 Mock UI 状态。
 - 浅色、深色和跟随系统的主题框架；统一 Loading、Empty、Error 等页面状态模型。
-- 可由 Android CI 生成的 Debug APK。
+- 可由 Android CI 生成的 Release APK。
 
 **验证**
 
-- CI 的 lint、Debug 单元测试和 Debug APK 构建全部通过。
+- CI 的 Release lint、单元测试和 APK 构建全部通过。
 - 冷启动、页面导航、返回栈、Mock 状态切换与明暗主题无崩溃。
 - 在 API 27 环境完成一次启动与主要页面冒烟检查。
 
@@ -51,7 +51,7 @@ CI 成功后还应确认 `android-real-debug-apk` artifact 可下载。该 artif
 - Mock 模型与后续真实接口耦合过深，增加替换成本。
 - 把占位交互误认为已完成认证、WebDAV 或下载能力。
 
-## 阶段二：登录模块与 v1.1 基础设施（进行中）
+## 阶段二：登录模块与 v1.1 基础设施（已完成）
 
 **目标**
 
@@ -77,7 +77,7 @@ CI 成功后还应确认 `android-real-debug-apk` artifact 可下载。该 artif
 - 仅依赖客户端角色判断造成越权；最终授权必须由服务端执行。
 - 凭据刷新并发、失效状态和安全存储兼容性处理不完整。
 
-## 阶段三：文件列表模块
+## 阶段三：文件列表模块（进行中）
 
 **目标**
 
@@ -206,7 +206,7 @@ CI 成功后还应确认 `android-real-debug-apk` artifact 可下载。该 artif
 
 **目标**
 
-完成 Android 8.1 起的兼容适配、全流程回归、安全检查和发布前质量收敛；发布签名属于独立发布流程，不进入 Debug CI。
+完成 Android 8.1 起的兼容适配、全流程回归、安全检查和发布前质量收敛；发布签名由受控的 Release CI 注入。
 
 **交付物**
 
@@ -217,7 +217,7 @@ CI 成功后还应确认 `android-real-debug-apk` artifact 可下载。该 artif
 
 **验证**
 
-- Android CI 持续通过，Debug APK artifact 可安装并完成冒烟测试。
+- Android CI 持续通过，签名 Release APK artifact 可安装并完成冒烟测试。
 - 按 Dev.md 验收标准执行功能、权限、异常与兼容性矩阵。
 - 检查依赖、日志、网络配置、敏感信息存储和 APK 来源完整性。
 
@@ -225,8 +225,8 @@ CI 成功后还应确认 `android-real-debug-apk` artifact 可下载。该 artif
 
 - API 27 与最新目标平台之间的行为差异集中暴露在存储、通知和前台服务。
 - 测试服务与生产 WebDAV 能力不一致，导致协议兼容问题遗漏。
-- 将 Debug 签名产物误用于发布；正式发布必须使用隔离、审计过的签名流程。
+- 发布密钥泄露或丢失将阻断可信更新；必须隔离保管、限制访问并建立备份和轮换预案。
 
 ## 阶段完成规则
 
-一个阶段只有同时满足以下条件才可标记完成：范围内交付物进入主分支；远程 CI 通过并产出 Debug APK；对应自动化测试通过；设备相关验证有结果；未解决风险有明确负责人和后续阶段。当前只有阶段一被标记为进行中，其余阶段均为计划状态。
+一个阶段只有同时满足以下条件才可标记完成：范围内交付物进入主分支；远程 CI 通过并产出签名 Release APK；对应自动化测试通过；设备相关验证有结果；未解决风险有明确负责人和后续阶段。当前状态以各阶段标题和本文开头的项目基线为准。
