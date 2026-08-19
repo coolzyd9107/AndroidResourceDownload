@@ -10,6 +10,9 @@ class WebDavEndpoint private constructor(
 ) {
     fun urlFor(path: WebDavPath): HttpUrl = buildUrl(rootSegments + path.decodedSegments, path.isRoot)
 
+    fun collectionUrlFor(path: WebDavPath): HttpUrl =
+        buildUrl(rootSegments + path.decodedSegments, trailingSlash = true)
+
     fun resolveHref(href: String, requestUrl: HttpUrl): WebDavPath {
         if (href.isBlank() || href.any { Character.isISOControl(it) }) {
             throw WebDavException.UnsafePath("WebDAV href is blank or contains control characters")

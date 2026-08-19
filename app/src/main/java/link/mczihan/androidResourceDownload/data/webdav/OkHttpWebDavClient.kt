@@ -50,7 +50,7 @@ class OkHttpWebDavClient(
         .build()
 
     override suspend fun propFind(path: WebDavPath, depth: WebDavDepth): List<WebDavResource> {
-        val url = endpoint.urlFor(path)
+        val url = endpoint.collectionUrlFor(path)
         val response = executeAuthenticated { lease ->
             Request.Builder()
                 .url(url)

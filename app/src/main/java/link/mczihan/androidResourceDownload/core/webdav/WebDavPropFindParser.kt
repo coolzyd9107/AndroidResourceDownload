@@ -28,32 +28,26 @@ class WebDavPropFindParser(
         input: InputStream,
         endpoint: WebDavEndpoint,
         requestUrl: HttpUrl,
-    ): List<WebDavResource> {
-        val parser = try {
-            parserFactory().apply {
-                setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
-                setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
-                setInput(BoundedInputStream(input, maximumResponseBytes), Charsets.UTF_8.name())
-            }
-        } catch (error: XmlPullParserException) {
-            throw WebDavException.InvalidResponse("Unable to initialize WebDAV XML parser", error)
+    ): List<WebDavResource> = try {
+        val parser = parserFactory().apply {
+            setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            // Let the XML declaration or BOM select UTF-8/UTF-16 instead of
+            // corrupting non-UTF-8 WebDAV responses.
+            setInput(BoundedInputStream(input, maximumResponseBytes), null)
         }
-
-        return try {
-            parseDocument(parser, endpoint, requestUrl)
-        } catch (error: WebDavException) {
-            throw error
-        } catch (error: XmlPullParserException) {
-            val oversized = findCause<ResponseLimitExceeded>(error)
-            if (oversized != null) throw WebDavException.ResponseTooLarge(maximumResponseBytes)
-            throw WebDavException.InvalidResponse("Malformed WebDAV PROPFIND response", error)
-        } catch (error: ResponseLimitExceeded) {
-            throw WebDavException.ResponseTooLarge(maximumResponseBytes)
-        } catch (error: IOException) {
-            throw error
-        } catch (error: RuntimeException) {
-            throw WebDavException.InvalidResponse("Invalid WebDAV PROPFIND response", error)
-        }
+        parseDocument(parser, endpoint, requestUrl)
+    } catch (error: WebDavException) {
+        throw error
+    } catch (error: XmlPullParserException) {
+        val oversized = findCause<ResponseLimitExceeded>(error)
+        if (oversized != null) throw WebDavException.ResponseTooLarge(maximumResponseBytes)
+        throw WebDavException.InvalidResponse("Malformed WebDAV PROPFIND response", error)
+    } catch (error: ResponseLimitExceeded) {
+        throw WebDavException.ResponseTooLarge(maximumResponseBytes)
+    } catch (error: IOException) {
+        throw error
+    } catch (error: RuntimeException) {
+        throw WebDavException.InvalidResponse("Invalid WebDAV PROPFIND response", error)
     }
 
     private fun parseDocument(
@@ -62,14 +56,23 @@ class WebDavPropFindParser(
         requestUrl: HttpUrl,
     ): List<WebDavResource> {
         val resources = mutableListOf<WebDavResource>()
+        var rootSeen = false
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             rejectUnsafeXmlEvent(event)
-            if (event == XmlPullParser.START_TAG && parser.isDavElement("response")) {
-                resources += parseResponse(parser, endpoint, requestUrl)
+            if (event == XmlPullParser.START_TAG) {
+                if (!rootSeen) {
+                    if (!parser.isDavElement("multistatus")) {
+                        throw WebDavException.InvalidResponse("WebDAV response is not a DAV multistatus document")
+                    }
+                    rootSeen = true
+                } else if (parser.isDavElement("response")) {
+                    resources += parseResponse(parser, endpoint, requestUrl)
+                }
             }
             event = parser.next()
         }
+        if (!rootSeen) throw WebDavException.InvalidResponse("WebDAV response contains no XML document")
         return resources
     }
 

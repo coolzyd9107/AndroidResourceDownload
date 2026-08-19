@@ -21,6 +21,16 @@ class WebDavPathTest {
     }
 
     @Test
+    fun collectionUrlsAlwaysEndWithSlash() {
+        val endpoint = WebDavEndpoint.create("https://example.com/dav/root/".toHttpUrl())
+
+        assertEquals(
+            "https://example.com/dav/root/folder/",
+            endpoint.collectionUrlFor(WebDavPath.fromDecodedSegments(listOf("folder"))).toString(),
+        )
+    }
+
+    @Test
     fun traversalControlsAndEncodedSeparatorsAreRejected() {
         assertUnsafe { WebDavPath.fromDecodedSegments(listOf("..")) }
         assertUnsafe { WebDavPath.fromDecodedSegments(listOf("a/b")) }

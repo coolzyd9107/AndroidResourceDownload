@@ -246,7 +246,9 @@ private fun MainShell(
     val currentRoute = backStackEntry?.destination?.route
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var tasks by remember { mutableStateOf(initialMockDownloads()) }
+    var tasks by remember {
+        mutableStateOf(if (BuildConfig.DEMO_MODE) initialMockDownloads() else emptyList())
+    }
     var showUpdateDialog by remember { mutableStateOf(false) }
 
     fun showMessage(message: String) {
@@ -310,11 +312,13 @@ private fun MainShell(
                 DownloadsScreen(
                     tasks = tasks,
                     onStatusChange = { taskId, status ->
-                        tasks = tasks.map { task ->
-                            if (task.id == taskId) {
-                                task.withMockStatus(status)
-                            } else {
-                                task
+                        if (BuildConfig.DEMO_MODE) {
+                            tasks = tasks.map { task ->
+                                if (task.id == taskId) {
+                                    task.withMockStatus(status)
+                                } else {
+                                    task
+                                }
                             }
                         }
                     },
