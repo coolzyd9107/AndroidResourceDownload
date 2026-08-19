@@ -40,7 +40,12 @@ class DownloadsViewModel @Inject constructor(
         queueController.activate(value)
         if (ownerId.value == value) return
         ownerId.value = value
-        viewModelScope.launch { queueController.startIfNeeded(value) }
+        viewModelScope.launch {
+            if (queueController.hasPublicDownloadAccess()) {
+                repository.reconcileUncommittedPublications(value)
+            }
+            queueController.startIfNeeded(value)
+        }
     }
 
     fun enqueue(file: FileNode) {
@@ -74,6 +79,11 @@ class DownloadsViewModel @Inject constructor(
 
     fun retry(taskId: String) = withOwner { owner ->
         if (!queueController.retry(owner, taskId)) messageChannel.send("无法重新启动该任务")
+    }
+
+    fun startPending() = withOwner { owner ->
+        repository.reconcileUncommittedPublications(owner)
+        if (!queueController.startIfNeeded(owner)) messageChannel.send("无法启动下载队列")
     }
 
     fun cancel(taskId: String) = withOwner { owner ->

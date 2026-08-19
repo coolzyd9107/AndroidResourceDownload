@@ -14,6 +14,7 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +34,7 @@ import link.mczihan.androidResourceDownload.data.download.DownloadFileOpener
 import link.mczihan.androidResourceDownload.data.download.DownloadIntegrityException
 import link.mczihan.androidResourceDownload.data.download.DownloadRepository
 import link.mczihan.androidResourceDownload.data.download.DownloadTransferEngine
+import link.mczihan.androidResourceDownload.data.download.PublicDownloadStore
 import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
@@ -45,9 +47,11 @@ class DownloadService : Service() {
     @Inject lateinit var queueController: DownloadQueueController
     @Inject lateinit var executionRegistry: DownloadExecutionRegistry
     @Inject lateinit var fileStore: DownloadFileStore
+    @Inject lateinit var publicDownloadStore: PublicDownloadStore
     @Inject lateinit var fileOpener: DownloadFileOpener
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
     private val runnerLock = Any()
     private val wakeVersion = AtomicLong()
     @Volatile private var latestStartId = 0
@@ -157,10 +161,36 @@ class DownloadService : Service() {
     }
 
     private suspend fun runTask(ownerId: String, task: DownloadTask): Boolean {
+        val taskJob = serviceScope.async(start = CoroutineStart.LAZY) { executeTask(task) }
+        executionRegistry.register(ownerId, task.id, taskJob)
+        taskJob.start()
+        return try {
+            taskJob.await()
+        } catch (error: CancellationException) {
+            if (!serviceJob.isActive) throw error
+            true
+        } finally {
+            executionRegistry.clear(task.id, taskJob)
+        }
+    }
+
+    private suspend fun executeTask(task: DownloadTask): Boolean {
         var lastProgressUpdate = 0L
         var continueQueue = true
-        val transferJob = serviceScope.async {
-            transferEngine.transfer(
+        var stagedUri: String? = null
+        var publishedUri: String? = null
+        try {
+            if (fileStore.hasFinalFile(task)) {
+                fileStore.restoreFinalAsPartial(task)
+            }
+            task.publicUri?.let { staleUri ->
+                withContext(NonCancellable) {
+                    if (!discardPublication(task.id, staleUri)) {
+                        throw IOException("Unable to remove an incomplete public download")
+                    }
+                }
+            }
+            val result = transferEngine.transfer(
                 task = task,
                 onPreparation = { preparation ->
                     if (!repository.updatePreparation(task.id, preparation)) {
@@ -181,18 +211,44 @@ class DownloadService : Service() {
                     }
                 },
             )
-        }
-        executionRegistry.register(ownerId, task.id, transferJob)
-
-        try {
-            val result = transferJob.await()
-            if (repository.complete(task.id, result)) {
+            val stage = publicDownloadStore.create(task, result.mimeType)
+            stagedUri = stage
+            publishedUri = stage
+            if (!repository.stagePublicUri(task.id, stage)) {
+                throw TaskStoppedException()
+            }
+            val destinationUri = publicDownloadStore.write(
+                task = task,
+                publicUri = stage,
+                source = fileStore.finalFile(task),
+                mimeType = result.mimeType,
+                onPublished = { uri -> publishedUri = uri },
+            )
+            val committed = withContext(NonCancellable) {
+                repository.complete(task.id, result, destinationUri).also { completed ->
+                    if (completed) {
+                        stagedUri = null
+                        publishedUri = null
+                    }
+                }
+            }
+            if (committed) {
+                fileStore.deleteAll(task)
                 showFinishedNotification(
-                    task.copy(status = DownloadStatus.SUCCESS, mimeType = result.mimeType),
+                    task.copy(
+                        status = DownloadStatus.SUCCESS,
+                        publicUri = destinationUri,
+                        mimeType = result.mimeType,
+                    ),
                     success = true,
                     message = "下载完成",
                 )
             } else {
+                withContext(NonCancellable) {
+                    discardPublication(task.id, stagedUri, publishedUri)
+                    stagedUri = null
+                    publishedUri = null
+                }
                 if (repository.status(task.id) == DownloadStatus.PAUSED) {
                     fileStore.restoreFinalAsPartial(task)
                 } else {
@@ -200,18 +256,47 @@ class DownloadService : Service() {
                 }
             }
         } catch (error: CancellationException) {
-            withContext(NonCancellable) { repository.requeueIfRunning(task.id) }
+            withContext(NonCancellable) {
+                discardPublication(task.id, stagedUri, publishedUri)
+                stagedUri = null
+                publishedUri = null
+                if (repository.status(task.id) == DownloadStatus.SUCCESS) {
+                    fileStore.deleteAll(task)
+                } else if (fileStore.hasFinalFile(task)) {
+                    runCatching { fileStore.restoreFinalAsPartial(task) }
+                }
+                repository.requeueIfRunning(task.id)
+            }
             if (!currentCoroutineContext().isActive) throw error
         } catch (error: Exception) {
+            withContext(NonCancellable) {
+                discardPublication(task.id, stagedUri, publishedUri)
+                stagedUri = null
+                publishedUri = null
+                if (fileStore.hasFinalFile(task)) {
+                    runCatching { fileStore.restoreFinalAsPartial(task) }
+                }
+            }
             val message = error.toDownloadMessage()
             repository.fail(task.id, message)
             showFinishedNotification(task, success = false, message = message)
             continueQueue = error !is WebDavException.AuthenticationRequired &&
                 error !is WebDavException.CredentialUnavailable
-        } finally {
-            executionRegistry.clear(task.id, transferJob)
         }
         return continueQueue
+    }
+
+    private suspend fun discardPublication(
+        taskId: String,
+        stagedUri: String?,
+        publishedUri: String? = stagedUri,
+    ): Boolean {
+        if (publishedUri == null) return true
+        if (publicDownloadStore.delete(publishedUri)) {
+            stagedUri?.let { repository.clearPublicUri(taskId, it) }
+            return true
+        }
+        return false
     }
 
     private fun Exception.toDownloadMessage(): String = when (this) {
@@ -224,6 +309,7 @@ class DownloadService : Service() {
         is WebDavException.InvalidResponse,
         is DownloadIntegrityException,
         -> "服务器返回的文件数据无效"
+        is SecurityException -> "需要存储权限才能写入系统下载目录"
         is IOException -> "存储空间不足或文件写入失败"
         else -> "下载失败，可重试"
     }

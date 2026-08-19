@@ -14,15 +14,18 @@ import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 class DownloadFileOpener @Inject constructor(
     @ApplicationContext private val context: Context,
     private val fileStore: DownloadFileStore,
+    private val publicDownloadStore: PublicDownloadStore,
 ) {
     fun intentFor(task: DownloadTask): Intent? {
         if (task.status != DownloadStatus.SUCCESS) return null
-        val file = fileStore.finalFile(task).takeIf { it.isFile } ?: return null
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            file,
-        )
+        val uri = publicDownloadStore.uriForViewing(task.publicUri) ?: run {
+            val file = fileStore.finalFile(task).takeIf { it.isFile } ?: return null
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file,
+            )
+        }
         return Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, task.mimeType ?: "application/octet-stream")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)

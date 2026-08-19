@@ -265,9 +265,30 @@ private fun MainShell(
     val downloadsViewModel = if (BuildConfig.DEMO_MODE) null else hiltViewModel<DownloadsViewModel>()
     val persistedTasks = downloadsViewModel?.tasks?.collectAsStateWithLifecycle()?.value.orEmpty()
     var pendingPermissionDownload by remember { mutableStateOf<FileNode?>(null) }
+    var pendingPermissionRetryId by remember { mutableStateOf<String?>(null) }
+    var pendingPermissionStartQueue by remember { mutableStateOf(false) }
+    var requestedQueueStoragePermission by remember { mutableStateOf(false) }
 
     fun showMessage(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val file = pendingPermissionDownload
+        val retryId = pendingPermissionRetryId
+        val startQueue = pendingPermissionStartQueue
+        pendingPermissionDownload = null
+        pendingPermissionRetryId = null
+        pendingPermissionStartQueue = false
+        if (granted) {
+            file?.let { downloadsViewModel?.enqueue(it) }
+            retryId?.let { downloadsViewModel?.retry(it) }
+            if (startQueue) downloadsViewModel?.startPending()
+        } else {
+            showMessage("需要存储权限才能保存到系统下载目录")
+        }
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -276,6 +297,25 @@ private fun MainShell(
         pendingPermissionDownload?.let { downloadsViewModel?.enqueue(it) }
         pendingPermissionDownload = null
         if (!granted) showMessage("通知权限未开启，下载仍会在队列中执行")
+    }
+
+    LaunchedEffect(persistedTasks, downloadsViewModel) {
+        val hasRestoredQueue = persistedTasks.any { task ->
+            task.status == DownloadStatus.PENDING || task.status == DownloadStatus.RUNNING
+        }
+        if (!BuildConfig.DEMO_MODE &&
+            Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+            hasRestoredQueue &&
+            !requestedQueueStoragePermission &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestedQueueStoragePermission = true
+            pendingPermissionStartQueue = true
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
     }
 
     LaunchedEffect(downloadsViewModel, user.id) {
@@ -331,6 +371,14 @@ private fun MainShell(
                         if (BuildConfig.DEMO_MODE) {
                             demoTasks = listOf(mockTaskForFile(file)) + demoTasks
                             showMessage("已加入下载任务")
+                        } else if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            pendingPermissionDownload = file
+                            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             ContextCompat.checkSelfPermission(
                                 context,
@@ -360,7 +408,21 @@ private fun MainShell(
                             }
                         } else {
                             when (status) {
-                                DownloadStatus.RUNNING -> downloadsViewModel?.retry(taskId)
+                                DownloadStatus.RUNNING -> {
+                                    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                                        ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                        ) != PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        pendingPermissionRetryId = taskId
+                                        storagePermissionLauncher.launch(
+                                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                        )
+                                    } else {
+                                        downloadsViewModel?.retry(taskId)
+                                    }
+                                }
                                 DownloadStatus.PAUSED -> downloadsViewModel?.pause(taskId)
                                 DownloadStatus.CANCELLED -> downloadsViewModel?.cancel(taskId)
                                 else -> Unit

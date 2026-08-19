@@ -3,6 +3,9 @@
     <files-path
         name="internal_downloads"
         path="downloads/" />
+    <external-path
+        name="public_downloads"
+        path="Download/" />
     <cache-path
         name="update_cache"
         path="updates/" />

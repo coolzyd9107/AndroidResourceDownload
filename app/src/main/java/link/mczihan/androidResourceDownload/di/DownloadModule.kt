@@ -19,7 +19,9 @@ object DownloadModule {
     @Provides
     @Singleton
     fun provideDownloadDatabase(@ApplicationContext context: Context): DownloadDatabase =
-        Room.databaseBuilder(context, DownloadDatabase::class.java, "downloads.db").build()
+        Room.databaseBuilder(context, DownloadDatabase::class.java, "downloads.db")
+            .addMigrations(DownloadDatabase.MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideDownloadTaskDao(database: DownloadDatabase): DownloadTaskDao =

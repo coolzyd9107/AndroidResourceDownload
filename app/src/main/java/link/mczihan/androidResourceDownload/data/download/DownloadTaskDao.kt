@@ -43,6 +43,52 @@ abstract class DownloadTaskDao {
     @Query("SELECT status FROM download_tasks WHERE id = :taskId LIMIT 1")
     abstract suspend fun status(taskId: String): DownloadStatus?
 
+    @Query(
+        """
+        SELECT * FROM download_tasks
+        WHERE owner_id = :ownerId
+          AND status IN ('PENDING', 'PAUSED', 'FAILED', 'CANCELLED')
+          AND public_uri IS NOT NULL
+        """,
+    )
+    abstract suspend fun findUncommittedPublications(ownerId: String): List<DownloadTaskEntity>
+
+    @Query(
+        """
+        UPDATE download_tasks
+        SET public_uri = :publicUri, updated_at = :now
+        WHERE id = :taskId AND status = 'SUCCESS' AND public_uri IS NULL
+        """,
+    )
+    abstract suspend fun attachPublicUri(taskId: String, publicUri: String, now: Long): Int
+
+    @Query(
+        """
+        UPDATE download_tasks
+        SET public_uri = NULL, updated_at = :now
+        WHERE id = :taskId AND public_uri = :publicUri AND status = 'SUCCESS'
+        """,
+    )
+    abstract suspend fun clearCompletedPublicUri(taskId: String, publicUri: String, now: Long): Int
+
+    @Query(
+        """
+        UPDATE download_tasks
+        SET public_uri = :publicUri, updated_at = :now
+        WHERE id = :taskId AND status = 'RUNNING' AND public_uri IS NULL
+        """,
+    )
+    abstract suspend fun stagePublicUri(taskId: String, publicUri: String, now: Long): Int
+
+    @Query(
+        """
+        UPDATE download_tasks
+        SET public_uri = NULL, updated_at = :now
+        WHERE id = :taskId AND public_uri = :publicUri AND status != 'SUCCESS'
+        """,
+    )
+    abstract suspend fun clearPublicUri(taskId: String, publicUri: String, now: Long): Int
+
     @Insert
     abstract suspend fun insert(task: DownloadTaskEntity)
 
@@ -164,6 +210,7 @@ abstract class DownloadTaskDao {
             support_range = :supportRange,
             etag = :etag,
             last_modified = :lastModified,
+            public_uri = :publicUri,
             mime_type = COALESCE(:mimeType, mime_type),
             error_message = NULL,
             updated_at = :now
@@ -177,6 +224,7 @@ abstract class DownloadTaskDao {
         supportRange: Boolean,
         etag: String?,
         lastModified: String?,
+        publicUri: String,
         mimeType: String?,
         now: Long,
     ): Int

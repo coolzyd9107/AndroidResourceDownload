@@ -1,7 +1,10 @@
 package link.mczihan.androidResourceDownload.service
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
@@ -30,7 +33,7 @@ class DownloadQueueController @Inject constructor(
     }
 
     fun start(ownerId: String): Boolean {
-        if (ownerId in blockedOwners) return false
+        if (ownerId in blockedOwners || !hasPublicDownloadAccess()) return false
         return try {
             ContextCompat.startForegroundService(
                 context,
@@ -52,7 +55,7 @@ class DownloadQueueController @Inject constructor(
     }
 
     suspend fun retry(ownerId: String, taskId: String): Boolean {
-        if (ownerId in blockedOwners) return false
+        if (ownerId in blockedOwners || !hasPublicDownloadAccess()) return false
         executionRegistry.cancelTaskAndJoin(taskId)
         val changed = repository.retry(ownerId, taskId)
         return changed && start(ownerId)
@@ -60,7 +63,10 @@ class DownloadQueueController @Inject constructor(
 
     suspend fun cancel(ownerId: String, taskId: String): Boolean {
         val changed = repository.cancel(ownerId, taskId)
-        if (changed) executionRegistry.cancelTask(taskId)
+        if (changed) {
+            executionRegistry.cancelTaskAndJoin(taskId)
+            repository.cleanupCancelled(ownerId, taskId)
+        }
         return changed
     }
 
@@ -69,4 +75,11 @@ class DownloadQueueController @Inject constructor(
         repository.pauseRunning(ownerId)
         executionRegistry.cancelOwnerAndJoin(ownerId)
     }
+
+    fun hasPublicDownloadAccess(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) == PackageManager.PERMISSION_GRANTED
 }
