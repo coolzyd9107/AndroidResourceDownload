@@ -28,9 +28,15 @@ class DownloadFileStore(rootDirectory: File) {
     }
 
     fun finalize(task: DownloadTask) {
-        val source = partialFile(task)
-        val destination = finalFile(task)
-        if (!source.isFile) throw IOException("Download temporary file is missing")
+        move(partialFile(task), finalFile(task), "Download temporary file is missing")
+    }
+
+    fun restoreFinalAsPartial(task: DownloadTask) {
+        move(finalFile(task), partialFile(task), "Downloaded file is missing")
+    }
+
+    private fun move(source: File, destination: File, missingMessage: String) {
+        if (!source.isFile) throw IOException(missingMessage)
         try {
             Files.move(
                 source.toPath(),
@@ -76,7 +82,7 @@ class DownloadFileStore(rootDirectory: File) {
     }
 
     companion object {
-        private const val MAX_FILE_NAME_LENGTH = 120
+        private const val MAX_STORAGE_NAME_BYTES = 200
         private val TASK_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,80}")
 
         fun storageNameFor(remoteName: String): String {
@@ -92,13 +98,28 @@ class DownloadFileStore(rootDirectory: File) {
                 }
             }.trim().ifEmpty { "download" }
             if (cleaned == "." || cleaned == "..") return "download"
-            if (cleaned.length <= MAX_FILE_NAME_LENGTH) return cleaned
+            if (cleaned.toByteArray(Charsets.UTF_8).size <= MAX_STORAGE_NAME_BYTES) return cleaned
 
             val extension = cleaned.substringAfterLast('.', "")
                 .takeIf { it.isNotEmpty() && it.length <= 16 }
                 ?.let { ".$it" }
                 .orEmpty()
-            return cleaned.take(MAX_FILE_NAME_LENGTH - extension.length) + extension
+            val base = cleaned.dropLast(extension.length)
+            val byteBudget = MAX_STORAGE_NAME_BYTES - extension.toByteArray(Charsets.UTF_8).size
+            val truncated = buildString {
+                var index = 0
+                var usedBytes = 0
+                while (index < base.length) {
+                    val codePoint = base.codePointAt(index)
+                    val value = String(Character.toChars(codePoint))
+                    val valueBytes = value.toByteArray(Charsets.UTF_8).size
+                    if (usedBytes + valueBytes > byteBudget) break
+                    append(value)
+                    usedBytes += valueBytes
+                    index += Character.charCount(codePoint)
+                }
+            }.ifEmpty { "download" }
+            return truncated + extension
         }
 
         private fun validateStorageName(name: String) {

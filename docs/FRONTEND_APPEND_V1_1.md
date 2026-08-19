@@ -52,4 +52,8 @@ WebDAV `401` 只允许一次：失效当前 credential generation，单飞重新
 
 ## 后续阶段
 
-GitHub OAuth callback 由后端 HTTPS 接收，后端只通过 App deep link 返回短期一次性 code；App 以 PKCE verifier 兑换会话 token，随后再请求短期 WebDAV 凭据。URL 中禁止放 access/refresh token、WebDAV 地址、账号或密码。SAF 上传、Room 持久下载、前台服务队列和 APK 更新安装仍待实现。
+GitHub OAuth callback 由后端 HTTPS 接收，后端只通过 App deep link 返回短期一次性 code；App 以 PKCE verifier 兑换会话 token，随后再请求短期 WebDAV 凭据。URL 中禁止放 access/refresh token、WebDAV 地址、账号或密码。
+
+Room 现在仅持久化任务所有者、远程安全路径、进度、状态和续传校验信息；WebDAV 地址、用户名、密码及短期解析 URL 均不进入数据库。前台服务按用户串行执行队列，文件先写入应用内部目录的 `.part`，仅在强 ETag 或原始 Last-Modified 匹配且 `206 Content-Range` 有效时追加，完成后通过 FileProvider 打开。
+
+SAF 上传、管理员写操作和 APK 更新安装仍待后续阶段实现。

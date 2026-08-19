@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,6 +20,7 @@ import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.service.DownloadQueueController
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
     private val repository: DownloadRepository,
@@ -35,6 +37,7 @@ class DownloadsViewModel @Inject constructor(
     val messages = messageChannel.receiveAsFlow()
 
     fun bindOwner(value: String) {
+        queueController.activate(value)
         if (ownerId.value == value) return
         ownerId.value = value
         viewModelScope.launch { queueController.startIfNeeded(value) }
@@ -56,7 +59,7 @@ class DownloadsViewModel @Inject constructor(
                 EnqueueResult.ALREADY_DOWNLOADED -> "该文件已经下载完成"
             }
             if ((result == EnqueueResult.ADDED || result == EnqueueResult.RESTARTED) &&
-                !queueController.start()
+                !queueController.start(currentOwner)
             ) {
                 messageChannel.send("任务已保存，系统暂未启动下载")
             } else {

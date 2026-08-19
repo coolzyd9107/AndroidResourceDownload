@@ -15,17 +15,25 @@ class DownloadFileOpener @Inject constructor(
     @ApplicationContext private val context: Context,
     private val fileStore: DownloadFileStore,
 ) {
-    fun open(task: DownloadTask): Boolean {
-        if (task.status != DownloadStatus.SUCCESS) return false
-        val file = fileStore.finalFile(task).takeIf { it.isFile } ?: return false
+    fun intentFor(task: DownloadTask): Intent? {
+        if (task.status != DownloadStatus.SUCCESS) return null
+        val file = fileStore.finalFile(task).takeIf { it.isFile } ?: return null
         val uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             file,
         )
-        val intent = Intent(Intent.ACTION_VIEW)
+        return Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, task.mimeType ?: "application/octet-stream")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    fun open(task: DownloadTask): Boolean {
+        val intent = try {
+            intentFor(task)
+        } catch (_: IllegalArgumentException) {
+            null
+        } ?: return false
         return try {
             context.startActivity(intent)
             true

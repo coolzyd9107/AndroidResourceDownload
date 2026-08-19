@@ -25,6 +25,7 @@ sealed interface AuthUiState {
     data object SendingCode : AuthUiState
     data class AwaitingCode(val email: String, val expiresInSeconds: Int) : AuthUiState
     data object Authenticating : AuthUiState
+    data object LoggingOut : AuthUiState
     data class Authenticated(val session: AuthSession) : AuthUiState
     data class Error(val message: String, val recoverableState: AuthUiState = Anonymous) : AuthUiState
 }
@@ -66,6 +67,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun requestCode(email: String) {
+        if (_state.value is AuthUiState.LoggingOut) return
         val normalizedEmail = email.trim()
         viewModelScope.launch {
             _state.value = AuthUiState.SendingCode
@@ -81,6 +83,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun loginWithEmail(email: String, code: String) {
+        if (_state.value is AuthUiState.LoggingOut) return
         val previousState = _state.value.let { state ->
             if (state is AuthUiState.Error) state.recoverableState else state
         }
@@ -98,6 +101,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun beginGithub(): String? {
+        if (_state.value is AuthUiState.LoggingOut) return null
         if (BuildConfig.API_BASE_URL.contains("example.invalid")) return null
         val baseUrl = runCatching {
             BuildConfig.API_BASE_URL.trim().let {
@@ -120,6 +124,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun handleGithubCallback(uri: Uri) {
+        if (_state.value is AuthUiState.LoggingOut) return
         if (uri.scheme != "link.mczihan.androidresourcedownload" ||
             uri.host != "oauth" || uri.path != "/callback"
         ) return setError("GitHub 回调地址无效")
@@ -149,13 +154,18 @@ class AuthViewModel @Inject constructor(
     }
 
     fun logout() {
+        val session = (_state.value as? AuthUiState.Authenticated)?.session ?: return
+        val ownerId = session.user.id
+        ownerId?.let(downloadQueueController::block)
+        _state.value = AuthUiState.LoggingOut
         viewModelScope.launch {
-            (_state.value as? AuthUiState.Authenticated)?.session?.user?.id?.let { ownerId ->
-                runCatching { downloadQueueController.stop(ownerId) }
-            }
-            runCatching { repository.logout() }
             credentialProvider.clear()
             pendingOAuthStore.clear()
+            val stopJob = launch {
+                runCatching { downloadQueueController.stop(ownerId) }
+            }
+            runCatching { repository.logout(session) }
+            stopJob.join()
             _state.value = AuthUiState.Anonymous
         }
     }

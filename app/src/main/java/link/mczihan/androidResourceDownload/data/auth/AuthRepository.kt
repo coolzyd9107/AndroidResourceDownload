@@ -29,5 +29,5 @@ interface AuthRepository {
 
     suspend fun synchronizeUser(): AuthSession?
 
-    suspend fun logout()
+    suspend fun logout(session: AuthSession? = null)
 }

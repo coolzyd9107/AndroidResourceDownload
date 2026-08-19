@@ -68,8 +68,8 @@ class CredentialBackedWebDavClient(
 
     override suspend fun delete(path: WebDavPath) = execute { it.delete(path) }
 
-    override suspend fun move(path: WebDavPath, destination: WebDavPath, overwrite: Boolean) =
-        execute { it.move(path, destination, overwrite) }
+    override suspend fun move(source: WebDavPath, destination: WebDavPath, overwrite: Boolean) =
+        execute { it.move(source, destination, overwrite) }
 
     private class FixedCredentialProvider(
         private val lease: CredentialLease,

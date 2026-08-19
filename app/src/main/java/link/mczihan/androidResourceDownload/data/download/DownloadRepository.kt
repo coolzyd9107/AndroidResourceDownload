@@ -49,7 +49,8 @@ class DownloadRepository @Inject constructor(
                 }
 
                 DownloadStatus.SUCCESS -> {
-                    val sameVersion = file.etag == null || existing.etag == null || file.etag == existing.etag
+                    val sameVersion = file.etag != null && existing.etag != null &&
+                        file.etag == existing.etag
                     if (sameVersion && fileStore.hasFinalFile(existing.toDomain())) {
                         return@withLock EnqueueResult.ALREADY_DOWNLOADED
                     }
@@ -128,6 +129,8 @@ class DownloadRepository @Inject constructor(
             now = System.currentTimeMillis(),
         ) == 1
 
+    suspend fun status(taskId: String): DownloadStatus? = dao.status(taskId)
+
     suspend fun fail(taskId: String, message: String) {
         dao.fail(taskId, message, System.currentTimeMillis())
     }
@@ -136,5 +139,5 @@ class DownloadRepository @Inject constructor(
         dao.requeueIfRunning(taskId, System.currentTimeMillis())
     }
 
-    suspend fun hasPending(ownerId: String): Boolean = dao.hasPending(ownerId)
+    suspend fun hasRunnable(ownerId: String): Boolean = dao.hasRunnable(ownerId)
 }

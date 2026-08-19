@@ -3,6 +3,7 @@ package link.mczihan.androidResourceDownload.service
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 
 @Singleton
 class DownloadExecutionRegistry @Inject constructor() {
@@ -33,7 +34,21 @@ class DownloadExecutionRegistry @Inject constructor() {
         synchronized(lock) { activeTransfer?.takeIf { it.taskId == taskId }?.job }?.cancel()
     }
 
+    suspend fun cancelTaskAndJoin(taskId: String) {
+        synchronized(lock) { activeTransfer?.takeIf { it.taskId == taskId }?.job }
+            ?.cancelAndJoin()
+    }
+
     fun cancelOwner(ownerId: String) {
         synchronized(lock) { activeTransfer?.takeIf { it.ownerId == ownerId }?.job }?.cancel()
+    }
+
+    suspend fun cancelOwnerAndJoin(ownerId: String) {
+        synchronized(lock) { activeTransfer?.takeIf { it.ownerId == ownerId }?.job }
+            ?.cancelAndJoin()
+    }
+
+    fun cancelActive() {
+        synchronized(lock) { activeTransfer?.job }?.cancel()
     }
 }

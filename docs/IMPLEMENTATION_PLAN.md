@@ -2,7 +2,7 @@
 
 ## 项目基线
 
-本计划把 [Dev.md](../Dev.md) 与 [v1.1 追加契约](FRONTEND_APPEND_V1_1.md) 的开发任务拆分为八个受 CI 门禁约束的阶段。当前状态为 **阶段三只读浏览：真实认证、会话恢复和 WebDAV 文件列表已接线，下载与写操作仍待实现**。静态页面和 Demo 数据仍不代表真实业务已经全部完成。
+本计划把 [Dev.md](../Dev.md) 与 [v1.1 追加契约](FRONTEND_APPEND_V1_1.md) 的开发任务拆分为八个受 CI 门禁约束的阶段。当前状态为 **阶段四下载与断点续传进行中：真实认证、WebDAV 文件列表、Room 下载队列、前台传输和文件打开已接线，仍待设备兼容验证与写操作实现**。静态页面和 Demo 数据仍不代表真实业务已经全部完成。
 
 已确定的工程决策：
 
@@ -11,7 +11,7 @@
 - 先实现 Mock 后端与 Repository 替身，稳定 UI 状态、导航和领域接口后，再接入真实认证、WebDAV 与更新服务。
 - GitHub Actions 对所有事件执行 Release lint、单元测试和无签名打包；仅在 `main` 上通过受保护的 `release` Environment 注入正式签名并构建 Release APK。
 - 真实后端路由采用 `{code,message,data}` envelope；GitHub 不校验邮箱后缀，角色以后端返回为准，Email 登录保留域名规则。
-- Android 直连 WebDAV，当前已完成凭据 DTO、内存缓存、路径安全、PROPFIND 解析和 OkHttp 方法；凭据密码不落盘。
+- Android 直连 WebDAV，当前已完成凭据 DTO、内存缓存、路径安全、PROPFIND 解析、Range 校验和串行下载队列；凭据密码不落盘。
 - 本地 Android 构建默认 `DEMO_MODE=true`；CI 通过 Gradle 属性注入真实 API 地址并设置 `demoMode=false`。
 - GitHub Actions 同时执行 Android Release 门禁和 backend Go test/vet/build。
 
@@ -63,7 +63,7 @@
 - 后端 DTO/Retrofit API 契约、统一 envelope 解码和加密会话存储基础。
 - GitHub 服务端 HTTPS callback、App PKCE 一次性登录票据、任意邮箱登录和白名单角色降级。
 - WebDAV 凭据生命周期、Basic Auth、PROPFIND/HEAD/GET/PUT/MKCOL/DELETE/MOVE 协议核心。
-- 已完成 Custom Tabs OAuth 回调、真实认证状态驱动的根导航和文件 ViewModel 页面接线；仍待完成 SAF 上传、Room 下载任务、前台服务传输和更新安装。
+- 已完成 Custom Tabs OAuth 回调、真实认证状态驱动的根导航、文件 ViewModel、Room 下载任务和前台服务传输；仍待完成 SAF 上传和更新安装。
 
 **验证**
 
@@ -102,7 +102,7 @@
 - 路径拼接或解码不严格可能造成目录越界。
 - 大目录加载与 Compose 列表状态恢复可能影响性能和体验。
 
-## 阶段四：下载与断点续传
+## 阶段四：下载与断点续传（进行中）
 
 **目标**
 

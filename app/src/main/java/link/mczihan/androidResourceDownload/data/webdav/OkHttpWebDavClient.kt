@@ -6,6 +6,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import link.mczihan.androidResourceDownload.core.webdav.WebDavEndpoint
@@ -223,6 +224,7 @@ class OkHttpWebDavClient(
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun executeOnce(request: Request): Response {
         if (!endpoint.isSameOrigin(request.url)) {
             throw WebDavException.UnsafePath("WebDAV request escaped the configured origin")
@@ -232,16 +234,14 @@ class OkHttpWebDavClient(
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(
                 object : Callback {
-                    override fun onFailure(call: Call, error: IOException) {
+                    override fun onFailure(call: Call, e: IOException) {
                         if (!continuation.isCancelled) {
-                            continuation.resumeWith(Result.failure(WebDavException.Network(error)))
+                            continuation.resumeWith(Result.failure(WebDavException.Network(e)))
                         }
                     }
 
                     override fun onResponse(call: Call, response: Response) {
-                        continuation.resume(response) { _, unconsumedResponse, _ ->
-                            unconsumedResponse.close()
-                        }
+                        continuation.resume(response) { response.close() }
                     }
                 },
             )

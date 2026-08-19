@@ -64,6 +64,18 @@ class DownloadTransferEngine @Inject constructor(
         }
 
         onPreparation(head.toPreparation(task, offset))
+        if (offset > 0L && head.contentLength == offset) {
+            currentCoroutineContext().ensureActive()
+            fileStore.finalize(task)
+            return@withContext DownloadTransferResult(
+                totalBytes = offset,
+                downloadedBytes = offset,
+                supportRange = head.acceptsByteRanges,
+                etag = head.etag,
+                lastModified = head.lastModified,
+                mimeType = head.contentType ?: task.mimeType,
+            )
+        }
         var response = if (offset > 0L) {
             try {
                 webDavClient.get(path, WebDavByteRange(offset), currentValidator)

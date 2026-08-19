@@ -4,11 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -46,7 +44,6 @@ fun DownloadsScreen(
     tasks: List<DownloadTask>,
     onStatusChange: (taskId: String, status: DownloadStatus) -> Unit,
     onOpen: (DownloadTask) -> Unit,
-    onMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -83,8 +80,9 @@ private fun DownloadTaskItem(
     onStatusChange: (DownloadStatus) -> Unit,
     onOpen: () -> Unit,
 ) {
-    val progress = if (task.totalBytes != null && task.totalBytes > 0L) {
-        (task.downloadedBytes.toFloat() / task.totalBytes.toFloat()).coerceIn(0f, 1f)
+    val totalBytes = task.totalBytes
+    val progress = if (totalBytes != null && totalBytes > 0L) {
+        (task.downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
     }
@@ -109,7 +107,7 @@ private fun DownloadTaskItem(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (task.status == DownloadStatus.RUNNING) {
-                    if (task.totalBytes != null && task.totalBytes > 0L) {
+                    if (totalBytes != null && totalBytes > 0L) {
                         LinearProgressIndicator(
                             progress = { progress },
                             modifier = Modifier.fillMaxWidth(),

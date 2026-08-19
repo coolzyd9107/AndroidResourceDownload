@@ -39,6 +39,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.core.theme.AndroidResourceDownloadTheme
@@ -46,6 +47,7 @@ import link.mczihan.androidResourceDownload.data.mock.initialMockDownloads
 import link.mczihan.androidResourceDownload.data.mock.mockTaskForFile
 import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
+import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
@@ -146,7 +148,8 @@ fun AndroidResourceDownloadRoot(
                             }
                         },
                         busy = authState is AuthUiState.Restoring ||
-                            authState is AuthUiState.Authenticating,
+                            authState is AuthUiState.Authenticating ||
+                            authState is AuthUiState.LoggingOut,
                         message = (authState as? AuthUiState.Error)?.message,
                     )
                 }
@@ -170,7 +173,8 @@ fun AndroidResourceDownloadRoot(
                         onRequestCode = if (BuildConfig.DEMO_MODE) null else authViewModel::requestCode,
                         onLogin = if (BuildConfig.DEMO_MODE) null else authViewModel::loginWithEmail,
                         busy = authState is AuthUiState.SendingCode ||
-                            authState is AuthUiState.Authenticating,
+                            authState is AuthUiState.Authenticating ||
+                            authState is AuthUiState.LoggingOut,
                         message = (authState as? AuthUiState.Error)?.message,
                         codeSentEmail = when (val state = authState) {
                             is AuthUiState.AwaitingCode -> state.email
@@ -260,7 +264,7 @@ private fun MainShell(
     val context = LocalContext.current
     val downloadsViewModel = if (BuildConfig.DEMO_MODE) null else hiltViewModel<DownloadsViewModel>()
     val persistedTasks = downloadsViewModel?.tasks?.collectAsStateWithLifecycle()?.value.orEmpty()
-    var pendingPermissionDownload by remember { mutableStateOf<link.mczihan.androidResourceDownload.domain.model.FileNode?>(null) }
+    var pendingPermissionDownload by remember { mutableStateOf<FileNode?>(null) }
 
     fun showMessage(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
@@ -370,7 +374,6 @@ private fun MainShell(
                             downloadsViewModel?.open(task)
                         }
                     },
-                    onMessage = ::showMessage,
                 )
             }
             composable(ShellRoute.Settings.route) {

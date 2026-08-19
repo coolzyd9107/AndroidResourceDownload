@@ -40,6 +40,9 @@ abstract class DownloadTaskDao {
     @Query("SELECT * FROM download_tasks WHERE id = :taskId AND owner_id = :ownerId LIMIT 1")
     abstract suspend fun findById(ownerId: String, taskId: String): DownloadTaskEntity?
 
+    @Query("SELECT status FROM download_tasks WHERE id = :taskId LIMIT 1")
+    abstract suspend fun status(taskId: String): DownloadStatus?
+
     @Insert
     abstract suspend fun insert(task: DownloadTaskEntity)
 
@@ -164,7 +167,7 @@ abstract class DownloadTaskDao {
             mime_type = COALESCE(:mimeType, mime_type),
             error_message = NULL,
             updated_at = :now
-        WHERE id = :taskId AND status IN ('RUNNING', 'PAUSED')
+        WHERE id = :taskId AND status = 'RUNNING'
         """,
     )
     abstract suspend fun complete(
@@ -200,9 +203,9 @@ abstract class DownloadTaskDao {
         """
         SELECT EXISTS(
             SELECT 1 FROM download_tasks
-            WHERE owner_id = :ownerId AND status = 'PENDING'
+            WHERE owner_id = :ownerId AND status IN ('PENDING', 'RUNNING')
         )
         """,
     )
-    abstract suspend fun hasPending(ownerId: String): Boolean
+    abstract suspend fun hasRunnable(ownerId: String): Boolean
 }

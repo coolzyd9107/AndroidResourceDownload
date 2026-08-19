@@ -13,6 +13,7 @@ class DefaultAuthRepository(
     private val nowEpochMillis: () -> Long = System::currentTimeMillis,
 ) : AuthRepository {
     private val refreshMutex = Mutex()
+    private val sessionMutex = Mutex()
 
     override suspend fun restoreSession(): AuthSession? {
         val session = sessionStore.read() ?: return null
@@ -85,22 +86,29 @@ class DefaultAuthRepository(
             if (error.isAuthenticationFailure) sessionStore.clear()
             throw error
         }
-        return session.copy(user = user).also { sessionStore.write(it) }
+        val synchronizedSession = session.copy(user = user)
+        return sessionMutex.withLock {
+            val current = sessionStore.read()
+            if (current?.refreshToken != session.refreshToken) return@withLock current
+            synchronizedSession.also { sessionStore.write(it) }
+        }
     }
 
-    override suspend fun logout() {
-        val session = sessionStore.read()
-        try {
-            if (session != null) {
-                executeBackendCall {
-                    authApi.logout(
-                        authorization = session.bearerHeader(),
-                        request = RefreshTokenRequestDto(session.refreshToken),
-                    )
-                }
+    override suspend fun logout(session: AuthSession?) {
+        val targetSession = session ?: sessionStore.read()
+        sessionMutex.withLock {
+            val current = sessionStore.read()
+            if (targetSession == null || current?.refreshToken == targetSession.refreshToken) {
+                sessionStore.clear()
             }
-        } finally {
-            sessionStore.clear()
+        }
+        if (targetSession != null) {
+            executeBackendCall {
+                authApi.logout(
+                    authorization = targetSession.bearerHeader(),
+                    request = RefreshTokenRequestDto(targetSession.refreshToken),
+                )
+            }
         }
     }
 
@@ -111,7 +119,7 @@ class DefaultAuthRepository(
             expiresAtEpochMillis = expiresAt(response.expiresIn),
             user = response.user.toDomain(),
         )
-        sessionStore.write(session)
+        sessionMutex.withLock { sessionStore.write(session) }
         return session
     }
 
@@ -127,11 +135,15 @@ class DefaultAuthRepository(
             }
             throw error
         }
-        return session.copy(
+        val refreshedSession = session.copy(
             accessToken = response.accessToken,
             refreshToken = response.refreshToken,
             expiresAtEpochMillis = expiresAt(response.expiresIn),
-        ).also { sessionStore.write(it) }
+        )
+        return sessionMutex.withLock {
+            if (sessionStore.read()?.refreshToken != session.refreshToken) return@withLock null
+            refreshedSession.also { sessionStore.write(it) }
+        }
     }
 
     private fun expiresAt(expiresInSeconds: Int): Long {

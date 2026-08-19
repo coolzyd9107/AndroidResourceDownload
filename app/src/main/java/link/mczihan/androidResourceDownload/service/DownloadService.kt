@@ -11,6 +11,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,10 +29,11 @@ import link.mczihan.androidResourceDownload.MainActivity
 import link.mczihan.androidResourceDownload.core.common.formatFileSize
 import link.mczihan.androidResourceDownload.core.security.SessionStore
 import link.mczihan.androidResourceDownload.data.download.DownloadFileStore
+import link.mczihan.androidResourceDownload.data.download.DownloadFileOpener
 import link.mczihan.androidResourceDownload.data.download.DownloadIntegrityException
-import link.mczihan.androidResourceDownload.data.download.DownloadPreparation
 import link.mczihan.androidResourceDownload.data.download.DownloadRepository
 import link.mczihan.androidResourceDownload.data.download.DownloadTransferEngine
+import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 
@@ -43,8 +45,12 @@ class DownloadService : Service() {
     @Inject lateinit var queueController: DownloadQueueController
     @Inject lateinit var executionRegistry: DownloadExecutionRegistry
     @Inject lateinit var fileStore: DownloadFileStore
+    @Inject lateinit var fileOpener: DownloadFileOpener
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val runnerLock = Any()
+    private val wakeVersion = AtomicLong()
+    @Volatile private var latestStartId = 0
     private var runnerJob: Job? = null
 
     override fun onCreate() {
@@ -53,6 +59,8 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
+        wakeVersion.incrementAndGet()
         startForeground(NOTIFICATION_ID, buildWaitingNotification())
         serviceScope.launch {
             val ownerId = sessionStore.read()?.user?.id
@@ -80,38 +88,81 @@ class DownloadService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        executionRegistry.cancelActive()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
+    }
+
     private fun ensureRunner() {
-        if (runnerJob?.isActive == true) return
-        runnerJob = serviceScope.launch { runQueue() }
+        synchronized(runnerLock) {
+            if (runnerJob?.isActive == true) return
+            runnerJob = serviceScope.launch { runQueue() }
+        }
     }
 
     private suspend fun runQueue() {
-        val ownerId = sessionStore.read()?.user?.id ?: return stopServiceNow()
-        repository.recoverRunning(ownerId)
+        var claimedTaskId: String? = null
+        try {
+            var ownerId: String? = null
 
-        while (currentCoroutineContext().isActive) {
-            if (sessionStore.read()?.user?.id != ownerId) break
-            val task = repository.claimNext(ownerId) ?: break
-            runTask(ownerId, task)
+            while (currentCoroutineContext().isActive) {
+                val observedVersion = wakeVersion.get()
+                val observedStartId = latestStartId
+                val currentOwnerId = sessionStore.read()?.user?.id
+                if (currentOwnerId == null || queueController.isBlocked(currentOwnerId)) {
+                    if (stopIfUnchanged(observedVersion, observedStartId)) return
+                    continue
+                }
+                if (ownerId != currentOwnerId) {
+                    ownerId = currentOwnerId
+                    repository.recoverRunning(currentOwnerId)
+                }
+
+                val task = repository.claimNext(currentOwnerId)
+                if (task != null) {
+                    val taskVersion = wakeVersion.get()
+                    val taskStartId = latestStartId
+                    claimedTaskId = task.id
+                    val continueQueue = try {
+                        runTask(currentOwnerId, task)
+                    } finally {
+                        claimedTaskId = null
+                    }
+                    if (!continueQueue && stopIfUnchanged(taskVersion, taskStartId)) return
+                    continue
+                }
+
+                if (repository.hasRunnable(currentOwnerId)) {
+                    repository.recoverRunning(currentOwnerId)
+                    continue
+                }
+                if (stopIfUnchanged(observedVersion, observedStartId)) return
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            withContext(NonCancellable) {
+                claimedTaskId?.let { repository.requeueIfRunning(it) }
+            }
+            stopServiceNow()
         }
-        stopServiceNow()
     }
 
-    private suspend fun runTask(ownerId: String, task: DownloadTask) {
+    private fun stopIfUnchanged(observedVersion: Long, observedStartId: Int): Boolean {
+        if (observedVersion != wakeVersion.get() || observedStartId != latestStartId) return false
+        if (!stopSelfResult(observedStartId)) return false
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        return true
+    }
+
+    private suspend fun runTask(ownerId: String, task: DownloadTask): Boolean {
         var lastProgressUpdate = 0L
-        var currentPreparation = DownloadPreparation(
-            totalBytes = task.totalBytes,
-            downloadedBytes = task.downloadedBytes,
-            supportRange = task.supportRange,
-            etag = task.etag,
-            lastModified = task.lastModified,
-            mimeType = task.mimeType,
-        )
+        var continueQueue = true
         val transferJob = serviceScope.async {
             transferEngine.transfer(
                 task = task,
                 onPreparation = { preparation ->
-                    currentPreparation = preparation
                     if (!repository.updatePreparation(task.id, preparation)) {
                         throw TaskStoppedException()
                     }
@@ -136,9 +187,17 @@ class DownloadService : Service() {
         try {
             val result = transferJob.await()
             if (repository.complete(task.id, result)) {
-                showFinishedNotification(task, success = true, message = "下载完成")
+                showFinishedNotification(
+                    task.copy(status = DownloadStatus.SUCCESS, mimeType = result.mimeType),
+                    success = true,
+                    message = "下载完成",
+                )
             } else {
-                fileStore.deleteAll(task)
+                if (repository.status(task.id) == DownloadStatus.PAUSED) {
+                    fileStore.restoreFinalAsPartial(task)
+                } else {
+                    fileStore.deleteAll(task)
+                }
             }
         } catch (error: CancellationException) {
             withContext(NonCancellable) { repository.requeueIfRunning(task.id) }
@@ -147,9 +206,12 @@ class DownloadService : Service() {
             val message = error.toDownloadMessage()
             repository.fail(task.id, message)
             showFinishedNotification(task, success = false, message = message)
+            continueQueue = error !is WebDavException.AuthenticationRequired &&
+                error !is WebDavException.CredentialUnavailable
         } finally {
             executionRegistry.clear(task.id, transferJob)
         }
+        return continueQueue
     }
 
     private fun Exception.toDownloadMessage(): String = when (this) {
@@ -196,12 +258,10 @@ class DownloadService : Service() {
             .build()
 
     private fun updateProgressNotification(task: DownloadTask, downloaded: Long, total: Long?) {
-        val determinate = total != null && total > 0L
-        val percent = if (determinate) {
-            ((downloaded.toDouble() / total!!.toDouble()) * 100.0).toInt().coerceIn(0, 100)
-        } else {
-            0
-        }
+        val determinateTotal = total?.takeIf { it > 0L }
+        val percent = determinateTotal?.let {
+            ((downloaded.toDouble() / it.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+        } ?: 0
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(task.fileName)
@@ -209,7 +269,7 @@ class DownloadService : Service() {
             .setContentIntent(openAppPendingIntent())
             .setOnlyAlertOnce(true)
             .setOngoing(true)
-            .setProgress(100, percent, !determinate)
+            .setProgress(100, percent, determinateTotal == null)
             .addAction(
                 android.R.drawable.ic_media_pause,
                 "暂停",
@@ -221,10 +281,26 @@ class DownloadService : Service() {
                 servicePendingIntent(ACTION_CANCEL, task.id, taskRequestCode(task, 2)),
             )
             .build()
-        notificationManager().notify(NOTIFICATION_ID, notification)
+        try {
+            notificationManager().notify(NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) {
+            // The foreground transfer remains valid without notification permission.
+        }
     }
 
     private fun showFinishedNotification(task: DownloadTask, success: Boolean, message: String) {
+        val contentIntent = if (success) {
+            runCatching { fileOpener.intentFor(task) }.getOrNull()?.let { intent ->
+                PendingIntent.getActivity(
+                    this,
+                    taskRequestCode(task, 4),
+                    intent,
+                    pendingIntentFlags(),
+                )
+            }
+        } else {
+            null
+        } ?: openAppPendingIntent()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(
                 if (success) android.R.drawable.stat_sys_download_done
@@ -232,7 +308,7 @@ class DownloadService : Service() {
             )
             .setContentTitle(task.fileName)
             .setContentText(message)
-            .setContentIntent(openAppPendingIntent())
+            .setContentIntent(contentIntent)
             .setAutoCancel(true)
             .build()
         try {
