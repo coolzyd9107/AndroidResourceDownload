@@ -30,13 +30,13 @@
 
 ## GitHub Actions 构建
 
-项目使用名为 **Android CI** 的 GitHub Actions 工作流进行远程编译。工作流在推送到 `main`、面向 `main` 的 Pull Request 以及手动触发时运行，并执行：
+项目使用名为 **Android CI** 的 GitHub Actions 工作流进行远程编译。工作流在推送到 `main`、面向 `main` 的 Pull Request 以及手动触发时运行。Android 构建从 Actions Variable `API_BASE_URL` 注入真实 HTTPS 后端地址，并以 `demoMode=false` 执行：
 
 ```text
 ./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug
 ```
 
-CI 仅生成使用 Android 默认 Debug 签名的调试包，不配置发布签名，不读取发布密钥或签名 Secrets。任务成功后，可进入 GitHub 仓库的 **Actions** 页面，打开对应的 **Android CI** 运行，在 **Artifacts** 区域下载 `android-debug-apk`；其中包含 `app-debug.apk`。
+CI 仅生成使用 Android 默认 Debug 签名的真实模式调试包，不配置发布签名，不读取发布密钥或签名 Secrets。任务成功后，可进入 GitHub 仓库的 **Actions** 页面，打开对应的 **Android CI** 运行，在 **Artifacts** 区域下载 `android-real-debug-apk`；其中包含 `app-debug.apk`。
 
 远程 CI 是项目的编译与合并门禁，本工作流不要求本地编译。Android 项目脚手架、`gradlew` 和 `app` 模块提交后，工作流才具备实际构建输入。
 

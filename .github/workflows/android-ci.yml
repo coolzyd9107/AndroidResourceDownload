@@ -41,6 +41,8 @@ jobs:
   build-debug:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      API_BASE_URL: ${{ vars.API_BASE_URL }}
 
     steps:
       - name: Check out repository
@@ -62,12 +64,19 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
+      - name: Validate real-mode configuration
+        run: test -n "$API_BASE_URL"
+
       - name: Lint, test, and assemble debug APK
-        run: ./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug
+        run: >-
+          ./gradlew --no-daemon
+          -PapiBaseUrl="$API_BASE_URL"
+          -PdemoMode=false
+          lintDebug testDebugUnitTest assembleDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
-          name: android-debug-apk
+          name: android-real-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

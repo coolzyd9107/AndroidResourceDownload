@@ -23,7 +23,7 @@
 ./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug
 ```
 
-CI 成功后还应确认 `android-debug-apk` artifact 可下载。CI 不执行发布签名，也不要求开发者本地编译；涉及设备行为的阶段仍需记录模拟器或实体设备验证结果。若某阶段的基础接口尚不稳定，不提前把下一阶段绑定到真实后端，以免网络协议变化扩散到 UI。
+CI 成功后还应确认 `android-real-debug-apk` artifact 可下载。该 artifact 通过 Actions Variable `API_BASE_URL` 注入真实 HTTPS 后端，并以 `demoMode=false` 构建。CI 不执行发布签名；涉及设备行为的阶段仍需记录模拟器或实体设备验证结果。
 
 ## 阶段一：项目初始化（已完成）
 
