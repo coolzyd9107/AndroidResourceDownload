@@ -22,6 +22,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import timber.log.Timber
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -32,7 +33,7 @@ object NetworkModule {
         .apply {
             if (BuildConfig.DEBUG) {
                 addInterceptor(
-                    HttpLoggingInterceptor().apply {
+                    HttpLoggingInterceptor { message -> Timber.tag("OkHttp").d(message) }.apply {
                         level = HttpLoggingInterceptor.Level.BASIC
                     },
                 )

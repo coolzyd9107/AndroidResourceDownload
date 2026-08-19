@@ -50,7 +50,10 @@ class OkHttpWebDavClient(
         .followSslRedirects(false)
         .build()
 
-    override suspend fun propFind(path: WebDavPath, depth: WebDavDepth): List<WebDavResource> {
+    override suspend fun propFind(
+        path: WebDavPath,
+        depth: WebDavDepth,
+    ): List<WebDavResource> = withContext(Dispatchers.IO) {
         val url = endpoint.collectionUrlFor(path)
         val response = executeAuthenticated { lease ->
             Request.Builder()
@@ -60,16 +63,16 @@ class OkHttpWebDavClient(
                 .method("PROPFIND", PROPFIND_BODY)
                 .build()
         }
-        response.use {
-            requireStatus(it, setOf(200, 207))
-            val body = it.body ?: throw WebDavException.InvalidResponse(
+        response.use { currentResponse ->
+            requireStatus(currentResponse, setOf(200, 207))
+            val body = currentResponse.body ?: throw WebDavException.InvalidResponse(
                 "WebDAV PROPFIND response has no body",
             )
-            return try {
+            try {
                 propFindParser.parse(body.byteStream(), endpoint, url)
             } catch (error: WebDavException.InvalidResponse) {
                 val mediaType = body.contentType()?.toString() ?: "missing"
-                val contentEncoding = it.header("Content-Encoding") ?: "identity"
+                val contentEncoding = currentResponse.header("Content-Encoding") ?: "identity"
                 Timber.e(
                     error,
                     "Unable to parse WebDAV PROPFIND response; Content-Type=%s; Content-Encoding=%s",
