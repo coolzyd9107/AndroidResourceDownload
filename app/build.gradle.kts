@@ -18,7 +18,7 @@ android {
         .orElse("")
         .get()
     val oauthRedirectUri = providers.gradleProperty("oauthRedirectUri")
-        .orElse("link.mczihan.androidResourceDownload://oauth/callback")
+        .orElse("link.mczihan.androidresourcedownload://oauth/callback")
         .get()
     val demoMode = providers.gradleProperty("demoMode")
         .orElse("true")

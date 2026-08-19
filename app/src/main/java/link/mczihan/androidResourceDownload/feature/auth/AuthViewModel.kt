@@ -109,7 +109,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun handleGithubCallback(uri: Uri) {
-        if (uri.scheme != "link.mczihan.androidResourceDownload" ||
+        if (uri.scheme != "link.mczihan.androidresourcedownload" ||
             uri.host != "oauth" || uri.path != "/callback"
         ) return setError("GitHub 回调地址无效")
         uri.getQueryParameter("error")?.let { return setError("GitHub 登录被取消") }

@@ -31,7 +31,7 @@ ECDH-ES/A256GCM 不会在客户端单方面伪实现，也不会把长期密钥�
 ```properties
 apiBaseUrl=https://api.example.com/
 githubClientId=...
-oauthRedirectUri=link.mczihan.androidResourceDownload://oauth/callback
+oauthRedirectUri=link.mczihan.androidresourcedownload://oauth/callback
 demoMode=false
 ```
 
@@ -52,4 +52,4 @@ WebDAV `401` 只允许一次：失效当前 credential generation，单飞重新
 
 ## 后续阶段
 
-当前提交先建立安全的领域契约、认证 API、凭据生命周期、WebDAV 协议核心和测试边界。文件 ViewModel、SAF 上传、Room 持久下载、前台服务队列、APK 更新安装和真实 OAuth Custom Tabs 会在这些接口之上接入。所有无真实服务依赖的测试由 GitHub Actions 执行，真实 OAuth/WebDAV 联调需要后端 Base URL、GitHub Client ID、回调 URI 与测试服务端配置。
+当前已接入真实 OAuth Custom Tabs、认证状态导航和文件 ViewModel；SAF 上传、Room 持久下载、前台服务队列和 APK 更新安装仍待实现。所有无真实服务依赖的测试由 GitHub Actions 执行，真实 OAuth/WebDAV 联调需要后端 Base URL、GitHub Client ID、回调 URI 与测试服务端配置。
