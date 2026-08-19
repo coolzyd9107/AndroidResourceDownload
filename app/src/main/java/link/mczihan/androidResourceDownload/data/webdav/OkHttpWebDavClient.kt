@@ -34,6 +34,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import okio.source
+import timber.log.Timber
 
 class OkHttpWebDavClient(
     endpoint: HttpUrl,
@@ -69,6 +70,12 @@ class OkHttpWebDavClient(
             } catch (error: WebDavException.InvalidResponse) {
                 val mediaType = body.contentType()?.toString() ?: "missing"
                 val contentEncoding = it.header("Content-Encoding") ?: "identity"
+                Timber.e(
+                    error,
+                    "Unable to parse WebDAV PROPFIND response; Content-Type=%s; Content-Encoding=%s",
+                    mediaType,
+                    contentEncoding,
+                )
                 throw WebDavException.InvalidResponse(
                     "${error.message}; Content-Type=$mediaType; Content-Encoding=$contentEncoding",
                     error,

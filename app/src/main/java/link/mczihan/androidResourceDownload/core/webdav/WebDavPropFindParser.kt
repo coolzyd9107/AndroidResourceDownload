@@ -61,7 +61,14 @@ class WebDavPropFindParser(
     } catch (error: IOException) {
         throw error
     } catch (error: RuntimeException) {
-        throw WebDavException.InvalidResponse("Invalid WebDAV PROPFIND response", error)
+        val type = error.javaClass.simpleName.ifBlank { "RuntimeException" }
+        val message = error.message
+            ?.replace(WHITESPACE, " ")
+            ?.trim()
+            ?.take(160)
+            ?.takeIf { it.isNotEmpty() }
+        val detail = if (message == null) type else "$type: $message"
+        throw WebDavException.InvalidResponse("Invalid WebDAV PROPFIND response: $detail", error)
     }
 
     private fun parseDocument(
@@ -296,6 +303,7 @@ class WebDavPropFindParser(
         private const val KXML_RELAXED_FEATURE =
             "http://xmlpull.org/v1/doc/features.html#relaxed"
         private val STATUS_CODE = Regex("(?:^|\\s)([1-5]\\d{2})(?:\\s|$)")
+        private val WHITESPACE = Regex("\\s+")
         private val GMT: TimeZone = TimeZone.getTimeZone("GMT")
         private val HTTP_DATE_PATTERNS = listOf(
             "EEE, dd MMM yyyy HH:mm:ss zzz",

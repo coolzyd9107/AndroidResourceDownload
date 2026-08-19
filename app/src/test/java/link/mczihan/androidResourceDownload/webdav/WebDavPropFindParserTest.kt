@@ -6,6 +6,7 @@ import link.mczihan.androidResourceDownload.core.webdav.WebDavPropFindParser
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.kxml2.io.KXmlParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -116,5 +117,27 @@ class WebDavPropFindParserTest {
 
         assertEquals("root", resource.displayName)
         assertTrue(resource.lastModifiedEpochMillis != null)
+    }
+
+    @Test
+    fun includesRuntimeParserFailureDetails() {
+        val failingParser = WebDavPropFindParser(
+            parserFactory = {
+                object : KXmlParser() {
+                    override fun next(): Int = throw IllegalStateException("parser failure")
+                }
+            },
+        )
+
+        val error = runCatching {
+            failingParser.parse(
+                ByteArrayInputStream("<ignored/>".toByteArray()),
+                endpoint,
+                endpoint.collectionUrlFor(WebDavPath.root()),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is WebDavException.InvalidResponse)
+        assertTrue(error?.message?.contains("IllegalStateException: parser failure") == true)
     }
 }
