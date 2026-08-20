@@ -1,6 +1,7 @@
 package link.mczihan.androidResourceDownload.webdav
 
 import java.util.concurrent.atomic.AtomicReference
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.runBlocking
 import link.mczihan.androidResourceDownload.data.webdav.OkHttpWebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.CredentialLease
@@ -12,6 +13,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPermission
 import okhttp3.Call
+import okhttp3.Credentials
 import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -231,6 +233,82 @@ class OkHttpWebDavClientTest {
             assertEquals("/root/file.txt", headRequest.path)
             assertEquals("/root/file.txt", probeRequest.path)
             assertEquals("bytes=0-0", probeRequest.getHeader("Range"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun followsSameOriginRedirectForFileGet() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", "/download/file.txt"),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 3-4/5")
+                    .setHeader("ETag", "\"v1\"")
+                    .setBody("lo"),
+            )
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(),
+            )
+
+            val body = runBlocking {
+                client.get(
+                    path = WebDavPath.parseDecoded("/file.txt"),
+                    range = WebDavByteRange(3L),
+                    ifRange = "\"v1\"",
+                ).use { response ->
+                    val output = ByteArrayOutputStream()
+                    response.stream.copyTo(output)
+                    output.toString(Charsets.UTF_8.name())
+                }
+            }
+
+            assertEquals("lo", body)
+            val originalRequest = server.takeRequest()
+            val redirectedRequest = server.takeRequest()
+            assertEquals("/root/file.txt", originalRequest.path)
+            assertEquals("/download/file.txt", redirectedRequest.path)
+            val authorization = Credentials.basic("reader", "secret", Charsets.UTF_8)
+            assertEquals(authorization, originalRequest.getHeader("Authorization"))
+            assertEquals(authorization, redirectedRequest.getHeader("Authorization"))
+            assertEquals("bytes=3-", redirectedRequest.getHeader("Range"))
+            assertEquals("\"v1\"", redirectedRequest.getHeader("If-Range"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun rejectsCrossOriginRedirectForFileGet() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", "https://example.com/download/file.txt"),
+            )
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(),
+            )
+
+            val error = runCatching {
+                runBlocking { client.get(WebDavPath.parseDecoded("/file.txt")) }
+            }.exceptionOrNull()
+
+            assertTrue(error is WebDavException.CrossOriginRedirect)
+            assertEquals("/root/file.txt", server.takeRequest().path)
+            assertEquals(1, server.requestCount)
         } finally {
             server.shutdown()
         }

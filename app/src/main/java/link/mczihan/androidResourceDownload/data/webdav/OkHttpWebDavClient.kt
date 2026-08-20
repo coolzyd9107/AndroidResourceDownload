@@ -132,7 +132,7 @@ class OkHttpWebDavClient(
         ifRange: String?,
     ): WebDavReadResponse {
         validateOptionalHeader(ifRange, "If-Range")
-        val response = executeAuthenticated { lease ->
+        val response = executeAuthenticated(followSameOriginRedirects = true) { lease ->
             Request.Builder()
                 .url(endpoint.urlFor(path))
                 .header("Authorization", lease.basicAuthorization())
@@ -223,24 +223,53 @@ class OkHttpWebDavClient(
     }
 
     private suspend fun executeWrite(factory: (CredentialLease) -> Request): Response =
-        executeAuthenticated(WebDavPermission.READ_WRITE, factory)
+        executeAuthenticated(requiredPermission = WebDavPermission.READ_WRITE, factory = factory)
 
     private suspend fun executeAuthenticated(
         requiredPermission: WebDavPermission = WebDavPermission.READ_ONLY,
+        followSameOriginRedirects: Boolean = false,
         factory: (CredentialLease) -> Request,
     ): Response = withContext(Dispatchers.IO) {
         val firstLease = credentialProvider.acquire()
         requirePermission(firstLease, requiredPermission)
-        val firstResponse = executeOnce(factory(firstLease))
+        val firstResponse = executeRequest(factory(firstLease), followSameOriginRedirects)
         if (firstResponse.code != 401 || !retryAuthentication) return@withContext firstResponse
 
         firstResponse.close()
         credentialProvider.invalidate(firstLease.generation)
         val refreshedLease = credentialProvider.acquire()
         requirePermission(refreshedLease, requiredPermission)
-        executeOnce(factory(refreshedLease)).also { response ->
+        executeRequest(factory(refreshedLease), followSameOriginRedirects).also { response ->
             if (response.code == 401) credentialProvider.invalidate(refreshedLease.generation)
         }
+    }
+
+    private suspend fun executeRequest(request: Request, followSameOriginRedirects: Boolean): Response {
+        if (!followSameOriginRedirects) return executeOnce(request)
+
+        var currentRequest = request
+        repeat(MAX_REDIRECTS + 1) { redirectCount ->
+            val response = executeOnce(currentRequest)
+            if (response.code !in REDIRECT_STATUS_CODES) return response
+
+            val target = response.header("Location")?.let(response.request.url::resolve)
+            if (target == null || target.username.isNotEmpty() || target.password.isNotEmpty()) {
+                response.close()
+                throw WebDavException.RedirectRejected(response.code)
+            }
+            if (!endpoint.isSameOrigin(target)) {
+                response.close()
+                throw WebDavException.CrossOriginRedirect(response.code)
+            }
+            if (redirectCount == MAX_REDIRECTS) {
+                response.close()
+                throw WebDavException.RedirectRejected(response.code)
+            }
+
+            response.close()
+            currentRequest = currentRequest.newBuilder().url(target).build()
+        }
+        error("Redirect loop terminated unexpectedly")
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -361,6 +390,8 @@ class OkHttpWebDavClient(
     companion object {
         private val GMT: TimeZone = TimeZone.getTimeZone("GMT")
         private val CONTENT_RANGE_PATTERN = Regex("bytes (\\d+)-(\\d+)/(\\d+|\\*)")
+        private val REDIRECT_STATUS_CODES = setOf(301, 302, 303, 307, 308)
+        private const val MAX_REDIRECTS = 5
         private val HTTP_DATE_PATTERNS = listOf(
             "EEE, dd MMM yyyy HH:mm:ss zzz",
             "EEEE, dd-MMM-yy HH:mm:ss zzz",

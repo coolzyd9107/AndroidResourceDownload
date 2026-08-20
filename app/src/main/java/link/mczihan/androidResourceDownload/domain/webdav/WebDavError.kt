@@ -34,6 +34,9 @@ sealed class WebDavException(
     class RedirectRejected(val statusCode: Int) :
         WebDavException("WebDAV redirect was rejected ($statusCode)")
 
+    class CrossOriginRedirect(val statusCode: Int) :
+        WebDavException("WebDAV cross-origin redirect was rejected ($statusCode)")
+
     class ServerError(val statusCode: Int) :
         WebDavException("WebDAV server error ($statusCode)")
 

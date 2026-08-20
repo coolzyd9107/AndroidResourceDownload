@@ -313,6 +313,8 @@ class DownloadService : Service() {
         is WebDavException.InvalidResponse,
         is DownloadIntegrityException,
         -> "服务器返回的文件数据无效"
+        is WebDavException.CrossOriginRedirect ->
+            "服务器将文件重定向到其他域名（HTTP $statusCode），已阻止凭据外泄"
         is WebDavException.RedirectRejected ->
             "服务器返回重定向（HTTP $statusCode），请检查 WebDAV 地址"
         is WebDavException.ServerError -> "服务器错误（HTTP $statusCode），可重试"
