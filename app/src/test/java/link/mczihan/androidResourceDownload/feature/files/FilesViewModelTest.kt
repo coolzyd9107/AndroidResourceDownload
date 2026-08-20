@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import link.mczihan.androidResourceDownload.data.file.FileRepository
 import link.mczihan.androidResourceDownload.domain.model.FileNode
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import org.junit.After
@@ -242,6 +243,52 @@ class FilesViewModelTest {
         val failure = viewModel.mutationState.value as FileMutationState.Failed
         assertEquals(null, failure.operation)
         assertTrue(failure.message.contains("同名"))
+    }
+
+    @Test
+    fun previewLoadsContentAndDismissReleasesIt() = runTest(dispatcher) {
+        val file = FileNode("notes.txt", "/notes.txt", isDirectory = false, mimeType = "text/plain")
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun preview(file: FileNode): FilePreviewContent =
+                FilePreviewContent.Text("preview content")
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.preview(file)
+        advanceUntilIdle()
+
+        val content = viewModel.previewState.value as FilePreviewUiState.Content
+        assertEquals(file, content.file)
+        assertEquals("preview content", (content.preview as FilePreviewContent.Text).text)
+
+        viewModel.dismissPreview()
+        assertEquals(FilePreviewUiState.Idle, viewModel.previewState.value)
+    }
+
+    @Test
+    fun unsupportedFileDoesNotStartPreviewRead() = runTest(dispatcher) {
+        var previewCalls = 0
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun preview(file: FileNode): FilePreviewContent {
+                previewCalls++
+                return FilePreviewContent.Text("unexpected")
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.preview(
+            FileNode("manual.pdf", "/manual.pdf", isDirectory = false, mimeType = "application/pdf"),
+        )
+        advanceUntilIdle()
+
+        assertEquals(0, previewCalls)
+        assertEquals(FilePreviewUiState.Idle, viewModel.previewState.value)
     }
 
     private class FakeFileRepository(

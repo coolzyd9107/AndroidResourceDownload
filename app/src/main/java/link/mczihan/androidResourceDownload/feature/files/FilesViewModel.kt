@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +18,8 @@ import link.mczihan.androidResourceDownload.data.file.FileRepository
 import link.mczihan.androidResourceDownload.data.file.UploadSourceResolver
 import link.mczihan.androidResourceDownload.data.file.UploadDocument
 import link.mczihan.androidResourceDownload.domain.model.FileNode
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
+import link.mczihan.androidResourceDownload.domain.model.previewFormat
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 
@@ -36,6 +39,13 @@ sealed interface DirectoryPickerState {
     data class Loading(val path: WebDavPath) : DirectoryPickerState
     data class Success(val path: WebDavPath, val directories: List<FileNode>) : DirectoryPickerState
     data class Error(val path: WebDavPath, val message: String) : DirectoryPickerState
+}
+
+sealed interface FilePreviewUiState {
+    data object Idle : FilePreviewUiState
+    data class Loading(val file: FileNode) : FilePreviewUiState
+    data class Content(val file: FileNode, val preview: FilePreviewContent) : FilePreviewUiState
+    data class Error(val file: FileNode, val message: String) : FilePreviewUiState
 }
 
 sealed interface FileOperation {
@@ -87,14 +97,18 @@ class FilesViewModel @Inject constructor(
     val mutationState: StateFlow<FileMutationState> = _mutationState.asStateFlow()
     private val _directoryPickerState = MutableStateFlow<DirectoryPickerState>(DirectoryPickerState.Idle)
     val directoryPickerState: StateFlow<DirectoryPickerState> = _directoryPickerState.asStateFlow()
+    private val _previewState = MutableStateFlow<FilePreviewUiState>(FilePreviewUiState.Idle)
+    val previewState: StateFlow<FilePreviewUiState> = _previewState.asStateFlow()
     private val messageChannel = Channel<String>(Channel.BUFFERED)
     val messages = messageChannel.receiveAsFlow()
     private var loadJob: Job? = null
     private var mutationJob: Job? = null
     private var directoryPickerJob: Job? = null
+    private var previewJob: Job? = null
     private var loadVersion = 0L
     private var mutationVersion = 0L
     private var directoryPickerVersion = 0L
+    private var previewVersion = 0L
 
     init {
         load(WebDavPath.root())
@@ -131,6 +145,36 @@ class FilesViewModel @Inject constructor(
     }
 
     fun retry() = load(_state.value.path)
+
+    fun preview(file: FileNode) {
+        if (file.previewFormat() == null) return
+        previewJob?.cancel()
+        val version = ++previewVersion
+        _previewState.value = FilePreviewUiState.Loading(file)
+        previewJob = viewModelScope.launch {
+            val nextState = try {
+                FilePreviewUiState.Content(file, repository.preview(file))
+            } catch (_: TimeoutCancellationException) {
+                FilePreviewUiState.Error(file, "预览加载超时，请重试")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                FilePreviewUiState.Error(file, error.previewMessage())
+            }
+            if (version == previewVersion) _previewState.value = nextState
+        }
+    }
+
+    fun retryPreview() {
+        val file = (_previewState.value as? FilePreviewUiState.Error)?.file ?: return
+        preview(file)
+    }
+
+    fun dismissPreview() {
+        previewVersion++
+        previewJob?.cancel()
+        _previewState.value = FilePreviewUiState.Idle
+    }
 
     fun prepareUpload(uri: Uri) {
         if (_mutationState.value != FileMutationState.Idle) return
@@ -448,6 +492,16 @@ class FilesViewModel @Inject constructor(
         is WebDavException.InvalidResponse -> "云端返回的数据无法确认文件类型，请刷新后重试"
         is IllegalArgumentException -> message ?: "路径无效"
         else -> message?.takeIf(String::isNotBlank) ?: "云端文件操作失败"
+    }
+
+    private fun Exception.previewMessage(): String = when (this) {
+        is WebDavException.AuthenticationRequired -> "WebDAV 凭据已失效，请重新登录"
+        is WebDavException.PermissionDenied -> "当前账户没有读取此文件的权限"
+        is WebDavException.NotFound -> "云端文件不存在，列表可能已变化"
+        is WebDavException.ResponseTooLarge -> "文件过大，无法在线预览"
+        is WebDavException.InvalidResponse -> "文件内容损坏或格式不受支持"
+        is WebDavException.Network -> "网络连接失败，请稍后重试"
+        else -> "预览加载失败，请稍后重试"
     }
 
     private companion object {

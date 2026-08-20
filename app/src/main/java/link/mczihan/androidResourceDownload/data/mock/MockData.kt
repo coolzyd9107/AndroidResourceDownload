@@ -1,8 +1,10 @@
 package link.mczihan.androidResourceDownload.data.mock
 
+import java.util.Base64
 import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 import link.mczihan.androidResourceDownload.domain.model.FileNode
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
 
 private const val HOUR_MILLIS = 60L * 60L * 1_000L
 private const val DAY_MILLIS = 24L * HOUR_MILLIS
@@ -14,6 +16,7 @@ fun mockFilesForPath(path: String, now: Long = System.currentTimeMillis()): List
         FileNode("归档", "/归档", true, lastModified = now - 8L * DAY_MILLIS),
         FileNode("暂不可用", "/暂不可用", true, lastModified = now - 2L * DAY_MILLIS),
         FileNode("使用说明.pdf", "/使用说明.pdf", false, 2_840_576L, now - 3L * HOUR_MILLIS, "application/pdf", "mock-guide-v2"),
+        FileNode("预览示例.png", "/预览示例.png", false, 68L, now - 4L * HOUR_MILLIS, "image/png", "mock-image-v1"),
     )
     "/应用发布" -> listOf(
         FileNode("android-client-1.1.0.apk", "/应用发布/android-client-1.1.0.apk", false, 38_624_256L, now - 2L * HOUR_MILLIS, "application/vnd.android.package-archive", "mock-apk-110"),
@@ -25,6 +28,25 @@ fun mockFilesForPath(path: String, now: Long = System.currentTimeMillis()): List
     "/归档" -> emptyList()
     "/暂不可用" -> null
     else -> emptyList()
+}
+
+fun mockPreviewForFile(file: FileNode): FilePreviewContent? = when (file.path) {
+    "/应用发布/release-notes.txt" -> FilePreviewContent.Text(
+        text = """
+            Android Resource Download 2.0.0
+
+            - 新增云端文件管理能力
+            - 优化下载任务恢复
+            - 完善深色模式显示
+        """.trimIndent(),
+    )
+    "/预览示例.png" -> FilePreviewContent.Image(
+        bytes = Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        ),
+        mimeType = "image/png",
+    )
+    else -> null
 }
 
 fun initialMockDownloads(now: Long = System.currentTimeMillis()): List<DownloadTask> = listOf(

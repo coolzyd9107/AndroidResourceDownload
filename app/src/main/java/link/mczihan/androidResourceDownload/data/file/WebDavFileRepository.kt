@@ -7,6 +7,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import link.mczihan.androidResourceDownload.domain.model.FileNode
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
@@ -25,6 +26,9 @@ class WebDavFileRepository @Inject constructor(
             .map(WebDavResource::toFileNode)
             .sortedWith(compareByDescending<FileNode> { it.isDirectory }.thenBy { it.name.lowercase() })
             .toList()
+
+    override suspend fun preview(file: FileNode): FilePreviewContent =
+        loadWebDavFilePreview(webDavClient, file)
 
     override suspend fun upload(
         path: WebDavPath,

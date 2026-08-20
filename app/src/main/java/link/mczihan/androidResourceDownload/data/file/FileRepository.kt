@@ -1,11 +1,16 @@
 package link.mczihan.androidResourceDownload.data.file
 
 import link.mczihan.androidResourceDownload.domain.model.FileNode
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavUpload
 
 interface FileRepository {
     suspend fun list(path: WebDavPath): List<FileNode>
+
+    suspend fun preview(file: FileNode): FilePreviewContent {
+        throw UnsupportedOperationException("Preview is not supported")
+    }
 
     suspend fun upload(
         path: WebDavPath,

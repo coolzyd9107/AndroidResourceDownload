@@ -18,6 +18,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,14 +34,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -48,6 +54,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
@@ -73,6 +80,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,19 +90,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import coil.compose.SubcomposeAsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.core.common.formatDate
 import link.mczihan.androidResourceDownload.core.common.formatFileSize
@@ -103,8 +120,11 @@ import link.mczihan.androidResourceDownload.core.ui.EmptyPane
 import link.mczihan.androidResourceDownload.core.ui.ErrorPane
 import link.mczihan.androidResourceDownload.core.ui.LoadingPane
 import link.mczihan.androidResourceDownload.data.mock.mockFilesForPath
+import link.mczihan.androidResourceDownload.data.mock.mockPreviewForFile
 import link.mczihan.androidResourceDownload.domain.model.FileNode
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
 import link.mczihan.androidResourceDownload.domain.model.Role
+import link.mczihan.androidResourceDownload.domain.model.previewFormat
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -127,12 +147,15 @@ fun FilesScreen(
     var deleteTarget by remember { mutableStateOf<FileNode?>(null) }
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
     var demoDestinationPath by remember { mutableStateOf(WebDavPath.root()) }
+    var demoPreviewState by remember { mutableStateOf<FilePreviewUiState>(FilePreviewUiState.Idle) }
     val mutationState = viewModel?.mutationState?.collectAsStateWithLifecycle()?.value
         ?: FileMutationState.Idle
     val realDirectoryPickerState = viewModel?.directoryPickerState
         ?.collectAsStateWithLifecycle()
         ?.value
         ?: DirectoryPickerState.Idle
+    val previewState = viewModel?.previewState?.collectAsStateWithLifecycle()?.value
+        ?: demoPreviewState
     val isAdmin = role == Role.ADMIN
     val uploadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         when {
@@ -242,6 +265,7 @@ fun FilesScreen(
             transferRequest == null &&
             deleteTarget == null &&
             !showCreateDirectoryDialog &&
+            previewState == FilePreviewUiState.Idle &&
             mutationState == FileMutationState.Idle &&
             !activePath.isRoot,
     ) { events ->
@@ -471,6 +495,18 @@ fun FilesScreen(
         FileDetailsSheet(
             file = file,
             isAdmin = isAdmin,
+            onPreview = file.previewFormat()?.let {
+                {
+                    selectedFile = null
+                    if (viewModel == null) {
+                        demoPreviewState = mockPreviewForFile(file)?.let { content ->
+                            FilePreviewUiState.Content(file, content)
+                        } ?: FilePreviewUiState.Error(file, "演示文件没有可用的预览内容")
+                    } else {
+                        viewModel.preview(file)
+                    }
+                }
+            },
             onDismiss = { selectedFile = null },
             onDownload = {
                 onDownload(file)
@@ -585,6 +621,31 @@ fun FilesScreen(
                     file.etag,
                 )
                 deleteTarget = null
+            },
+        )
+    }
+
+    if (previewState != FilePreviewUiState.Idle) {
+        FilePreviewDialog(
+            state = previewState,
+            onDismiss = {
+                if (viewModel == null) {
+                    demoPreviewState = FilePreviewUiState.Idle
+                } else {
+                    viewModel.dismissPreview()
+                }
+            },
+            onRetry = {
+                if (viewModel == null) {
+                    val file = previewState.fileOrNull()
+                    demoPreviewState = file?.let { previewFile ->
+                        mockPreviewForFile(previewFile)?.let { content ->
+                            FilePreviewUiState.Content(previewFile, content)
+                        } ?: FilePreviewUiState.Error(previewFile, "演示文件没有可用的预览内容")
+                    } ?: FilePreviewUiState.Idle
+                } else {
+                    viewModel.retryPreview()
+                }
             },
         )
     }
@@ -850,6 +911,7 @@ private fun FileList(
 private fun FileDetailsSheet(
     file: FileNode,
     isAdmin: Boolean,
+    onPreview: (() -> Unit)?,
     onDismiss: () -> Unit,
     onDownload: () -> Unit,
     onMove: () -> Unit,
@@ -898,13 +960,37 @@ private fun FileDetailsSheet(
             DetailLine("修改时间", formatDate(file.lastModified))
             DetailLine("路径", file.path)
             if (!file.isDirectory) {
-                Button(
-                    onClick = onDownload,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.Download, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("下载")
+                if (onPreview == null) {
+                    Button(
+                        onClick = onDownload,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("下载")
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        FilledTonalButton(
+                            onClick = onPreview,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Default.Visibility, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("预览")
+                        }
+                        Button(
+                            onClick = onDownload,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("下载")
+                        }
+                    }
                 }
             }
             if (isAdmin) {
@@ -946,6 +1032,201 @@ private fun FileDetailsSheet(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FilePreviewDialog(
+    state: FilePreviewUiState,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val file = state.fileOrNull() ?: return
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = file.name,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Default.Close, contentDescription = "关闭预览")
+                            }
+                        },
+                    )
+                },
+            ) { innerPadding ->
+                when (state) {
+                    FilePreviewUiState.Idle -> Unit
+                    is FilePreviewUiState.Loading -> Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                    is FilePreviewUiState.Error -> Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            text = state.message,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        FilledTonalButton(
+                            onClick = onRetry,
+                            modifier = Modifier.padding(top = 16.dp),
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("重试")
+                        }
+                    }
+                    is FilePreviewUiState.Content -> when (val preview = state.preview) {
+                        is FilePreviewContent.Text -> TextPreviewPane(
+                            preview = preview,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        )
+                        is FilePreviewContent.Image -> ImagePreviewPane(
+                            fileName = file.name,
+                            preview = preview,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TextPreviewPane(
+    preview: FilePreviewContent.Text,
+    modifier: Modifier = Modifier,
+) {
+    val verticalScroll = rememberScrollState()
+    Column(
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (preview.truncated) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Text(
+                    text = "内容过长，仅显示开头部分",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+            SelectionContainer {
+                Text(
+                    text = preview.text,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(verticalScroll)
+                        .padding(bottom = 24.dp),
+                    fontFamily = if (preview.monospace) FontFamily.Monospace else null,
+                    softWrap = true,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImagePreviewPane(
+    fileName: String,
+    preview: FilePreviewContent.Image,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val request = remember(preview.bytes) {
+        ImageRequest.Builder(context)
+            .data(preview.bytes)
+            .size(IMAGE_PREVIEW_DECODE_SIZE)
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .crossfade(false)
+            .build()
+    }
+    var scale by remember(preview.bytes) { mutableFloatStateOf(1f) }
+    var offsetX by remember(preview.bytes) { mutableFloatStateOf(0f) }
+    var offsetY by remember(preview.bytes) { mutableFloatStateOf(0f) }
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val nextScale = (scale * zoomChange).coerceIn(1f, MAX_IMAGE_PREVIEW_SCALE)
+        scale = nextScale
+        if (nextScale == 1f) {
+            offsetX = 0f
+            offsetY = 0f
+        } else {
+            offsetX = (offsetX + panChange.x).coerceIn(-MAX_IMAGE_PAN, MAX_IMAGE_PAN)
+            offsetY = (offsetY + panChange.y).coerceIn(-MAX_IMAGE_PAN, MAX_IMAGE_PAN)
+        }
+    }
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .transformable(transformState),
+        contentAlignment = Alignment.Center,
+    ) {
+        SubcomposeAsyncImage(
+            model = request,
+            contentDescription = fileName,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
+                    translationY = offsetY
+                },
+            loading = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            },
+            error = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "无法解析此图片",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+        )
     }
 }
 
@@ -1324,6 +1605,17 @@ private fun DirectoryPickerState.currentPathOrNull(): WebDavPath? = when (this) 
     is DirectoryPickerState.Success -> path
     is DirectoryPickerState.Error -> path
 }
+
+private fun FilePreviewUiState.fileOrNull(): FileNode? = when (this) {
+    FilePreviewUiState.Idle -> null
+    is FilePreviewUiState.Loading -> file
+    is FilePreviewUiState.Content -> file
+    is FilePreviewUiState.Error -> file
+}
+
+private const val IMAGE_PREVIEW_DECODE_SIZE = 2_048
+private const val MAX_IMAGE_PREVIEW_SCALE = 5f
+private const val MAX_IMAGE_PAN = 4_096f
 
 @Composable
 private fun DetailLine(label: String, value: String) {

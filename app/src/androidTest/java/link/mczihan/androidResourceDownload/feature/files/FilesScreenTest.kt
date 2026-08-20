@@ -82,6 +82,38 @@ class FilesScreenTest {
         composeRule.onNodeWithText("创建").assertExists()
     }
 
+    @Test
+    fun supportedTextFileShowsPreviewAndOpensContent() {
+        setFilesScreen(Role.USER)
+
+        composeRule.onNodeWithText("应用发布").performClick()
+        composeRule.onNodeWithText("release-notes.txt").performClick()
+        composeRule.onNodeWithText("预览").assertIsDisplayed().performClick()
+
+        composeRule.onNodeWithText("Android Resource Download 2.0.0", substring = true)
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun supportedImageFileShowsPreview() {
+        setFilesScreen(Role.USER)
+
+        composeRule.onNodeWithText("预览示例.png").performClick()
+        composeRule.onNodeWithText("预览").assertIsDisplayed().performClick()
+
+        composeRule.onNode(hasContentDescription("预览示例.png")).assertExists()
+    }
+
+    @Test
+    fun unsupportedPdfHidesPreviewAction() {
+        setFilesScreen(Role.USER)
+
+        composeRule.onNodeWithText("使用说明.pdf").performClick()
+
+        composeRule.onNodeWithText("预览").assertDoesNotExist()
+        composeRule.onNodeWithText("下载").assertIsDisplayed()
+    }
+
     private fun setFilesScreen(role: Role) {
         composeRule.setContent {
             MaterialTheme {
