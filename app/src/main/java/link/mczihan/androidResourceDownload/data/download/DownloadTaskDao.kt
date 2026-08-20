@@ -161,6 +161,15 @@ abstract class DownloadTaskDao {
 
     @Query(
         """
+        DELETE FROM download_tasks
+        WHERE id = :taskId AND owner_id = :ownerId
+          AND status IN ('SUCCESS', 'FAILED', 'CANCELLED')
+        """,
+    )
+    abstract suspend fun deleteTerminal(ownerId: String, taskId: String): Int
+
+    @Query(
+        """
         UPDATE download_tasks
         SET status = 'PENDING', updated_at = :now
         WHERE owner_id = :ownerId AND status = 'RUNNING'

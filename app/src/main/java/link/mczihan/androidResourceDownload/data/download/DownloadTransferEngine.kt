@@ -113,7 +113,11 @@ class DownloadTransferEngine @Inject constructor(
                 val buffer = ByteArray(BUFFER_SIZE)
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    val read = runInterruptible(Dispatchers.IO) { body.stream.read(buffer) }
+                    val read = try {
+                        runInterruptible(Dispatchers.IO) { body.stream.read(buffer) }
+                    } catch (error: IOException) {
+                        throw WebDavException.Network(error)
+                    }
                     if (read < 0) break
                     if (read == 0) continue
                     output.write(buffer, 0, read)

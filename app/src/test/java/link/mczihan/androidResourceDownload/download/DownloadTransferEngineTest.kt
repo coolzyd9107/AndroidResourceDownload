@@ -1,6 +1,8 @@
 package link.mczihan.androidResourceDownload.download
 
 import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.io.InputStream
 import kotlinx.coroutines.runBlocking
 import link.mczihan.androidResourceDownload.data.download.DownloadFileStore
 import link.mczihan.androidResourceDownload.data.download.DownloadPreparation
@@ -11,6 +13,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavByteRange
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavContentRange
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavDepth
+import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavMetadata
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavReadResponse
@@ -139,6 +142,30 @@ class DownloadTransferEngineTest {
         assertTrue(storageName.endsWith(".pdf"))
         assertTrue(storageName.toByteArray(Charsets.UTF_8).size <= 200)
         assertTrue("$storageName.part".toByteArray(Charsets.UTF_8).size <= 255)
+    }
+
+    @Test
+    fun responseBodyReadFailureIsReportedAsNetworkError() = runBlocking {
+        val store = DownloadFileStore(temporaryFolder.newFolder("network-read"))
+        val client = FakeWebDavClient(
+            headMetadata = metadata(length = 5L, acceptsRanges = false),
+        ) { _, _ ->
+            WebDavReadResponse(
+                statusCode = 200,
+                metadata = metadata(length = 5L, acceptsRanges = false),
+                contentRange = null,
+                stream = object : InputStream() {
+                    override fun read(): Int = throw IOException("connection reset")
+                },
+                closeAction = {},
+            )
+        }
+
+        val error = runCatching {
+            DownloadTransferEngine(client, store).transfer(task("task-network"), {}, { _, _ -> })
+        }.exceptionOrNull()
+
+        assertTrue(error is WebDavException.Network)
     }
 
     private fun task(id: String, etag: String? = null): DownloadTask = DownloadTask(

@@ -1,5 +1,6 @@
 package link.mczihan.androidResourceDownload.feature.files
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -77,7 +78,20 @@ fun FilesScreen(
         mutableStateOf(fileStateForPath(currentPath))
     }
     var selectedFile by remember { mutableStateOf<FileNode?>(null) }
-    val displayedPath = realState?.path?.toString() ?: currentPath
+    val activePath = realState?.path ?: WebDavPath.parseDecoded(currentPath)
+    val displayedPath = activePath.toString()
+    val navigateUp = {
+        if (viewModel == null) {
+            currentPath = WebDavPath.fromDecodedSegments(activePath.decodedSegments.dropLast(1)).toString()
+        } else {
+            viewModel.navigateUp()
+        }
+    }
+
+    BackHandler(enabled = selectedFile != null) {
+        selectedFile = null
+    }
+    BackHandler(enabled = selectedFile == null && !activePath.isRoot, onBack = navigateUp)
 
     Scaffold(
         modifier = modifier,
@@ -96,14 +110,8 @@ fun FilesScreen(
                     }
                 },
                 navigationIcon = {
-                    if (displayedPath != "/") {
-                        IconButton(onClick = {
-                            if (viewModel == null) {
-                                currentPath = currentPath.substringBeforeLast('/').ifEmpty { "/" }
-                            } else {
-                                viewModel.navigateUp()
-                            }
-                        }) {
+                    if (!activePath.isRoot) {
+                        IconButton(onClick = navigateUp) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回上一级")
                         }
                     }

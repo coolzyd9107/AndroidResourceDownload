@@ -22,12 +22,25 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
+
+enum class PublicDownloadOperation {
+    CREATE,
+    WRITE,
+    PUBLISH,
+}
+
+class PublicDownloadException(
+    val operation: PublicDownloadOperation,
+    message: String,
+    cause: Throwable? = null,
+) : IOException(message, cause)
 
 @Singleton
 class PublicDownloadStore @Inject constructor(
@@ -63,8 +76,16 @@ class PublicDownloadStore @Inject constructor(
         onPublished: (String) -> Unit = {},
     ): String =
         withContext(Dispatchers.IO) {
-            if (!source.isFile) throw IOException("Downloaded file is missing")
-            val uri = parsePublicUri(publicUri) ?: throw IOException("Invalid public download URI")
+            if (!source.isFile) {
+                throw PublicDownloadException(
+                    PublicDownloadOperation.WRITE,
+                    "Downloaded file is missing",
+                )
+            }
+            val uri = parsePublicUri(publicUri) ?: throw PublicDownloadException(
+                PublicDownloadOperation.WRITE,
+                "Invalid public download URI",
+            )
             val destination = when (uri.scheme) {
                 ContentResolver.SCHEME_CONTENT -> {
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -115,23 +136,71 @@ class PublicDownloadStore @Inject constructor(
             put(MediaStore.MediaColumns.MIME_TYPE, mimeType ?: DEFAULT_MIME_TYPE)
             put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
-            put(MediaStore.MediaColumns.DATE_EXPIRES, currentEpochSeconds() + PENDING_EXPIRY_SECONDS)
         }
-        return resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: throw IOException("Unable to create a public download")
+        return try {
+            resolver.insert(
+                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                values,
+            ) ?: throw PublicDownloadException(
+                PublicDownloadOperation.CREATE,
+                "MediaStore did not create a public download",
+            )
+        } catch (error: PublicDownloadException) {
+            throw error
+        } catch (error: Exception) {
+            throw PublicDownloadException(
+                PublicDownloadOperation.CREATE,
+                "Unable to create a public download",
+                error,
+            )
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private suspend fun writeWithMediaStore(uri: Uri, source: File) {
-        val output = resolver.openOutputStream(uri, "w")
-            ?: throw IOException("Unable to open the public download")
-        output.use { copy(source, it) }
+        val output = try {
+            resolver.openOutputStream(uri, "w")
+                ?: throw PublicDownloadException(
+                    PublicDownloadOperation.WRITE,
+                    "MediaStore did not open the public download",
+                )
+        } catch (error: PublicDownloadException) {
+            throw error
+        } catch (error: Exception) {
+            throw PublicDownloadException(
+                PublicDownloadOperation.WRITE,
+                "Unable to open the public download",
+                error,
+            )
+        }
+        try {
+            output.use { copy(source, it) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw PublicDownloadException(
+                PublicDownloadOperation.WRITE,
+                "Unable to write the public download",
+                error,
+            )
+        }
         val published = ContentValues().apply {
             put(MediaStore.MediaColumns.IS_PENDING, 0)
-            putNull(MediaStore.MediaColumns.DATE_EXPIRES)
         }
-        if (resolver.update(uri, published, null, null) != 1) {
-            throw IOException("Unable to publish the downloaded file")
+        val updated = try {
+            resolver.update(uri, published, null, null)
+        } catch (error: Exception) {
+            throw PublicDownloadException(
+                PublicDownloadOperation.PUBLISH,
+                "Unable to publish the downloaded file",
+                error,
+            )
+        }
+        if (updated <= 0) {
+            throw PublicDownloadException(
+                PublicDownloadOperation.PUBLISH,
+                "MediaStore did not publish the downloaded file",
+            )
         }
     }
 
@@ -286,13 +355,10 @@ class PublicDownloadStore @Inject constructor(
         throw IOException("Unable to allocate a public download name")
     }
 
-    private fun currentEpochSeconds(): Long = System.currentTimeMillis() / 1_000L
-
     private companion object {
         const val DEFAULT_MIME_TYPE = "application/octet-stream"
         const val BUFFER_SIZE = 64 * 1024
         const val MAX_COLLISION_INDEX = 10_000
-        const val PENDING_EXPIRY_SECONDS = 24 * 60 * 60L
         val TASK_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,80}")
     }
 }

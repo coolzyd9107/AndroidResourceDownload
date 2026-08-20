@@ -90,6 +90,12 @@ class DownloadsViewModel @Inject constructor(
         if (!queueController.cancel(owner, taskId)) messageChannel.send("任务状态已发生变化")
     }
 
+    fun delete(taskId: String) = withOwner { owner ->
+        if (!queueController.deleteTerminal(owner, taskId)) {
+            messageChannel.send("任务状态已变化，或本地文件无法删除")
+        }
+    }
+
     fun open(task: DownloadTask) {
         if (!fileOpener.open(task)) {
             viewModelScope.launch { messageChannel.send("没有可打开此文件的应用，或文件已被移除") }

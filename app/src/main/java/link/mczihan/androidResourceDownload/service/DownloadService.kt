@@ -34,10 +34,13 @@ import link.mczihan.androidResourceDownload.data.download.DownloadFileOpener
 import link.mczihan.androidResourceDownload.data.download.DownloadIntegrityException
 import link.mczihan.androidResourceDownload.data.download.DownloadRepository
 import link.mczihan.androidResourceDownload.data.download.DownloadTransferEngine
+import link.mczihan.androidResourceDownload.data.download.PublicDownloadException
+import link.mczihan.androidResourceDownload.data.download.PublicDownloadOperation
 import link.mczihan.androidResourceDownload.data.download.PublicDownloadStore
 import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
+import timber.log.Timber
 
 @AndroidEntryPoint
 class DownloadService : Service() {
@@ -277,6 +280,7 @@ class DownloadService : Service() {
                     runCatching { fileStore.restoreFinalAsPartial(task) }
                 }
             }
+            Timber.e(error, "Download task %s failed", task.id)
             val message = error.toDownloadMessage()
             repository.fail(task.id, message)
             showFinishedNotification(task, success = false, message = message)
@@ -309,6 +313,15 @@ class DownloadService : Service() {
         is WebDavException.InvalidResponse,
         is DownloadIntegrityException,
         -> "服务器返回的文件数据无效"
+        is WebDavException.RedirectRejected,
+        is WebDavException.ServerError,
+        is WebDavException.UnexpectedStatus,
+        -> "服务器暂时无法提供该文件，可重试"
+        is PublicDownloadException -> when (operation) {
+            PublicDownloadOperation.CREATE -> "无法在系统下载目录创建文件"
+            PublicDownloadOperation.WRITE -> "无法写入系统下载目录"
+            PublicDownloadOperation.PUBLISH -> "系统无法完成下载文件发布"
+        }
         is SecurityException -> "需要存储权限才能写入系统下载目录"
         is IOException -> "存储空间不足或文件写入失败"
         else -> "下载失败，可重试"

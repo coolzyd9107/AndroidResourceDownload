@@ -436,6 +436,19 @@ private fun MainShell(
                             downloadsViewModel?.open(task)
                         }
                     },
+                    onDelete = { taskId ->
+                        if (BuildConfig.DEMO_MODE) {
+                            demoTasks = demoTasks.filterNot { task ->
+                                task.id == taskId && task.status in setOf(
+                                    DownloadStatus.SUCCESS,
+                                    DownloadStatus.FAILED,
+                                    DownloadStatus.CANCELLED,
+                                )
+                            }
+                        } else {
+                            downloadsViewModel?.delete(taskId)
+                        }
+                    },
                 )
             }
             composable(ShellRoute.Settings.route) {

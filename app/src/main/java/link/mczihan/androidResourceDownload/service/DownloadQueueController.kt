@@ -70,6 +70,11 @@ class DownloadQueueController @Inject constructor(
         return changed
     }
 
+    suspend fun deleteTerminal(ownerId: String, taskId: String): Boolean {
+        executionRegistry.cancelTaskAndJoin(taskId)
+        return repository.deleteTerminal(ownerId, taskId)
+    }
+
     suspend fun stop(ownerId: String) {
         block(ownerId)
         repository.pauseRunning(ownerId)

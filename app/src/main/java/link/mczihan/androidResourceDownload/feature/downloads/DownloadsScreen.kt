@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Pause
@@ -44,6 +45,7 @@ fun DownloadsScreen(
     tasks: List<DownloadTask>,
     onStatusChange: (taskId: String, status: DownloadStatus) -> Unit,
     onOpen: (DownloadTask) -> Unit,
+    onDelete: (taskId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -67,6 +69,7 @@ fun DownloadsScreen(
                         task = task,
                         onStatusChange = { status -> onStatusChange(task.id, status) },
                         onOpen = { onOpen(task) },
+                        onDelete = { onDelete(task.id) },
                     )
                 }
             }
@@ -79,6 +82,7 @@ private fun DownloadTaskItem(
     task: DownloadTask,
     onStatusChange: (DownloadStatus) -> Unit,
     onOpen: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val totalBytes = task.totalBytes
     val progress = if (totalBytes != null && totalBytes > 0L) {
@@ -167,19 +171,25 @@ private fun DownloadTaskItem(
                         FilledTonalIconButton(onClick = { onStatusChange(DownloadStatus.RUNNING) }) {
                             Icon(Icons.Default.Refresh, contentDescription = "重试下载")
                         }
-                        IconButton(onClick = { onStatusChange(DownloadStatus.CANCELLED) }) {
-                            Icon(Icons.Default.Cancel, contentDescription = "取消下载")
+                        IconButton(onClick = onDelete) {
+                            Icon(Icons.Default.Delete, contentDescription = "删除下载任务")
                         }
                     }
-                    DownloadStatus.CANCELLED -> FilledTonalIconButton(
-                        onClick = { onStatusChange(DownloadStatus.RUNNING) },
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "重试下载")
+                    DownloadStatus.CANCELLED -> {
+                        FilledTonalIconButton(onClick = { onStatusChange(DownloadStatus.RUNNING) }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "重试下载")
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(Icons.Default.Delete, contentDescription = "删除下载任务")
+                        }
                     }
-                    DownloadStatus.SUCCESS -> IconButton(
-                        onClick = onOpen,
-                    ) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = "打开文件")
+                    DownloadStatus.SUCCESS -> {
+                        IconButton(onClick = onOpen) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = "打开文件")
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(Icons.Default.Delete, contentDescription = "删除下载任务和本地文件")
+                        }
                     }
                 }
             }

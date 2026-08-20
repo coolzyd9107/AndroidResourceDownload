@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,38 +30,42 @@ class FilesViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow<FilesUiState>(FilesUiState.Loading(WebDavPath.root()))
     val state: StateFlow<FilesUiState> = _state.asStateFlow()
+    private var loadJob: Job? = null
+    private var loadVersion = 0L
 
     init {
-        load()
+        load(WebDavPath.root())
     }
 
-    fun load() {
-        val path = _state.value.path
-        viewModelScope.launch {
-            _state.value = FilesUiState.Loading(path)
-            _state.value = try {
+    private fun load(path: WebDavPath) {
+        val version = ++loadVersion
+        loadJob?.cancel()
+        _state.value = FilesUiState.Loading(path)
+        loadJob = viewModelScope.launch {
+            val result = try {
                 repository.list(path).let { files ->
                     if (files.isEmpty()) FilesUiState.Empty(path) else FilesUiState.Success(path, files)
                 }
             } catch (error: WebDavException.AuthenticationRequired) {
                 FilesUiState.Error(path, "WebDAV 凭据已失效，请重新登录", unauthorized = true)
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 FilesUiState.Error(path, error.message ?: "文件列表加载失败")
             }
+            if (version == loadVersion) _state.value = result
         }
     }
 
     fun openDirectory(path: WebDavPath) {
-        _state.value = FilesUiState.Loading(path)
-        load()
+        load(path)
     }
 
     fun navigateUp() {
         val segments = _state.value.path.decodedSegments
         if (segments.isEmpty()) return
-        _state.value = FilesUiState.Loading(WebDavPath.fromDecodedSegments(segments.dropLast(1)))
-        load()
+        load(WebDavPath.fromDecodedSegments(segments.dropLast(1)))
     }
 
-    fun retry() = load()
+    fun retry() = load(_state.value.path)
 }

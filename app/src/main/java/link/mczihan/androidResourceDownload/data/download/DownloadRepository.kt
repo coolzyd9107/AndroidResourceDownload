@@ -96,8 +96,9 @@ class DownloadRepository @Inject constructor(
         dao.pauseRunning(ownerId, System.currentTimeMillis())
     }
 
-    suspend fun retry(ownerId: String, taskId: String): Boolean =
+    suspend fun retry(ownerId: String, taskId: String): Boolean = enqueueMutex.withLock {
         dao.retry(ownerId, taskId, System.currentTimeMillis()) == 1
+    }
 
     suspend fun cancel(ownerId: String, taskId: String): Boolean {
         return dao.cancel(ownerId, taskId, System.currentTimeMillis()) == 1
@@ -113,6 +114,29 @@ class DownloadRepository @Inject constructor(
             }
         }
         fileStore.deleteAll(task)
+    }
+
+    suspend fun deleteTerminal(ownerId: String, taskId: String): Boolean = enqueueMutex.withLock {
+        withContext(NonCancellable) {
+            val task = dao.findById(ownerId, taskId)?.toDomain() ?: return@withContext false
+            when (task.status) {
+                DownloadStatus.SUCCESS -> {
+                    if (!publicDownloadStore.delete(task.publicUri)) return@withContext false
+                    fileStore.deleteAll(task)
+                    dao.deleteTerminal(ownerId, taskId) == 1
+                }
+                DownloadStatus.FAILED,
+                DownloadStatus.CANCELLED,
+                -> {
+                    if (task.publicUri != null && !publicDownloadStore.delete(task.publicUri)) {
+                        return@withContext false
+                    }
+                    fileStore.deleteAll(task)
+                    dao.deleteTerminal(ownerId, taskId) == 1
+                }
+                else -> false
+            }
+        }
     }
 
     suspend fun updatePreparation(taskId: String, preparation: DownloadPreparation): Boolean =
