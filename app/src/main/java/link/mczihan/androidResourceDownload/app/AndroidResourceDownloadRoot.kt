@@ -7,16 +7,23 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -31,6 +38,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -244,6 +253,7 @@ fun AndroidResourceDownloadRoot(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MainShell(
     user: User,
@@ -268,6 +278,8 @@ private fun MainShell(
     var pendingPermissionRetryId by remember { mutableStateOf<String?>(null) }
     var pendingPermissionStartQueue by remember { mutableStateOf(false) }
     var requestedQueueStoragePermission by remember { mutableStateOf(false) }
+    val tabSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    val tabEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
 
     fun showMessage(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
@@ -328,9 +340,17 @@ private fun MainShell(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 0.dp,
+            ) {
                 ShellRoute.values().forEach { destination ->
                     val selected = currentRoute == destination.route
+                    val iconScale by animateFloatAsState(
+                        targetValue = if (selected) 1.16f else 1f,
+                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+                        label = "navigationIconScale",
+                    )
                     NavigationBarItem(
                         selected = selected,
                         onClick = {
@@ -350,9 +370,16 @@ private fun MainShell(
                                     ShellRoute.Settings -> Icons.Default.Settings
                                 },
                                 contentDescription = destination.label,
+                                modifier = Modifier.graphicsLayer {
+                                    scaleX = iconScale
+                                    scaleY = iconScale
+                                },
                             )
                         },
                         label = { Text(destination.label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                        ),
                     )
                 }
             }
@@ -363,7 +390,15 @@ private fun MainShell(
             startDestination = ShellRoute.Files.route,
             modifier = Modifier.padding(shellPadding),
         ) {
-            composable(ShellRoute.Files.route) {
+            composable(
+                route = ShellRoute.Files.route,
+                enterTransition = {
+                    fadeIn(tabEffectsSpec) + scaleIn(tabSpatialSpec, initialScale = 0.96f)
+                },
+                exitTransition = {
+                    fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
+                },
+            ) {
                 FilesScreen(
                     role = user.role,
                     onProfile = onProfile,
@@ -394,7 +429,15 @@ private fun MainShell(
                     onMessage = ::showMessage,
                 )
             }
-            composable(ShellRoute.Downloads.route) {
+            composable(
+                route = ShellRoute.Downloads.route,
+                enterTransition = {
+                    fadeIn(tabEffectsSpec) + scaleIn(tabSpatialSpec, initialScale = 0.96f)
+                },
+                exitTransition = {
+                    fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
+                },
+            ) {
                 DownloadsScreen(
                     tasks = if (BuildConfig.DEMO_MODE) demoTasks else persistedTasks,
                     onStatusChange = { taskId, status ->
@@ -451,7 +494,15 @@ private fun MainShell(
                     },
                 )
             }
-            composable(ShellRoute.Settings.route) {
+            composable(
+                route = ShellRoute.Settings.route,
+                enterTransition = {
+                    fadeIn(tabEffectsSpec) + scaleIn(tabSpatialSpec, initialScale = 0.96f)
+                },
+                exitTransition = {
+                    fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
+                },
+            ) {
                 SettingsScreen(
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,

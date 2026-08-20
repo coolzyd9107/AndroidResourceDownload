@@ -1,8 +1,21 @@
 package link.mczihan.androidResourceDownload.feature.files
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -22,23 +36,27 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +64,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -62,7 +83,7 @@ import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun FilesScreen(
     role: Role,
@@ -80,6 +101,42 @@ fun FilesScreen(
     var selectedFile by remember { mutableStateOf<FileNode?>(null) }
     val activePath = realState?.path ?: WebDavPath.parseDecoded(currentPath)
     val displayedPath = activePath.toString()
+    val filePaneState = if (viewModel == null) {
+        when (val contentState = state) {
+            ContentState.Loading -> FilePaneState(activePath, FilePaneContent.Loading)
+            is ContentState.Empty -> FilePaneState(
+                activePath,
+                FilePaneContent.Empty(contentState.message),
+            )
+            is ContentState.Error -> FilePaneState(
+                activePath,
+                FilePaneContent.Error(contentState.message),
+            )
+            is ContentState.Success -> FilePaneState(
+                activePath,
+                FilePaneContent.Files(contentState.value),
+            )
+        }
+    } else {
+        when (val contentState = realState) {
+            null, is FilesUiState.Loading -> FilePaneState(activePath, FilePaneContent.Loading)
+            is FilesUiState.Empty -> FilePaneState(
+                contentState.path,
+                FilePaneContent.Empty("此目录为空"),
+            )
+            is FilesUiState.Error -> FilePaneState(
+                contentState.path,
+                FilePaneContent.Error(contentState.message),
+            )
+            is FilesUiState.Success -> FilePaneState(
+                contentState.path,
+                FilePaneContent.Files(contentState.files),
+            )
+        }
+    }
+    val folderSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
+    val folderScaleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    val folderEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val navigateUp = {
         if (viewModel == null) {
             currentPath = WebDavPath.fromDecodedSegments(activePath.decodedSegments.dropLast(1)).toString()
@@ -97,20 +154,32 @@ fun FilesScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text("文件")
+                title = { Text("文件") },
+                subtitle = {
+                    AnimatedContent(
+                        targetState = displayedPath,
+                        transitionSpec = {
+                            (fadeIn(folderEffectsSpec) + slideInVertically(folderSpatialSpec) { it / 2 })
+                                .togetherWith(
+                                    fadeOut(folderEffectsSpec) +
+                                        slideOutVertically(folderSpatialSpec) { -it / 2 },
+                                )
+                        },
+                        label = "filePath",
+                    ) { path ->
                         Text(
-                            text = displayedPath,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = path,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                 },
                 navigationIcon = {
-                    if (!activePath.isRoot) {
+                    AnimatedVisibility(
+                        visible = !activePath.isRoot,
+                        enter = fadeIn(folderEffectsSpec) + scaleIn(folderScaleSpec),
+                        exit = fadeOut(folderEffectsSpec) + scaleOut(folderScaleSpec),
+                    ) {
                         IconButton(onClick = navigateUp) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回上一级")
                         }
@@ -130,6 +199,9 @@ fun FilesScreen(
                         Icon(Icons.Default.Person, contentDescription = "个人中心")
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
             )
         },
         floatingActionButton = {
@@ -149,48 +221,74 @@ fun FilesScreen(
             }
         },
     ) { innerPadding ->
-        if (viewModel == null) {
-            when (val contentState = state) {
-                ContentState.Loading -> LoadingPane(Modifier.padding(innerPadding))
-                is ContentState.Empty -> EmptyPane(
-                    message = contentState.message,
-                    modifier = Modifier.padding(innerPadding),
-                )
-                is ContentState.Error -> ErrorPane(
-                    message = contentState.message,
-                    onRetry = { state = fileStateForPath(currentPath) },
-                    modifier = Modifier.padding(innerPadding),
-                )
-                is ContentState.Success -> FileList(
-                    files = contentState.value,
-                    onFileClick = { file ->
-                        if (file.isDirectory) currentPath = file.path else selectedFile = file
-                    },
-                    modifier = Modifier.padding(innerPadding),
-                )
+        AnimatedContent(
+            targetState = filePaneState,
+            contentKey = { pane -> pane.path to pane.content::class },
+            transitionSpec = {
+                if (initialState.path != targetState.path) {
+                    val direction = if (
+                        targetState.path.decodedSegments.size > initialState.path.decodedSegments.size
+                    ) {
+                        1
+                    } else {
+                        -1
+                    }
+                    (
+                        fadeIn(folderEffectsSpec) +
+                            slideInHorizontally(folderSpatialSpec) { width -> direction * width / 4 } +
+                            scaleIn(folderScaleSpec, initialScale = 0.98f)
+                        ).togetherWith(
+                        fadeOut(folderEffectsSpec) +
+                            slideOutHorizontally(folderSpatialSpec) { width -> -direction * width / 8 },
+                    ).using(SizeTransform(clip = true))
+                } else {
+                    fadeIn(folderEffectsSpec).togetherWith(fadeOut(folderEffectsSpec))
+                }
+            },
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize(),
+            label = "folderContent",
+        ) { pane ->
+            val isTargetContent = pane == filePaneState
+            val contentModifier = if (isTargetContent) {
+                Modifier
+            } else {
+                Modifier.clearAndSetSemantics { }
             }
-        } else {
-            when (val contentState = realState) {
-                null, is FilesUiState.Loading -> LoadingPane(Modifier.padding(innerPadding))
-                is FilesUiState.Empty -> EmptyPane(
-                    message = "此目录为空",
-                    modifier = Modifier.padding(innerPadding),
+            when (val content = pane.content) {
+                FilePaneContent.Loading -> LoadingPane(contentModifier)
+                is FilePaneContent.Empty -> EmptyPane(
+                    message = content.message,
+                    modifier = contentModifier,
                 )
-                is FilesUiState.Error -> ErrorPane(
-                    message = contentState.message,
-                    onRetry = viewModel::retry,
-                    modifier = Modifier.padding(innerPadding),
+                is FilePaneContent.Error -> ErrorPane(
+                    message = content.message,
+                    modifier = contentModifier,
+                    enabled = isTargetContent,
+                    onRetry = {
+                        if (viewModel == null) {
+                            state = fileStateForPath(currentPath)
+                        } else {
+                            viewModel.retry()
+                        }
+                    },
                 )
-                is FilesUiState.Success -> FileList(
-                    files = contentState.files,
+                is FilePaneContent.Files -> FileList(
+                    files = content.value,
+                    modifier = contentModifier,
+                    enabled = isTargetContent,
                     onFileClick = { file ->
                         if (file.isDirectory) {
-                            viewModel.openDirectory(WebDavPath.parseDecoded(file.path))
+                            if (viewModel == null) {
+                                currentPath = file.path
+                            } else {
+                                viewModel.openDirectory(WebDavPath.parseDecoded(file.path))
+                            }
                         } else {
                             selectedFile = file
                         }
                     },
-                    modifier = Modifier.padding(innerPadding),
                 )
             }
         }
@@ -214,6 +312,18 @@ fun FilesScreen(
     }
 }
 
+private data class FilePaneState(
+    val path: WebDavPath,
+    val content: FilePaneContent,
+)
+
+private sealed interface FilePaneContent {
+    data object Loading : FilePaneContent
+    data class Empty(val message: String) : FilePaneContent
+    data class Error(val message: String) : FilePaneContent
+    data class Files(val value: List<FileNode>) : FilePaneContent
+}
+
 private fun fileStateForPath(path: String): ContentState<List<FileNode>> =
     when (val files = mockFilesForPath(path)) {
         null -> ContentState.Error("暂时无法加载此目录")
@@ -224,15 +334,20 @@ private fun fileStateForPath(path: String): ContentState<List<FileNode>> =
         }
     }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileList(
     files: List<FileNode>,
     onFileClick: (FileNode) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
+    val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 112.dp),
+        contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(files, key = { it.path }) { file ->
             ListItem(
@@ -255,23 +370,53 @@ private fun FileList(
                     )
                 },
                 leadingContent = {
-                    Icon(
-                        imageVector = if (file.isDirectory) {
-                            Icons.Default.Folder
+                    Surface(
+                        modifier = Modifier.size(48.dp),
+                        shape = if (file.isDirectory) MaterialTheme.shapes.medium else CircleShape,
+                        color = if (file.isDirectory) {
+                            MaterialTheme.colorScheme.primaryContainer
                         } else {
-                            Icons.Default.InsertDriveFile
+                            MaterialTheme.colorScheme.surfaceContainerHighest
                         },
-                        contentDescription = null,
-                        tint = if (file.isDirectory) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (file.isDirectory) {
+                                    Icons.Default.Folder
+                                } else {
+                                    Icons.Default.InsertDriveFile
+                                },
+                                contentDescription = null,
+                                tint = if (file.isDirectory) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
                 },
-                modifier = Modifier.clickable { onFileClick(file) },
+                trailingContent = if (file.isDirectory) {
+                    {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    null
+                },
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier
+                    .animateItem(
+                        fadeInSpec = itemEffectsSpec,
+                        placementSpec = itemSpatialSpec,
+                        fadeOutSpec = itemEffectsSpec,
+                    )
+                    .clip(MaterialTheme.shapes.small)
+                    .clickable(enabled = enabled) { onFileClick(file) },
             )
-            Divider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
@@ -293,13 +438,24 @@ private fun FileDetailsSheet(
                 .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Icon(
-                    imageVector = Icons.Default.InsertDriveFile,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.InsertDriveFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
                 Spacer(Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(file.name, style = MaterialTheme.typography.titleLarge)

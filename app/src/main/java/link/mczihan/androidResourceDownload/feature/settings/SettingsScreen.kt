@@ -1,11 +1,14 @@
 package link.mczihan.androidResourceDownload.feature.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,13 +19,16 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -33,6 +39,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import link.mczihan.androidResourceDownload.core.theme.ThemeMode
 
@@ -64,49 +72,68 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            ThemeMode.values().forEach { mode ->
-                ListItem(
-                    headlineContent = { Text(mode.label()) },
-                    leadingContent = {
-                        Icon(
-                            imageVector = when (mode) {
-                                ThemeMode.SYSTEM -> Icons.Default.SettingsBrightness
-                                ThemeMode.LIGHT -> Icons.Default.LightMode
-                                ThemeMode.DARK -> Icons.Default.DarkMode
-                            },
-                            contentDescription = null,
-                        )
-                    },
-                    trailingContent = {
-                        RadioButton(
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val modes = ThemeMode.values()
+                val compact = maxWidth < 360.dp || LocalDensity.current.fontScale > 1.3f
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    modes.forEachIndexed { index, mode ->
+                        SegmentedButton(
                             selected = themeMode == mode,
                             onClick = { onThemeModeChange(mode) },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = modes.size,
+                            ),
+                            contentPadding = if (compact) {
+                                PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                            } else {
+                                SegmentedButtonDefaults.ContentPadding
+                            },
+                            label = {
+                                if (compact) {
+                                    Icon(
+                                        imageVector = mode.icon(),
+                                        contentDescription = mode.fullLabel(),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                } else {
+                                    Text(mode.shortLabel())
+                                }
+                            },
+                            icon = {
+                                if (!compact) {
+                                    Icon(
+                                        imageVector = mode.icon(),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            },
                         )
-                    },
-                    modifier = Modifier.clickable { onThemeModeChange(mode) },
-                )
+                    }
+                }
             }
-            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             ListItem(
                 headlineContent = { Text("检查更新") },
                 supportingContent = { Text("当前版本 1.0.0") },
-                leadingContent = { Icon(Icons.Default.SystemUpdate, contentDescription = null) },
+                leadingContent = { SettingsIcon(Icons.Default.SystemUpdate) },
                 modifier = Modifier.clickable(onClick = onCheckUpdate),
             )
             ListItem(
                 headlineContent = { Text("关于") },
                 supportingContent = { Text("版本与开源信息") },
-                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+                leadingContent = { SettingsIcon(Icons.Default.Info) },
                 modifier = Modifier.clickable { showAbout = true },
             )
             ListItem(
                 headlineContent = { Text("退出登录") },
                 leadingContent = {
-                    Icon(
-                        imageVector = Icons.Default.Logout,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
+                    SettingsIcon(Icons.Default.Logout, isError = true)
                 },
                 modifier = Modifier.clickable { showLogout = true },
             )
@@ -145,8 +172,48 @@ fun SettingsScreen(
     }
 }
 
-private fun ThemeMode.label(): String = when (this) {
+@Composable
+private fun SettingsIcon(
+    imageVector: ImageVector,
+    isError: Boolean = false,
+) {
+    Surface(
+        modifier = Modifier.size(40.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = if (isError) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        },
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = imageVector,
+                contentDescription = null,
+                tint = if (isError) {
+                    MaterialTheme.colorScheme.onErrorContainer
+                } else {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                },
+            )
+        }
+    }
+}
+
+private fun ThemeMode.shortLabel(): String = when (this) {
+    ThemeMode.SYSTEM -> "系统"
+    ThemeMode.LIGHT -> "浅色"
+    ThemeMode.DARK -> "深色"
+}
+
+private fun ThemeMode.fullLabel(): String = when (this) {
     ThemeMode.SYSTEM -> "跟随系统"
     ThemeMode.LIGHT -> "始终浅色"
     ThemeMode.DARK -> "始终深色"
+}
+
+private fun ThemeMode.icon(): ImageVector = when (this) {
+    ThemeMode.SYSTEM -> Icons.Default.SettingsBrightness
+    ThemeMode.LIGHT -> Icons.Default.LightMode
+    ThemeMode.DARK -> Icons.Default.DarkMode
 }
