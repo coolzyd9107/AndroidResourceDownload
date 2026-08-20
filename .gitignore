@@ -23,3 +23,7 @@ backend/.env
 backend/tmp/
 backend/coverage.out
 backend/coverage.html
+
+# Kotlin IDE error logs
+.kotlin/
+
