@@ -1,0 +1,2 @@
+latest_version=2.1.0
+update_url=https://github.com/zhuzhuzihan/AndroidResourceDownload/releases/latest

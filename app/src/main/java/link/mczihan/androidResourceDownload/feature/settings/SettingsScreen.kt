@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.SettingsBrightness
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,6 +58,10 @@ fun SettingsScreen(
     onThemeModeChange: (ThemeMode) -> Unit,
     noticeState: NoticeUiState = NoticeUiState.Loading,
     onRetryNotice: () -> Unit = {},
+    updateState: UpdateUiState = UpdateUiState.Idle,
+    onCheckUpdate: () -> Unit = {},
+    onDismissUpdate: () -> Unit = {},
+    onOpenUpdateUrl: (String) -> Boolean = { false },
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -142,6 +147,32 @@ fun SettingsScreen(
                 modifier = Modifier.clickable { showNotice = true },
             )
             ListItem(
+                headlineContent = { Text("检查更新") },
+                supportingContent = {
+                    Text(
+                        when (val state = updateState) {
+                            UpdateUiState.Idle -> "当前版本 ${BuildConfig.VERSION_NAME}"
+                            UpdateUiState.Checking -> "正在检查更新"
+                            is UpdateUiState.Available -> "发现新版本 ${state.latestVersion}"
+                            is UpdateUiState.UpToDate -> "当前版本 ${state.currentVersion}"
+                            is UpdateUiState.Error -> "检查失败"
+                        },
+                    )
+                },
+                leadingContent = { SettingsIcon(Icons.Default.SystemUpdate) },
+                trailingContent = if (updateState == UpdateUiState.Checking) {
+                    {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
+                } else {
+                    null
+                },
+                modifier = Modifier.clickable(
+                    enabled = updateState != UpdateUiState.Checking,
+                    onClick = onCheckUpdate,
+                ),
+            )
+            ListItem(
                 headlineContent = { Text("关于") },
                 supportingContent = { Text("版本与开源信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
@@ -214,6 +245,48 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+
+    if (!showAbout && !showNotice && !showLogout) when (val state = updateState) {
+        is UpdateUiState.Available -> AlertDialog(
+            onDismissRequest = onDismissUpdate,
+            title = { Text("发现新版本") },
+            text = {
+                Text("当前版本 ${state.currentVersion}\n最新版本 ${state.latestVersion}")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (onOpenUpdateUrl(state.updateUrl)) onDismissUpdate()
+                    },
+                ) { Text("下载") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissUpdate) { Text("取消") }
+            },
+        )
+        is UpdateUiState.UpToDate -> AlertDialog(
+            onDismissRequest = onDismissUpdate,
+            title = { Text("已是最新版本") },
+            text = { Text("当前版本 ${state.currentVersion}") },
+            confirmButton = {
+                TextButton(onClick = onDismissUpdate) { Text("确定") }
+            },
+        )
+        is UpdateUiState.Error -> AlertDialog(
+            onDismissRequest = onDismissUpdate,
+            title = { Text("检查更新失败") },
+            text = { Text(state.message) },
+            confirmButton = {
+                TextButton(onClick = onCheckUpdate) { Text("重试") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissUpdate) { Text("取消") }
+            },
+        )
+        UpdateUiState.Idle,
+        UpdateUiState.Checking,
+        -> Unit
     }
 
     if (showLogout) {

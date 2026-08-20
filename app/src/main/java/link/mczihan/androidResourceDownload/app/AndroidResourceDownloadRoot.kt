@@ -575,6 +575,7 @@ private fun MainShell(
             ) {
                 val settingsViewModel = hiltViewModel<SettingsViewModel>()
                 val noticeState by settingsViewModel.noticeState.collectAsStateWithLifecycle()
+                val updateState by settingsViewModel.updateState.collectAsStateWithLifecycle()
                 LifecycleResumeEffect(settingsViewModel) {
                     settingsViewModel.refreshNotice()
                     onPauseOrDispose { }
@@ -584,6 +585,16 @@ private fun MainShell(
                     onThemeModeChange = onThemeModeChange,
                     noticeState = noticeState,
                     onRetryNotice = settingsViewModel::refreshNotice,
+                    updateState = updateState,
+                    onCheckUpdate = settingsViewModel::checkForUpdate,
+                    onDismissUpdate = settingsViewModel::dismissUpdateResult,
+                    onOpenUpdateUrl = { url ->
+                        runCatching {
+                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
+                        }
+                            .onFailure { showMessage("无法打开下载链接") }
+                            .isSuccess
+                    },
                     onLogout = onLogout,
                 )
             }

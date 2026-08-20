@@ -37,6 +37,10 @@ demoMode=false
 
 仓库不保存真实后端地址、GitHub Client Secret 或 WebDAV 密码。Debug 默认使用显式 Demo 模式；真实网络错误不会自动显示 Mock 数据。
 
+## 仓库版本检查
+
+设置页手动读取仓库根目录 `latest_version.txt`，格式为 `latest_version=x.x.x` 和 `update_url=https://...`。客户端使用 `BuildConfig.VERSION_NAME` 的完整三段数字版本逐段比较，不使用 `versionCode`；仅当远端版本更高时显示下载提示，并通过系统浏览器打开经过 HTTPS 校验的更新地址。本地版本大于或等于远端版本时只提示已是最新版本。
+
 ## Android 直连 WebDAV
 
 凭据拿到后，Android 使用独立的 OkHttp WebDAV 客户端直接执行：
