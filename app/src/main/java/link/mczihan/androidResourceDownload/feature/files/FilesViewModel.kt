@@ -20,6 +20,8 @@ import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 
+internal const val MAX_DIRECTORY_NAME_LENGTH = 100
+
 sealed interface FilesUiState {
     val path: WebDavPath
 
@@ -29,8 +31,16 @@ sealed interface FilesUiState {
     data class Error(override val path: WebDavPath, val message: String, val unauthorized: Boolean = false) : FilesUiState
 }
 
+sealed interface DirectoryPickerState {
+    data object Idle : DirectoryPickerState
+    data class Loading(val path: WebDavPath) : DirectoryPickerState
+    data class Success(val path: WebDavPath, val directories: List<FileNode>) : DirectoryPickerState
+    data class Error(val path: WebDavPath, val message: String) : DirectoryPickerState
+}
+
 sealed interface FileOperation {
     data class Upload(val document: UploadDocument, val destination: WebDavPath) : FileOperation
+    data class CreateDirectory(val path: WebDavPath) : FileOperation
     data class Move(
         val source: WebDavPath,
         val destination: WebDavPath,
@@ -52,6 +62,7 @@ sealed interface FileOperation {
 
 sealed interface FileMutationState {
     data object Idle : FileMutationState
+    data object PreparingUpload : FileMutationState
     data class UploadReady(val document: UploadDocument, val directory: WebDavPath) : FileMutationState
     data class Running(
         val operation: FileOperation,
@@ -74,12 +85,16 @@ class FilesViewModel @Inject constructor(
     val state: StateFlow<FilesUiState> = _state.asStateFlow()
     private val _mutationState = MutableStateFlow<FileMutationState>(FileMutationState.Idle)
     val mutationState: StateFlow<FileMutationState> = _mutationState.asStateFlow()
+    private val _directoryPickerState = MutableStateFlow<DirectoryPickerState>(DirectoryPickerState.Idle)
+    val directoryPickerState: StateFlow<DirectoryPickerState> = _directoryPickerState.asStateFlow()
     private val messageChannel = Channel<String>(Channel.BUFFERED)
     val messages = messageChannel.receiveAsFlow()
     private var loadJob: Job? = null
     private var mutationJob: Job? = null
+    private var directoryPickerJob: Job? = null
     private var loadVersion = 0L
     private var mutationVersion = 0L
+    private var directoryPickerVersion = 0L
 
     init {
         load(WebDavPath.root())
@@ -118,10 +133,11 @@ class FilesViewModel @Inject constructor(
     fun retry() = load(_state.value.path)
 
     fun prepareUpload(uri: Uri) {
-        if (_mutationState.value is FileMutationState.Running) return
+        if (_mutationState.value != FileMutationState.Idle) return
         mutationJob?.cancel()
         val version = ++mutationVersion
         val directory = _state.value.path
+        _mutationState.value = FileMutationState.PreparingUpload
         mutationJob = viewModelScope.launch {
             val nextState = try {
                 FileMutationState.UploadReady(uploadSource.resolve(uri), directory)
@@ -144,27 +160,74 @@ class FilesViewModel @Inject constructor(
         runOperation(FileOperation.Upload(ready.document, destination), overwrite = false)
     }
 
+    fun createDirectory(name: String) {
+        if (_mutationState.value != FileMutationState.Idle) return
+        val normalizedName = name.trim()
+        if (normalizedName.length !in 1..MAX_DIRECTORY_NAME_LENGTH) {
+            _mutationState.value = FileMutationState.Failed(null, "文件夹名称需为 1-$MAX_DIRECTORY_NAME_LENGTH 个字符")
+            return
+        }
+        val destination = runCatching { _state.value.path.child(normalizedName) }
+            .getOrElse {
+                _mutationState.value = FileMutationState.Failed(null, "文件夹名称无效")
+                return
+            }
+        runOperation(FileOperation.CreateDirectory(destination), overwrite = false)
+    }
+
+    fun openDestinationPicker(path: WebDavPath) = loadDestinationDirectories(path)
+
+    fun openDestinationDirectory(path: WebDavPath) = loadDestinationDirectories(path)
+
+    fun navigateDestinationUp() {
+        val state = _directoryPickerState.value
+        val path = when (state) {
+            DirectoryPickerState.Idle -> return
+            is DirectoryPickerState.Loading -> state.path
+            is DirectoryPickerState.Success -> state.path
+            is DirectoryPickerState.Error -> state.path
+        }
+        if (path.isRoot) return
+        loadDestinationDirectories(WebDavPath.fromDecodedSegments(path.decodedSegments.dropLast(1)))
+    }
+
+    fun retryDestinationPicker() {
+        val state = _directoryPickerState.value
+        val path = when (state) {
+            DirectoryPickerState.Idle -> return
+            is DirectoryPickerState.Loading -> state.path
+            is DirectoryPickerState.Success -> state.path
+            is DirectoryPickerState.Error -> state.path
+        }
+        loadDestinationDirectories(path)
+    }
+
+    fun dismissDestinationPicker() {
+        directoryPickerVersion++
+        directoryPickerJob?.cancel()
+        _directoryPickerState.value = DirectoryPickerState.Idle
+    }
+
     fun move(
         source: WebDavPath,
         sourceIsDirectory: Boolean,
-        destinationDirectory: String,
-        destinationName: String,
+        destinationDirectory: WebDavPath,
         sourceEtag: String? = null,
     ) {
-        transfer(source, sourceIsDirectory, sourceEtag, destinationDirectory, destinationName, move = true)
+        transfer(source, sourceIsDirectory, sourceEtag, destinationDirectory, move = true)
     }
 
     fun copy(
         source: WebDavPath,
         sourceIsDirectory: Boolean,
-        destinationDirectory: String,
-        destinationName: String,
+        destinationDirectory: WebDavPath,
         sourceEtag: String? = null,
     ) {
-        transfer(source, sourceIsDirectory, sourceEtag, destinationDirectory, destinationName, move = false)
+        transfer(source, sourceIsDirectory, sourceEtag, destinationDirectory, move = false)
     }
 
     fun delete(path: WebDavPath, isDirectory: Boolean = false, etag: String? = null) {
+        if (_mutationState.value != FileMutationState.Idle) return
         runOperation(FileOperation.Delete(path, isDirectory, etag), overwrite = false)
     }
 
@@ -197,16 +260,15 @@ class FilesViewModel @Inject constructor(
         source: WebDavPath,
         sourceIsDirectory: Boolean,
         sourceEtag: String?,
-        destinationDirectory: String,
-        destinationName: String,
+        destinationDirectory: WebDavPath,
         move: Boolean,
     ) {
-        val destination = runCatching {
-            WebDavPath.parseDecoded(destinationDirectory.trim()).child(destinationName.trim())
-        }.getOrElse {
-            _mutationState.value = FileMutationState.Failed(null, "目标路径或名称无效")
-            return
-        }
+        if (_mutationState.value != FileMutationState.Idle) return
+        val destination = runCatching { destinationDirectory.child(requireNotNull(source.name)) }
+            .getOrElse {
+                _mutationState.value = FileMutationState.Failed(null, "目标文件夹无效")
+                return
+            }
         val operation = if (move) {
             FileOperation.Move(source, destination, sourceIsDirectory, sourceEtag)
         } else {
@@ -258,6 +320,7 @@ class FilesViewModel @Inject constructor(
                             },
                         )
                     }
+                    is FileOperation.CreateDirectory -> repository.createDirectory(operation.path)
                     is FileOperation.Move -> repository.move(
                         operation.source,
                         operation.destination,
@@ -289,6 +352,16 @@ class FilesViewModel @Inject constructor(
                 }
                 throw error
             } catch (_: WebDavException.PreconditionFailed) {
+                if (operation is FileOperation.CreateDirectory) {
+                    updateMutation(
+                        version,
+                        FileMutationState.Failed(
+                            null,
+                            "同名文件或文件夹已存在，或云端不允许在此处新建文件夹",
+                        ),
+                    )
+                    return@launch
+                }
                 val destination = operation.destinationOrNull()
                 if (overwrite || destination == null) {
                     updateMutation(
@@ -308,7 +381,7 @@ class FilesViewModel @Inject constructor(
                 val nextState = if (destinationIsCollection == true) {
                     FileMutationState.Failed(
                         null,
-                        "目标是已有文件夹，禁止直接覆盖。请更换目标名称，或先单独删除目标文件夹。",
+                        "目标位置已有同名文件夹，不能直接覆盖。请选择其他位置，或先删除目标文件夹。",
                     )
                 } else if (destinationIsCollection == null) {
                     FileMutationState.Failed(operation, "无法确认目标类型，请刷新后重试")
@@ -326,8 +399,28 @@ class FilesViewModel @Inject constructor(
         if (version == mutationVersion) _mutationState.value = state
     }
 
+    private fun loadDestinationDirectories(path: WebDavPath) {
+        val version = ++directoryPickerVersion
+        directoryPickerJob?.cancel()
+        _directoryPickerState.value = DirectoryPickerState.Loading(path)
+        directoryPickerJob = viewModelScope.launch {
+            val nextState = try {
+                DirectoryPickerState.Success(
+                    path,
+                    repository.list(path).filter(FileNode::isDirectory),
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                DirectoryPickerState.Error(path, error.userMessage())
+            }
+            if (version == directoryPickerVersion) _directoryPickerState.value = nextState
+        }
+    }
+
     private fun FileOperation.successMessage(): String = when (this) {
         is FileOperation.Upload -> "已上传到 $destination"
+        is FileOperation.CreateDirectory -> "已创建文件夹 $path"
         is FileOperation.Move -> "已移动到 $destination"
         is FileOperation.Copy -> "已复制到 $destination"
         is FileOperation.Delete -> "已删除 $path"
@@ -335,6 +428,7 @@ class FilesViewModel @Inject constructor(
 
     private fun FileOperation.destinationOrNull(): WebDavPath? = when (this) {
         is FileOperation.Upload -> destination
+        is FileOperation.CreateDirectory -> path
         is FileOperation.Move -> destination
         is FileOperation.Copy -> destination
         is FileOperation.Delete -> null
@@ -346,7 +440,7 @@ class FilesViewModel @Inject constructor(
         is WebDavException.ReadWriteCredentialRequired,
         -> "当前账户没有云端写入权限"
         is WebDavException.CollectionOverwriteDenied ->
-            "目标是已有文件夹，禁止直接覆盖。请更换目标名称，或先单独删除目标文件夹。"
+            "目标位置已有同名文件夹，不能直接覆盖。请选择其他位置，或先删除目标文件夹。"
         is WebDavException.NotFound -> "云端文件不存在，列表可能已变化"
         is WebDavException.Conflict -> "目标目录不存在或云端发生冲突"
         is WebDavException.Locked -> "云端文件已被锁定"

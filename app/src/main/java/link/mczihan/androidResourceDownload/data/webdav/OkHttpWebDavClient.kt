@@ -219,11 +219,14 @@ class OkHttpWebDavClient(
     override suspend fun makeCollection(path: WebDavPath) {
         executeWrite { lease ->
             Request.Builder()
-                .url(endpoint.urlFor(path))
+                .url(endpoint.collectionUrlFor(path))
                 .header("Authorization", lease.basicAuthorization())
                 .method("MKCOL", null)
                 .build()
-        }.use { requireStatus(it, setOf(200, 201)) }
+        }.use { response ->
+            if (response.code == 405) throw WebDavException.PreconditionFailed(response.code)
+            requireStatus(response, setOf(200, 201))
+        }
     }
 
     override suspend fun delete(path: WebDavPath, isCollection: Boolean, ifMatch: String?) {

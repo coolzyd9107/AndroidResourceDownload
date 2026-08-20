@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
@@ -49,6 +51,7 @@ import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -95,7 +98,6 @@ import kotlinx.coroutines.launch
 import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.core.common.formatDate
 import link.mczihan.androidResourceDownload.core.common.formatFileSize
-import link.mczihan.androidResourceDownload.core.common.collisionFileName
 import link.mczihan.androidResourceDownload.core.ui.ContentState
 import link.mczihan.androidResourceDownload.core.ui.EmptyPane
 import link.mczihan.androidResourceDownload.core.ui.ErrorPane
@@ -123,8 +125,14 @@ fun FilesScreen(
     var selectedFile by remember { mutableStateOf<FileNode?>(null) }
     var transferRequest by remember { mutableStateOf<TransferRequest?>(null) }
     var deleteTarget by remember { mutableStateOf<FileNode?>(null) }
+    var showCreateDirectoryDialog by remember { mutableStateOf(false) }
+    var demoDestinationPath by remember { mutableStateOf(WebDavPath.root()) }
     val mutationState = viewModel?.mutationState?.collectAsStateWithLifecycle()?.value
         ?: FileMutationState.Idle
+    val realDirectoryPickerState = viewModel?.directoryPickerState
+        ?.collectAsStateWithLifecycle()
+        ?.value
+        ?: DirectoryPickerState.Idle
     val isAdmin = role == Role.ADMIN
     val uploadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         when {
@@ -138,6 +146,8 @@ fun FilesScreen(
         if (!isAdmin) {
             transferRequest = null
             deleteTarget = null
+            showCreateDirectoryDialog = false
+            viewModel?.dismissDestinationPicker()
         }
     }
     LaunchedEffect(viewModel) {
@@ -149,6 +159,11 @@ fun FilesScreen(
         }
     }
     val activePath = realState?.path ?: WebDavPath.parseDecoded(currentPath)
+    val directoryPickerState = if (viewModel == null && transferRequest != null) {
+        demoDirectoryPickerState(demoDestinationPath)
+    } else {
+        realDirectoryPickerState
+    }
     val displayedPath = activePath.toString()
     val filePaneState = if (viewModel == null) {
         when (val contentState = state) {
@@ -226,6 +241,7 @@ fun FilesScreen(
         enabled = selectedFile == null &&
             transferRequest == null &&
             deleteTarget == null &&
+            !showCreateDirectoryDialog &&
             mutationState == FileMutationState.Idle &&
             !activePath.isRoot,
     ) { events ->
@@ -342,14 +358,29 @@ fun FilesScreen(
                     )
                 },
                 floatingActionButton = {
-                    if (isAdmin && mutationState !is FileMutationState.Running) {
-                        ExtendedFloatingActionButton(
-                            text = { Text("上传") },
-                            icon = {
-                                Icon(Icons.Default.UploadFile, contentDescription = "上传文件")
-                            },
-                            onClick = { uploadLauncher.launch(arrayOf("*/*")) },
-                        )
+                    if (isAdmin && mutationState == FileMutationState.Idle) {
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            ExtendedFloatingActionButton(
+                                text = { Text("新建文件夹") },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.CreateNewFolder,
+                                        contentDescription = "新建文件夹",
+                                    )
+                                },
+                                onClick = { showCreateDirectoryDialog = true },
+                            )
+                            ExtendedFloatingActionButton(
+                                text = { Text("上传") },
+                                icon = {
+                                    Icon(Icons.Default.UploadFile, contentDescription = "上传文件")
+                                },
+                                onClick = { uploadLauncher.launch(arrayOf("*/*")) },
+                            )
+                        }
                     }
                 },
             ) { innerPadding ->
@@ -446,19 +477,21 @@ fun FilesScreen(
                 selectedFile = null
             },
             onMove = {
+                selectedFile = null
+                transferRequest = TransferRequest(file, TransferType.MOVE)
                 if (viewModel == null) {
-                    selectedFile = null
-                    onMessage("演示模式不执行云端文件操作")
+                    demoDestinationPath = activePath
                 } else {
-                    transferRequest = TransferRequest(file, TransferType.MOVE)
+                    viewModel.openDestinationPicker(activePath)
                 }
             },
             onCopy = {
+                selectedFile = null
+                transferRequest = TransferRequest(file, TransferType.COPY)
                 if (viewModel == null) {
-                    selectedFile = null
-                    onMessage("演示模式不执行云端文件操作")
+                    demoDestinationPath = activePath
                 } else {
-                    transferRequest = TransferRequest(file, TransferType.COPY)
+                    viewModel.openDestinationPicker(activePath)
                 }
             },
             onDelete = {
@@ -473,30 +506,70 @@ fun FilesScreen(
     }
 
     transferRequest?.takeIf { isAdmin }?.let { request ->
-        TransferDialog(
+        DestinationDirectoryDialog(
             request = request,
-            currentDirectory = activePath,
-            onDismiss = { transferRequest = null },
-            onConfirm = { directory, name ->
+            state = directoryPickerState,
+            onOpenDirectory = { path ->
+                if (viewModel == null) {
+                    demoDestinationPath = path
+                } else {
+                    viewModel.openDestinationDirectory(path)
+                }
+            },
+            onNavigateUp = {
+                if (viewModel == null) {
+                    if (!demoDestinationPath.isRoot) {
+                        demoDestinationPath = WebDavPath.fromDecodedSegments(
+                            demoDestinationPath.decodedSegments.dropLast(1),
+                        )
+                    }
+                } else {
+                    viewModel.navigateDestinationUp()
+                }
+            },
+            onRetry = {
+                if (viewModel == null) Unit else viewModel.retryDestinationPicker()
+            },
+            onDismiss = {
+                transferRequest = null
+                viewModel?.dismissDestinationPicker()
+            },
+            onConfirm = { directory ->
                 val source = WebDavPath.parseDecoded(request.file.path)
-                if (request.type == TransferType.MOVE) {
-                    viewModel?.move(
-                        source,
-                        request.file.isDirectory,
-                        directory,
-                        name,
-                        request.file.etag,
+                if (viewModel == null) {
+                    onMessage("演示模式不执行云端文件操作")
+                } else if (request.type == TransferType.MOVE) {
+                    viewModel.move(
+                        source = source,
+                        sourceIsDirectory = request.file.isDirectory,
+                        destinationDirectory = directory,
+                        sourceEtag = request.file.etag,
                     )
                 } else {
-                    viewModel?.copy(
-                        source,
-                        request.file.isDirectory,
-                        directory,
-                        name,
-                        request.file.etag,
+                    viewModel.copy(
+                        source = source,
+                        sourceIsDirectory = request.file.isDirectory,
+                        destinationDirectory = directory,
+                        sourceEtag = request.file.etag,
                     )
                 }
                 transferRequest = null
+                viewModel?.dismissDestinationPicker()
+            },
+        )
+    }
+
+    if (showCreateDirectoryDialog && isAdmin) {
+        CreateDirectoryDialog(
+            directory = activePath,
+            onDismiss = { showCreateDirectoryDialog = false },
+            onConfirm = { name ->
+                if (viewModel == null) {
+                    onMessage("演示模式不执行云端文件操作")
+                } else {
+                    viewModel.createDirectory(name)
+                }
+                showCreateDirectoryDialog = false
             },
         )
     }
@@ -518,6 +591,9 @@ fun FilesScreen(
 
     when (val mutation = mutationState.takeIf { isAdmin } ?: FileMutationState.Idle) {
         FileMutationState.Idle -> Unit
+        FileMutationState.PreparingUpload -> PreparingUploadDialog(
+            onCancel = viewModel?.let { it::dismissMutation } ?: {},
+        )
         is FileMutationState.UploadReady -> UploadConfirmationDialog(
             documentName = mutation.document.displayName,
             directory = mutation.directory,
@@ -644,6 +720,12 @@ private fun demoFilePaneState(path: WebDavPath): FilePaneState =
         )
     }
 
+private fun demoDirectoryPickerState(path: WebDavPath): DirectoryPickerState =
+    when (val files = mockFilesForPath(path.toString())) {
+        null -> DirectoryPickerState.Error(path, "暂时无法加载此目录")
+        else -> DirectoryPickerState.Success(path, files.filter(FileNode::isDirectory))
+    }
+
 private fun fileStateForPath(path: String): ContentState<List<FileNode>> =
     when (val files = mockFilesForPath(path)) {
         null -> ContentState.Error("暂时无法加载此目录")
@@ -668,7 +750,12 @@ private fun FileList(
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(
+            start = 12.dp,
+            top = 8.dp,
+            end = 12.dp,
+            bottom = if (isAdmin) 184.dp else 112.dp,
+        ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(files, key = { it.path }) { file ->
@@ -898,71 +985,215 @@ private fun UploadConfirmationDialog(
 }
 
 @Composable
-private fun TransferDialog(
+private fun DestinationDirectoryDialog(
     request: TransferRequest,
-    currentDirectory: WebDavPath,
+    state: DirectoryPickerState,
+    onOpenDirectory: (WebDavPath) -> Unit,
+    onNavigateUp: () -> Unit,
+    onRetry: () -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (directory: String, name: String) -> Unit,
+    onConfirm: (WebDavPath) -> Unit,
 ) {
-    var destinationDirectory by remember(request) { mutableStateOf(currentDirectory.toString()) }
-    var destinationName by remember(request) {
-        mutableStateOf(
-            if (request.type == TransferType.COPY) {
-                collisionFileName(request.file.name, 1)
-            } else {
-                request.file.name
-            },
-        )
-    }
     val source = remember(request.file.path) { WebDavPath.parseDecoded(request.file.path) }
-    val destination = runCatching {
-        WebDavPath.parseDecoded(destinationDirectory.trim()).child(destinationName.trim())
-    }.getOrNull()
-    val valid = destination != null &&
+    val currentPath = state.currentPathOrNull()
+    val destination = currentPath?.let { path ->
+        source.name?.let { remoteName -> runCatching { path.child(remoteName) }.getOrNull() }
+    }
+    val validDestination = state is DirectoryPickerState.Success &&
+        destination != null &&
         destination != source &&
         !destination.isDescendantOf(source) &&
         !source.isDescendantOf(destination)
+    val directories = (state as? DirectoryPickerState.Success)?.directories.orEmpty()
+        .mapNotNull { directory ->
+            val path = runCatching { WebDavPath.parseDecoded(directory.path) }.getOrNull()
+                ?: return@mapNotNull null
+            val allowed = !request.file.isDirectory ||
+                (path != source && !path.isDescendantOf(source))
+            if (allowed) directory to path else null
+        }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (request.type == TransferType.MOVE) "移动云端文件" else "复制云端文件") },
+        title = { Text(if (request.type == TransferType.MOVE) "选择移动位置" else "选择复制位置") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "来源：${request.file.path}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = request.file.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                OutlinedTextField(
-                    value = destinationDirectory,
-                    onValueChange = { destinationDirectory = it },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("目标目录完整路径") },
-                    supportingText = { Text("例如 /资料/归档，根目录填写 /") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = destinationName,
-                    onValueChange = { destinationName = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("目标名称") },
-                    singleLine = true,
-                    isError = destinationName.isNotBlank() && destination == null,
-                )
-                if (destination == source ||
-                    destination?.isDescendantOf(source) == true ||
-                    destination?.let(source::isDescendantOf) == true
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    IconButton(
+                        enabled = currentPath?.isRoot == false,
+                        onClick = onNavigateUp,
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "目标文件夹返回上一级",
+                        )
+                    }
                     Text(
-                        text = "目标不能是来源本身或其子目录",
+                        text = currentPath?.toString() ?: "/",
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                when (state) {
+                    DirectoryPickerState.Idle,
+                    is DirectoryPickerState.Loading,
+                    -> Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                    is DirectoryPickerState.Error -> Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 120.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            text = state.message,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        TextButton(onClick = onRetry) { Text("重试") }
+                    }
+                    is DirectoryPickerState.Success -> if (directories.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "没有子文件夹",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(directories, key = { it.second.toString() }) { (directory, path) ->
+                                ListItem(
+                                    headlineContent = {
+                                        Text(
+                                            text = directory.name,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    leadingContent = {
+                                        Icon(
+                                            Icons.Default.Folder,
+                                            contentDescription = "打开文件夹 ${directory.name}",
+                                        )
+                                    },
+                                    trailingContent = {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .clip(MaterialTheme.shapes.small)
+                                        .clickable { onOpenDirectory(path) },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (state is DirectoryPickerState.Success && !validDestination) {
+                    Text(
+                        text = "当前位置与原位置相同或不可作为目标",
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+                Text(
+                    text = "目标：${destination ?: "-"}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = validDestination,
+                onClick = { currentPath?.let(onConfirm) },
+            ) { Text(if (request.type == TransferType.MOVE) "移动到此处" else "复制到此处") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+@Composable
+private fun PreparingUploadDialog(onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("正在读取文件") },
+        text = { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) },
+        confirmButton = { TextButton(onClick = onCancel) { Text("取消") } },
+    )
+}
+
+@Composable
+private fun CreateDirectoryDialog(
+    directory: WebDavPath,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember(directory) { mutableStateOf("") }
+    val normalizedName = name.trim()
+    val validationMessage = when {
+        normalizedName.isEmpty() -> null
+        normalizedName.length > MAX_DIRECTORY_NAME_LENGTH ->
+            "文件夹名称不能超过 $MAX_DIRECTORY_NAME_LENGTH 个字符"
+        runCatching { directory.child(normalizedName) }.isFailure -> "文件夹名称包含无效字符"
+        else -> null
+    }
+    val valid = normalizedName.isNotEmpty() && validationMessage == null
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建文件夹") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "位置：$directory",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("文件夹名称") },
+                    singleLine = true,
+                    isError = validationMessage != null,
+                    supportingText = validationMessage?.let { message ->
+                        { Text(message) }
+                    },
+                )
             }
         },
         confirmButton = {
             TextButton(
                 enabled = valid,
-                onClick = { onConfirm(destinationDirectory.trim(), destinationName.trim()) },
-            ) { Text(if (request.type == TransferType.MOVE) "移动" else "复制") }
+                onClick = { onConfirm(normalizedName) },
+            ) { Text("创建") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
@@ -1073,6 +1304,7 @@ private fun WebDavPath.isDescendantOf(parent: WebDavPath): Boolean =
 
 private fun FileOperation.actionLabel(): String = when (this) {
     is FileOperation.Upload -> "正在上传"
+    is FileOperation.CreateDirectory -> "正在新建文件夹"
     is FileOperation.Move -> "正在移动"
     is FileOperation.Copy -> "正在复制"
     is FileOperation.Delete -> "正在删除"
@@ -1080,9 +1312,17 @@ private fun FileOperation.actionLabel(): String = when (this) {
 
 private fun FileOperation.targetDescription(): String = when (this) {
     is FileOperation.Upload -> destination.toString()
+    is FileOperation.CreateDirectory -> path.toString()
     is FileOperation.Move -> destination.toString()
     is FileOperation.Copy -> destination.toString()
     is FileOperation.Delete -> path.toString()
+}
+
+private fun DirectoryPickerState.currentPathOrNull(): WebDavPath? = when (this) {
+    DirectoryPickerState.Idle -> null
+    is DirectoryPickerState.Loading -> path
+    is DirectoryPickerState.Success -> path
+    is DirectoryPickerState.Error -> path
 }
 
 @Composable

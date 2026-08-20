@@ -191,6 +191,26 @@ class WebDavFileRepositoryTest {
         }
     }
 
+    @Test
+    fun createDirectoryUsesNativeMkcol() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            val repository = repository(server)
+
+            runBlocking {
+                repository.createDirectory(WebDavPath.parseDecoded("/资料/新目录"))
+            }
+
+            val request = server.takeRequest()
+            assertEquals("MKCOL", request.method)
+            assertEquals("/root/%E8%B5%84%E6%96%99/%E6%96%B0%E7%9B%AE%E5%BD%95/", request.path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
     private fun repository(server: MockWebServer): WebDavFileRepository = WebDavFileRepository(
         OkHttpWebDavClient(
             endpoint = server.url("/root/"),

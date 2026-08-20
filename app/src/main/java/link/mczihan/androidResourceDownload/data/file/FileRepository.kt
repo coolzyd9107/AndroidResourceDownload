@@ -18,6 +18,10 @@ interface FileRepository {
 
     suspend fun isCollection(path: WebDavPath): Boolean? = null
 
+    suspend fun createDirectory(path: WebDavPath) {
+        throw UnsupportedOperationException("Directory creation is not supported")
+    }
+
     suspend fun move(
         source: WebDavPath,
         destination: WebDavPath,

@@ -420,6 +420,37 @@ class OkHttpWebDavClientTest {
     }
 
     @Test
+    fun makeCollectionSendsMkcolAndMapsExistingDirectory() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setResponseCode(405))
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_WRITE),
+            )
+
+            runBlocking {
+                client.makeCollection(WebDavPath.parseDecoded("/new-folder"))
+            }
+            val conflict = runCatching {
+                runBlocking {
+                    client.makeCollection(WebDavPath.parseDecoded("/existing"))
+                }
+            }.exceptionOrNull()
+
+            assertTrue(conflict is WebDavException.PreconditionFailed)
+            val created = server.takeRequest()
+            assertEquals("MKCOL", created.method)
+            assertEquals("/root/new-folder/", created.path)
+            assertEquals("MKCOL", server.takeRequest().method)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun moveCopyAndDeleteSendNativeWebDavMethods() {
         val server = MockWebServer()
         server.start()

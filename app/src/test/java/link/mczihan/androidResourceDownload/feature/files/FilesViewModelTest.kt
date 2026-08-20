@@ -100,6 +100,7 @@ class FilesViewModelTest {
     @Test
     fun moveConflictWaitsForExplicitOverwriteThenRefreshes() = runTest(dispatcher) {
         val overwriteAttempts = mutableListOf<Boolean>()
+        val destinations = mutableListOf<WebDavPath>()
         var listCalls = 0
         val repository = object : FileRepository {
             override suspend fun list(path: WebDavPath): List<FileNode> {
@@ -115,6 +116,7 @@ class FilesViewModelTest {
                 sourceEtag: String?,
             ) {
                 overwriteAttempts += overwrite
+                destinations += destination
                 if (!overwrite) throw WebDavException.PreconditionFailed()
             }
 
@@ -126,8 +128,7 @@ class FilesViewModelTest {
         viewModel.move(
             source = WebDavPath.parseDecoded("/source.txt"),
             sourceIsDirectory = false,
-            destinationDirectory = "/archive",
-            destinationName = "source.txt",
+            destinationDirectory = WebDavPath.parseDecoded("/archive"),
         )
         advanceUntilIdle()
         assertTrue(viewModel.mutationState.value is FileMutationState.AwaitingOverwrite)
@@ -136,6 +137,7 @@ class FilesViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf(false, true), overwriteAttempts)
+        assertEquals(listOf("/archive/source.txt", "/archive/source.txt"), destinations.map(WebDavPath::toString))
         assertEquals(FileMutationState.Idle, viewModel.mutationState.value)
         assertEquals(2, listCalls)
     }
@@ -163,14 +165,83 @@ class FilesViewModelTest {
         viewModel.copy(
             source = WebDavPath.parseDecoded("/source"),
             sourceIsDirectory = true,
-            destinationDirectory = "/archive",
-            destinationName = "source",
+            destinationDirectory = WebDavPath.parseDecoded("/archive"),
         )
         advanceUntilIdle()
 
         val failure = viewModel.mutationState.value as FileMutationState.Failed
         assertEquals(null, failure.operation)
-        assertTrue(failure.message.contains("禁止直接覆盖"))
+        assertTrue(failure.message.contains("不能直接覆盖"))
+    }
+
+    @Test
+    fun destinationPickerListsOnlyDirectoriesWithoutChangingMainPath() = runTest(dispatcher) {
+        val viewModel = FilesViewModel(
+            repository = FakeFileRepository { path ->
+                if (path.toString() == "/archive") {
+                    listOf(
+                        FileNode("nested", "/archive/nested", isDirectory = true),
+                        FileNode("notes.txt", "/archive/notes.txt", isDirectory = false),
+                    )
+                } else {
+                    emptyList()
+                }
+            },
+        )
+        runCurrent()
+
+        viewModel.openDestinationPicker(WebDavPath.parseDecoded("/archive"))
+        advanceUntilIdle()
+
+        assertEquals("/", viewModel.state.value.path.toString())
+        val pickerState = viewModel.directoryPickerState.value as DirectoryPickerState.Success
+        assertEquals("/archive", pickerState.path.toString())
+        assertEquals(listOf("nested"), pickerState.directories.map(FileNode::name))
+    }
+
+    @Test
+    fun createDirectoryUsesCurrentPathAndRefreshesList() = runTest(dispatcher) {
+        var createdPath: WebDavPath? = null
+        var listCalls = 0
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> {
+                listCalls++
+                return emptyList()
+            }
+
+            override suspend fun createDirectory(path: WebDavPath) {
+                createdPath = path
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.createDirectory("资料")
+        advanceUntilIdle()
+
+        assertEquals("/资料", createdPath.toString())
+        assertEquals(FileMutationState.Idle, viewModel.mutationState.value)
+        assertEquals(2, listCalls)
+    }
+
+    @Test
+    fun existingDirectoryDoesNotOfferOverwrite() = runTest(dispatcher) {
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun createDirectory(path: WebDavPath) {
+                throw WebDavException.PreconditionFailed(405)
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.createDirectory("existing")
+        advanceUntilIdle()
+
+        val failure = viewModel.mutationState.value as FileMutationState.Failed
+        assertEquals(null, failure.operation)
+        assertTrue(failure.message.contains("同名"))
     }
 
     private class FakeFileRepository(
