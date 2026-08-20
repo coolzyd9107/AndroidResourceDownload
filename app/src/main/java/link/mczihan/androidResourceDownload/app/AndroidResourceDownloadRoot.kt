@@ -11,6 +11,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -39,6 +41,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -70,7 +75,6 @@ import link.mczihan.androidResourceDownload.feature.files.FilesScreen
 import link.mczihan.androidResourceDownload.feature.profile.ProfileScreen
 import link.mczihan.androidResourceDownload.feature.settings.SettingsScreen
 import link.mczihan.androidResourceDownload.feature.settings.ThemeViewModel
-import link.mczihan.androidResourceDownload.feature.update.MockUpdateDialog
 
 private object RootRoute {
     const val Login = "login"
@@ -88,6 +92,7 @@ private enum class ShellRoute(
     Settings("settings", "设置"),
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AndroidResourceDownloadRoot(
     themeViewModel: ThemeViewModel = hiltViewModel(),
@@ -103,6 +108,10 @@ fun AndroidResourceDownloadRoot(
             color = MaterialTheme.colorScheme.background,
         ) {
             val navController = rememberNavController()
+            val rootOffsetSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+            val rootSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+            val rootEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+            val rootDirection = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1 else -1
             LaunchedEffect(authState) {
                 if (!BuildConfig.DEMO_MODE) {
                     when (authState) {
@@ -121,6 +130,20 @@ fun AndroidResourceDownloadRoot(
             NavHost(
                 navController = navController,
                 startDestination = RootRoute.Login,
+                enterTransition = {
+                    fadeIn(rootEffectsSpec) +
+                        slideInHorizontally(rootOffsetSpec) { width -> rootDirection * width / 10 }
+                },
+                exitTransition = {
+                    fadeOut(rootEffectsSpec) + scaleOut(rootSpatialSpec, targetScale = 0.98f)
+                },
+                popEnterTransition = {
+                    fadeIn(rootEffectsSpec) + scaleIn(rootSpatialSpec, initialScale = 0.98f)
+                },
+                popExitTransition = {
+                    fadeOut(rootEffectsSpec) +
+                        slideOutHorizontally(rootOffsetSpec) { width -> rootDirection * width / 5 }
+                },
             ) {
                 composable(RootRoute.Login) {
                     val context = LocalContext.current
@@ -270,7 +293,6 @@ private fun MainShell(
     var demoTasks by remember {
         mutableStateOf(if (BuildConfig.DEMO_MODE) initialMockDownloads() else emptyList())
     }
-    var showUpdateDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val downloadsViewModel = if (BuildConfig.DEMO_MODE) null else hiltViewModel<DownloadsViewModel>()
     val persistedTasks = downloadsViewModel?.tasks?.collectAsStateWithLifecycle()?.value.orEmpty()
@@ -279,7 +301,9 @@ private fun MainShell(
     var pendingPermissionStartQueue by remember { mutableStateOf(false) }
     var requestedQueueStoragePermission by remember { mutableStateOf(false) }
     val tabSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    val tabOffsetSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val tabEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val tabDirection = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1 else -1
 
     fun showMessage(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
@@ -389,6 +413,14 @@ private fun MainShell(
             navController = navController,
             startDestination = ShellRoute.Files.route,
             modifier = Modifier.padding(shellPadding),
+            popEnterTransition = {
+                fadeIn(tabEffectsSpec) +
+                    slideInHorizontally(tabOffsetSpec) { width -> -tabDirection * width / 12 }
+            },
+            popExitTransition = {
+                fadeOut(tabEffectsSpec) +
+                    slideOutHorizontally(tabOffsetSpec) { width -> tabDirection * width / 5 }
+            },
         ) {
             composable(
                 route = ShellRoute.Files.route,
@@ -506,38 +538,10 @@ private fun MainShell(
                 SettingsScreen(
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
-                    onCheckUpdate = {
-                        if (BuildConfig.DEMO_MODE) {
-                            showUpdateDialog = true
-                        } else {
-                            showMessage("更新功能将在后续阶段接入")
-                        }
-                    },
                     onLogout = onLogout,
                 )
             }
         }
-    }
-
-    if (showUpdateDialog) {
-        MockUpdateDialog(
-            onDismiss = { showUpdateDialog = false },
-            onUpdate = {
-                showUpdateDialog = false
-                demoTasks = listOf(
-                    mockTaskForFile(
-                        link.mczihan.androidResourceDownload.domain.model.FileNode(
-                            name = "android-client-1.1.0.apk",
-                            path = "/应用发布/android-client-1.1.0.apk",
-                            isDirectory = false,
-                            size = 38_624_256L,
-                            mimeType = "application/vnd.android.package-archive",
-                        ),
-                    ),
-                ) + demoTasks
-                showMessage("更新包已加入下载任务")
-            },
-        )
     }
 }
 

@@ -18,7 +18,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        oauthCallbackBus.publish(intent?.data)
+        publishOAuthCallback(intent)
         enableEdgeToEdge()
         setContent {
             AndroidResourceDownloadRoot()
@@ -28,6 +28,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        oauthCallbackBus.publish(intent?.data)
+        publishOAuthCallback(intent)
+    }
+
+    private fun publishOAuthCallback(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        if (uri.scheme == "link.mczihan.androidresourcedownload" &&
+            uri.host == "oauth" &&
+            uri.path == "/callback"
+        ) {
+            oauthCallbackBus.publish(uri)
+        }
     }
 }

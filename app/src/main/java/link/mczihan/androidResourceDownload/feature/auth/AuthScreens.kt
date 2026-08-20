@@ -16,7 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Email
@@ -182,7 +182,13 @@ fun LoginScreen(
         AlertDialog(
             onDismissRequest = { showPolicy = false },
             title = { Text("用户协议与隐私政策") },
-            text = { Text("登录即表示你同意必要的账号验证与文件访问规则。") },
+            text = {
+                Text(
+                    "登录即表示你同意必要的账号验证与文件访问规则。" +
+                        "使用纯数字 QQ 邮箱登录时，QQ 号将发送给腾讯 QQ 头像服务，仅用于加载头像；" +
+                        "加载失败时显示默认头像。",
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -228,7 +234,7 @@ fun EmailVerificationScreen(
                 title = { Text("邮箱登录") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
             )

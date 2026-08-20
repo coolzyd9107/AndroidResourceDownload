@@ -12,12 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.SettingsBrightness
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -49,7 +48,6 @@ import link.mczihan.androidResourceDownload.core.theme.ThemeMode
 fun SettingsScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
-    onCheckUpdate: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -119,12 +117,6 @@ fun SettingsScreen(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             ListItem(
-                headlineContent = { Text("检查更新") },
-                supportingContent = { Text("当前版本 1.0.0") },
-                leadingContent = { SettingsIcon(Icons.Default.SystemUpdate) },
-                modifier = Modifier.clickable(onClick = onCheckUpdate),
-            )
-            ListItem(
                 headlineContent = { Text("关于") },
                 supportingContent = { Text("版本与开源信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
@@ -133,7 +125,7 @@ fun SettingsScreen(
             ListItem(
                 headlineContent = { Text("退出登录") },
                 leadingContent = {
-                    SettingsIcon(Icons.Default.Logout, isError = true)
+                    SettingsIcon(Icons.AutoMirrored.Filled.Logout, isError = true)
                 },
                 modifier = Modifier.clickable { showLogout = true },
             )

@@ -128,7 +128,7 @@ private data class PersistedUser(
     val email: String?,
     val role: Role,
     val loginType: LoginType,
-    val avatarUrl: String?,
+    val avatarUrl: String? = null,
 ) {
     fun toDomain(): User = User(
         id = id,

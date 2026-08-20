@@ -43,8 +43,8 @@ class AuthViewModel @Inject constructor(
     private val githubCallbackMutex = Mutex()
 
     init {
-        restore()
         viewModelScope.launch {
+            restoreSession()
             oauthCallbackBus.events.collect { uri ->
                 uri?.let {
                     oauthCallbackBus.consume(it)
@@ -55,15 +55,17 @@ class AuthViewModel @Inject constructor(
     }
 
     fun restore() {
-        viewModelScope.launch {
-            _state.value = AuthUiState.Restoring
-            val restoredState = try {
-                repository.restoreSession()?.let(AuthUiState::Authenticated) ?: AuthUiState.Anonymous
-            } catch (error: Exception) {
-                AuthUiState.Error(error.userMessage(), AuthUiState.Anonymous)
-            }
-            if (_state.value is AuthUiState.Restoring) _state.value = restoredState
+        viewModelScope.launch { restoreSession() }
+    }
+
+    private suspend fun restoreSession() {
+        _state.value = AuthUiState.Restoring
+        val restoredState = try {
+            repository.restoreSession()?.let(AuthUiState::Authenticated) ?: AuthUiState.Anonymous
+        } catch (error: Exception) {
+            AuthUiState.Error(error.userMessage(), AuthUiState.Anonymous)
         }
+        if (_state.value is AuthUiState.Restoring) _state.value = restoredState
     }
 
     fun requestCode(email: String) {
@@ -124,7 +126,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun handleGithubCallback(uri: Uri) {
-        if (_state.value is AuthUiState.LoggingOut) return
+        if (_state.value is AuthUiState.Authenticated || _state.value is AuthUiState.LoggingOut) return
         if (uri.scheme != "link.mczihan.androidresourcedownload" ||
             uri.host != "oauth" || uri.path != "/callback"
         ) return setError("GitHub 回调地址无效")

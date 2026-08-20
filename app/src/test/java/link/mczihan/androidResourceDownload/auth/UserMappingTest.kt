@@ -28,16 +28,19 @@ class UserMappingTest {
 
     @Test
     fun githubLoginTypeDoesNotDetermineRole() {
+        val avatarUrl = "https://avatars.githubusercontent.com/u/123"
         val user = BackendUserDto(
             id = "github-admin",
             name = "Admin",
             email = null,
             role = "ADMIN",
+            avatarUrl = avatarUrl,
             loginType = "GITHUB",
         ).toDomain()
 
         assertEquals(LoginType.GITHUB, user.loginType)
         assertEquals(Role.ADMIN, user.role)
+        assertEquals(avatarUrl, user.avatarUrl)
     }
 
     @Test

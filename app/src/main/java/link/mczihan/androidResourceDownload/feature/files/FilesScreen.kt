@@ -1,6 +1,7 @@
 package link.mczihan.androidResourceDownload.feature.files
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.BackEventCompat
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -13,6 +14,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,15 +30,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.UploadFile
@@ -59,18 +62,28 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.core.common.formatDate
 import link.mczihan.androidResourceDownload.core.common.formatFileSize
@@ -134,10 +147,30 @@ fun FilesScreen(
             )
         }
     }
-    val folderSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
+    var folderHistory by remember { mutableStateOf<List<FilePaneState>>(emptyList()) }
+    val predictiveBackProgress = remember { Animatable(0f) }
+    var predictiveBackInProgress by remember { mutableStateOf(false) }
+    var predictiveBackEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
+    var screenWidthPx by remember { mutableIntStateOf(0) }
+    val predictiveSettleScope = rememberCoroutineScope()
+    var predictiveSettleJob by remember { mutableStateOf<Job?>(null) }
+    val parentPath = activePath.decodedSegments
+        .takeIf { it.isNotEmpty() }
+        ?.dropLast(1)
+        ?.let { WebDavPath.fromDecodedSegments(it) }
+    val parentPreviewState = parentPath?.let { parent ->
+        folderHistory.lastOrNull()?.takeIf { it.path == parent }
+            ?: if (viewModel == null) {
+                demoFilePaneState(parent)
+            } else {
+                FilePaneState(parent, FilePaneContent.Loading)
+            }
+    }
+    val folderSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val folderScaleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val folderEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val navigateUp = {
+        folderHistory = folderHistory.dropLast(1)
         if (viewModel == null) {
             currentPath = WebDavPath.fromDecodedSegments(activePath.decodedSegments.dropLast(1)).toString()
         } else {
@@ -145,151 +178,215 @@ fun FilesScreen(
         }
     }
 
-    BackHandler(enabled = selectedFile != null) {
-        selectedFile = null
+    PredictiveBackHandler(enabled = selectedFile == null && !activePath.isRoot) { events ->
+        predictiveSettleJob?.cancel()
+        predictiveBackProgress.stop()
+        predictiveBackInProgress = true
+        try {
+            events.collect { event ->
+                predictiveBackProgress.snapTo(event.progress.coerceIn(0f, 1f))
+                predictiveBackEdge = event.swipeEdge
+            }
+            navigateUp()
+            predictiveBackProgress.snapTo(0f)
+            predictiveBackInProgress = false
+        } catch (error: CancellationException) {
+            predictiveSettleJob = predictiveSettleScope.launch {
+                predictiveBackProgress.animateTo(0f, folderScaleSpec)
+                predictiveBackInProgress = false
+            }
+            throw error
+        } catch (error: Throwable) {
+            predictiveBackProgress.snapTo(0f)
+            predictiveBackInProgress = false
+            throw error
+        }
     }
-    BackHandler(enabled = selectedFile == null && !activePath.isRoot, onBack = navigateUp)
 
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = { Text("文件") },
-                subtitle = {
-                    AnimatedContent(
-                        targetState = displayedPath,
-                        transitionSpec = {
-                            (fadeIn(folderEffectsSpec) + slideInVertically(folderSpatialSpec) { it / 2 })
-                                .togetherWith(
-                                    fadeOut(folderEffectsSpec) +
-                                        slideOutVertically(folderSpatialSpec) { -it / 2 },
+    val predictiveDirection = if (predictiveBackEdge == BackEventCompat.EDGE_RIGHT) -1f else 1f
+    val predictiveShape = RoundedCornerShape(32.dp)
+    val predictiveElevation = with(LocalDensity.current) { 12.dp.toPx() }
+
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { screenWidthPx = it.width },
+        ) {
+            if (predictiveBackInProgress && parentPreviewState != null) {
+                FolderBackPreview(
+                    pane = parentPreviewState,
+                    progress = predictiveBackProgress.value,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Scaffold(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val progress = predictiveBackProgress.value
+                        translationX = predictiveDirection * screenWidthPx * 0.16f * progress
+                        scaleX = 1f - (0.08f * progress)
+                        scaleY = 1f - (0.08f * progress)
+                        shadowElevation = predictiveElevation * progress
+                        shape = predictiveShape
+                        clip = predictiveBackInProgress
+                    },
+                topBar = {
+                    TopAppBar(
+                        title = { Text("文件") },
+                        subtitle = {
+                            AnimatedContent(
+                                targetState = displayedPath,
+                                transitionSpec = {
+                                    (fadeIn(folderEffectsSpec) +
+                                        slideInVertically(folderSpatialSpec) { it / 2 })
+                                        .togetherWith(
+                                            fadeOut(folderEffectsSpec) +
+                                                slideOutVertically(folderSpatialSpec) { -it / 2 },
+                                        )
+                                },
+                                label = "filePath",
+                            ) { path ->
+                                Text(
+                                    text = path,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
+                            }
                         },
-                        label = "filePath",
-                    ) { path ->
-                        Text(
-                            text = path,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        navigationIcon = {
+                            AnimatedVisibility(
+                                visible = !activePath.isRoot,
+                                enter = fadeIn(folderEffectsSpec) + scaleIn(folderScaleSpec),
+                                exit = fadeOut(folderEffectsSpec) + scaleOut(folderScaleSpec),
+                            ) {
+                                IconButton(onClick = navigateUp) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "返回上一级",
+                                    )
+                                }
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = {
+                                if (viewModel == null) {
+                                    state = fileStateForPath(currentPath)
+                                } else {
+                                    viewModel.retry()
+                                }
+                            }) {
+                                Icon(Icons.Default.Refresh, contentDescription = "刷新文件列表")
+                            }
+                            IconButton(onClick = onProfile) {
+                                Icon(Icons.Default.Person, contentDescription = "个人中心")
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                        ),
+                    )
+                },
+                floatingActionButton = {
+                    if (BuildConfig.DEMO_MODE && role == Role.ADMIN) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ExtendedFloatingActionButton(
+                                text = { Text("上传") },
+                                icon = { Icon(Icons.Default.UploadFile, contentDescription = null) },
+                                onClick = { onMessage("已创建上传任务") },
+                            )
+                            ExtendedFloatingActionButton(
+                                text = { Text("新建目录") },
+                                icon = {
+                                    Icon(Icons.Default.CreateNewFolder, contentDescription = null)
+                                },
+                                onClick = { onMessage("目录已创建") },
+                            )
+                        }
+                    }
+                },
+            ) { innerPadding ->
+                AnimatedContent(
+                    targetState = filePaneState,
+                    contentKey = { pane -> pane.path to pane.content::class },
+                    transitionSpec = {
+                        if (initialState.path != targetState.path) {
+                            val direction = if (
+                                targetState.path.decodedSegments.size >
+                                initialState.path.decodedSegments.size
+                            ) {
+                                1
+                            } else {
+                                -1
+                            }
+                            (
+                                fadeIn(folderEffectsSpec) +
+                                    slideInHorizontally(folderSpatialSpec) { width ->
+                                        direction * width / 4
+                                    } +
+                                    scaleIn(folderScaleSpec, initialScale = 0.98f)
+                                ).togetherWith(
+                                fadeOut(folderEffectsSpec) +
+                                    slideOutHorizontally(folderSpatialSpec) { width ->
+                                        -direction * width / 8
+                                    },
+                            ).using(SizeTransform(clip = true))
+                        } else {
+                            fadeIn(folderEffectsSpec).togetherWith(fadeOut(folderEffectsSpec))
+                        }
+                    },
+                    modifier = Modifier
+                        .padding(innerPadding)
+                        .fillMaxSize(),
+                    label = "folderContent",
+                ) { pane ->
+                    val isTargetContent = pane == filePaneState
+                    val contentModifier = if (isTargetContent) {
+                        Modifier
+                    } else {
+                        Modifier.clearAndSetSemantics { }
+                    }
+                    when (val content = pane.content) {
+                        FilePaneContent.Loading -> LoadingPane(contentModifier)
+                        is FilePaneContent.Empty -> EmptyPane(
+                            message = content.message,
+                            modifier = contentModifier,
+                        )
+                        is FilePaneContent.Error -> ErrorPane(
+                            message = content.message,
+                            modifier = contentModifier,
+                            enabled = isTargetContent,
+                            onRetry = {
+                                if (viewModel == null) {
+                                    state = fileStateForPath(currentPath)
+                                } else {
+                                    viewModel.retry()
+                                }
+                            },
+                        )
+                        is FilePaneContent.Files -> FileList(
+                            files = content.value,
+                            modifier = contentModifier,
+                            enabled = isTargetContent,
+                            onFileClick = { file ->
+                                if (file.isDirectory) {
+                                    folderHistory = (folderHistory + filePaneState).takeLast(12)
+                                    if (viewModel == null) {
+                                        currentPath = file.path
+                                    } else {
+                                        viewModel.openDirectory(WebDavPath.parseDecoded(file.path))
+                                    }
+                                } else {
+                                    selectedFile = file
+                                }
+                            },
                         )
                     }
-                },
-                navigationIcon = {
-                    AnimatedVisibility(
-                        visible = !activePath.isRoot,
-                        enter = fadeIn(folderEffectsSpec) + scaleIn(folderScaleSpec),
-                        exit = fadeOut(folderEffectsSpec) + scaleOut(folderScaleSpec),
-                    ) {
-                        IconButton(onClick = navigateUp) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "返回上一级")
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        if (viewModel == null) {
-                            state = fileStateForPath(currentPath)
-                        } else {
-                            viewModel.retry()
-                        }
-                    }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新文件列表")
-                    }
-                    IconButton(onClick = onProfile) {
-                        Icon(Icons.Default.Person, contentDescription = "个人中心")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
-        },
-        floatingActionButton = {
-            if (BuildConfig.DEMO_MODE && role == Role.ADMIN) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExtendedFloatingActionButton(
-                        text = { Text("上传") },
-                        icon = { Icon(Icons.Default.UploadFile, contentDescription = null) },
-                        onClick = { onMessage("已创建上传任务") },
-                    )
-                    ExtendedFloatingActionButton(
-                        text = { Text("新建目录") },
-                        icon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
-                        onClick = { onMessage("目录已创建") },
-                    )
                 }
-            }
-        },
-    ) { innerPadding ->
-        AnimatedContent(
-            targetState = filePaneState,
-            contentKey = { pane -> pane.path to pane.content::class },
-            transitionSpec = {
-                if (initialState.path != targetState.path) {
-                    val direction = if (
-                        targetState.path.decodedSegments.size > initialState.path.decodedSegments.size
-                    ) {
-                        1
-                    } else {
-                        -1
-                    }
-                    (
-                        fadeIn(folderEffectsSpec) +
-                            slideInHorizontally(folderSpatialSpec) { width -> direction * width / 4 } +
-                            scaleIn(folderScaleSpec, initialScale = 0.98f)
-                        ).togetherWith(
-                        fadeOut(folderEffectsSpec) +
-                            slideOutHorizontally(folderSpatialSpec) { width -> -direction * width / 8 },
-                    ).using(SizeTransform(clip = true))
-                } else {
-                    fadeIn(folderEffectsSpec).togetherWith(fadeOut(folderEffectsSpec))
-                }
-            },
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize(),
-            label = "folderContent",
-        ) { pane ->
-            val isTargetContent = pane == filePaneState
-            val contentModifier = if (isTargetContent) {
-                Modifier
-            } else {
-                Modifier.clearAndSetSemantics { }
-            }
-            when (val content = pane.content) {
-                FilePaneContent.Loading -> LoadingPane(contentModifier)
-                is FilePaneContent.Empty -> EmptyPane(
-                    message = content.message,
-                    modifier = contentModifier,
-                )
-                is FilePaneContent.Error -> ErrorPane(
-                    message = content.message,
-                    modifier = contentModifier,
-                    enabled = isTargetContent,
-                    onRetry = {
-                        if (viewModel == null) {
-                            state = fileStateForPath(currentPath)
-                        } else {
-                            viewModel.retry()
-                        }
-                    },
-                )
-                is FilePaneContent.Files -> FileList(
-                    files = content.value,
-                    modifier = contentModifier,
-                    enabled = isTargetContent,
-                    onFileClick = { file ->
-                        if (file.isDirectory) {
-                            if (viewModel == null) {
-                                currentPath = file.path
-                            } else {
-                                viewModel.openDirectory(WebDavPath.parseDecoded(file.path))
-                            }
-                        } else {
-                            selectedFile = file
-                        }
-                    },
-                )
             }
         }
     }
@@ -323,6 +420,87 @@ private sealed interface FilePaneContent {
     data class Error(val message: String) : FilePaneContent
     data class Files(val value: List<FileNode>) : FilePaneContent
 }
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun FolderBackPreview(
+    pane: FilePaneState,
+    progress: Float,
+    modifier: Modifier = Modifier,
+) {
+    Scaffold(
+        modifier = modifier
+            .graphicsLayer {
+                val scale = 0.94f + (0.06f * progress)
+                scaleX = scale
+                scaleY = scale
+                alpha = 0.6f + (0.4f * progress)
+            }
+            .clearAndSetSemantics { },
+        topBar = {
+            TopAppBar(
+                title = { Text("文件") },
+                subtitle = {
+                    Text(
+                        text = pane.path.toString(),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                navigationIcon = {
+                    if (!pane.path.isRoot) {
+                        Box(
+                            modifier = Modifier.size(48.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
+            )
+        },
+    ) { innerPadding ->
+        when (val content = pane.content) {
+            FilePaneContent.Loading -> LoadingPane(Modifier.padding(innerPadding))
+            is FilePaneContent.Empty -> EmptyPane(
+                message = content.message,
+                modifier = Modifier.padding(innerPadding),
+            )
+            is FilePaneContent.Error -> ErrorPane(
+                message = content.message,
+                onRetry = {},
+                enabled = false,
+                modifier = Modifier.padding(innerPadding),
+            )
+            is FilePaneContent.Files -> FileList(
+                files = content.value,
+                onFileClick = {},
+                enabled = false,
+                modifier = Modifier.padding(innerPadding),
+            )
+        }
+    }
+}
+
+private fun demoFilePaneState(path: WebDavPath): FilePaneState =
+    when (val contentState = fileStateForPath(path.toString())) {
+        ContentState.Loading -> FilePaneState(path, FilePaneContent.Loading)
+        is ContentState.Empty -> FilePaneState(
+            path,
+            FilePaneContent.Empty(contentState.message),
+        )
+        is ContentState.Error -> FilePaneState(
+            path,
+            FilePaneContent.Error(contentState.message),
+        )
+        is ContentState.Success -> FilePaneState(
+            path,
+            FilePaneContent.Files(contentState.value),
+        )
+    }
 
 private fun fileStateForPath(path: String): ContentState<List<FileNode>> =
     when (val files = mockFilesForPath(path)) {
@@ -384,7 +562,7 @@ private fun FileList(
                                 imageVector = if (file.isDirectory) {
                                     Icons.Default.Folder
                                 } else {
-                                    Icons.Default.InsertDriveFile
+                                    Icons.AutoMirrored.Filled.InsertDriveFile
                                 },
                                 contentDescription = null,
                                 tint = if (file.isDirectory) {
@@ -399,7 +577,7 @@ private fun FileList(
                 trailingContent = if (file.isDirectory) {
                     {
                         Icon(
-                            imageVector = Icons.Default.KeyboardArrowRight,
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -449,7 +627,7 @@ private fun FileDetailsSheet(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Default.InsertDriveFile,
+                            imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
                             contentDescription = null,
                             modifier = Modifier.size(28.dp),
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
