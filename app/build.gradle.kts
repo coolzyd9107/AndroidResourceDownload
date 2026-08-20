@@ -132,7 +132,6 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.androidx.core.splashscreen)
-    implementation(libs.androidx.documentfile)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

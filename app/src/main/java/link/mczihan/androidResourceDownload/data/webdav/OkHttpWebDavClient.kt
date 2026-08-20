@@ -248,12 +248,8 @@ class OkHttpWebDavClient(
         if (!followSameOriginRedirects) return executeOnce(request)
 
         var currentRequest = request
-        // Once we follow a cross-origin redirect (e.g. WebDAV gateway → CDN/object storage),
-        // we strip Authorization/Cookie from every subsequent hop so credentials never leak
-        // to third-party domains.
-        var crossedOrigin = false
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
-            val response = executeOnce(currentRequest, requireSameOrigin = !crossedOrigin)
+            val response = executeOnce(currentRequest)
             if (response.code !in REDIRECT_STATUS_CODES) return response
 
             val target = response.header("Location")?.let(response.request.url::resolve)
@@ -261,9 +257,9 @@ class OkHttpWebDavClient(
                 response.close()
                 throw WebDavException.RedirectRejected(response.code)
             }
-            val isCrossOrigin = !endpoint.isSameOrigin(target)
-            if (isCrossOrigin) {
-                crossedOrigin = true
+            if (!endpoint.isSameOrigin(target)) {
+                response.close()
+                throw WebDavException.CrossOriginRedirect(response.code)
             }
             if (redirectCount == MAX_REDIRECTS) {
                 response.close()
@@ -271,20 +267,14 @@ class OkHttpWebDavClient(
             }
 
             response.close()
-            val builder = currentRequest.newBuilder().url(target)
-            if (crossedOrigin) {
-                // Strip sensitive headers before sending to a third-party origin.
-                builder.removeHeader("Authorization")
-                builder.removeHeader("Cookie")
-            }
-            currentRequest = builder.build()
+            currentRequest = currentRequest.newBuilder().url(target).build()
         }
         error("Redirect loop terminated unexpectedly")
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun executeOnce(request: Request, requireSameOrigin: Boolean = true): Response {
-        if (requireSameOrigin && !endpoint.isSameOrigin(request.url)) {
+    private suspend fun executeOnce(request: Request): Response {
+        if (!endpoint.isSameOrigin(request.url)) {
             throw WebDavException.UnsafePath("WebDAV request escaped the configured origin")
         }
         return suspendCancellableCoroutine { continuation ->
