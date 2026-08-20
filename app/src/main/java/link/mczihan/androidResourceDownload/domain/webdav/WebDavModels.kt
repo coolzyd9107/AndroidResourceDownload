@@ -7,6 +7,7 @@ data class WebDavResource(
     val path: WebDavPath,
     val displayName: String,
     val isCollection: Boolean,
+    val resourceTypeKnown: Boolean,
     val contentLength: Long?,
     val lastModifiedEpochMillis: Long?,
     val contentType: String?,
@@ -59,6 +60,7 @@ class WebDavUpload(
     val contentLength: Long? = null,
     val contentType: String? = null,
     val openStream: () -> InputStream,
+    val onProgress: (uploadedBytes: Long) -> Unit = {},
 ) {
     init {
         require(contentLength == null || contentLength >= 0L) {

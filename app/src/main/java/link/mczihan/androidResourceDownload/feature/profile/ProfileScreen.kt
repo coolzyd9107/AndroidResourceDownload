@@ -27,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,39 +40,61 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
+import coil.ImageLoader
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import java.net.URI
+import link.mczihan.androidResourceDownload.core.common.qqNumberFromEmail
 import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
+import okhttp3.OkHttpClient
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     user: User,
+    qqNickname: String? = null,
+    allowQqLookup: Boolean = true,
     onBack: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val displayEmail = user.email?.trim().takeUnless { it.isNullOrEmpty() } ?: "未提供邮箱"
-    val displayName = user.name?.trim().takeUnless { it.isNullOrEmpty() }
-        ?: when (user.loginType) {
-            LoginType.GITHUB -> "GitHub 用户"
-            LoginType.EMAIL -> user.email
-                ?.substringBefore('@')
-                ?.trim()
-                .takeUnless { it.isNullOrEmpty() }
-                ?: "邮箱用户"
-        }
-    val avatarUrl = user.profileAvatarUrl()
+    val displayName = when (user.loginType) {
+        LoginType.GITHUB -> user.name?.trim().takeUnless { it.isNullOrEmpty() } ?: "GitHub 用户"
+        LoginType.EMAIL -> qqNickname?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: user.email?.substringBefore('@')?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: user.name?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: "邮箱用户"
+    }
+    val avatarUrl = user.profileAvatarUrl(allowQqLookup)
     val context = LocalContext.current
     val avatarRequest = remember(context, avatarUrl) {
         avatarUrl?.let {
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(true)
+                .apply {
+                    if (it.startsWith("https://q1.qlogo.cn/")) {
+                        diskCachePolicy(CachePolicy.DISABLED)
+                    }
+                }
                 .build()
         }
+    }
+    val avatarImageLoader = remember(context) {
+        ImageLoader.Builder(context)
+            .okHttpClient {
+                OkHttpClient.Builder()
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .build()
+            }
+            .build()
+    }
+    DisposableEffect(avatarImageLoader) {
+        onDispose(avatarImageLoader::shutdown)
     }
     var avatarLoadFailed by remember(avatarRequest) { mutableStateOf(false) }
 
@@ -115,6 +138,7 @@ fun ProfileScreen(
                 } else {
                     SubcomposeAsyncImage(
                         model = avatarRequest,
+                        imageLoader = avatarImageLoader,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
@@ -180,16 +204,10 @@ private fun DefaultAvatar() {
     }
 }
 
-internal fun User.profileAvatarUrl(): String? {
-    if (loginType == LoginType.EMAIL) {
-        val parts = email?.trim()?.split('@')
-        if (parts?.size == 2 && parts[1].equals("qq.com", ignoreCase = true)) {
-            val qqNumber = parts[0]
-            return if (qqNumber.isNotEmpty() && qqNumber.all { it in '0'..'9' }) {
-                "https://q1.qlogo.cn/g?b=qq&nk=$qqNumber&s=640"
-            } else {
-                null
-            }
+internal fun User.profileAvatarUrl(allowQqLookup: Boolean = true): String? {
+    if (allowQqLookup && loginType == LoginType.EMAIL) {
+        qqNumberFromEmail(email)?.let { qqNumber ->
+            return "https://q1.qlogo.cn/g?b=qq&nk=$qqNumber&s=640"
         }
     }
 

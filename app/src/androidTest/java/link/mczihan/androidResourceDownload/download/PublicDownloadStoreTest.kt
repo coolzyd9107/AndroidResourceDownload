@@ -13,6 +13,7 @@ import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -60,4 +61,51 @@ class PublicDownloadStoreTest {
             source.delete()
         }
     }
+
+    @Test
+    fun duplicateMediaStoreNameInsertsSuffixBeforeExtension() = runBlocking {
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = PublicDownloadStore(context)
+        val uniqueName = "collision-${UUID.randomUUID()}.txt"
+        val source = File(context.cacheDir, uniqueName).apply { writeText("content") }
+        val first = task(UUID.randomUUID().toString(), uniqueName)
+        val second = task(UUID.randomUUID().toString(), uniqueName)
+        val destinations = mutableListOf<String>()
+        try {
+            listOf(first, second).forEach { task ->
+                val stage = store.create(task, task.mimeType)
+                destinations += store.write(task, stage, source, task.mimeType)
+            }
+            val names = destinations.map { value ->
+                context.contentResolver.query(
+                    Uri.parse(value),
+                    arrayOf(android.provider.MediaStore.MediaColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null,
+                )?.use { cursor ->
+                    cursor.moveToFirst()
+                    cursor.getString(0)
+                }
+            }
+
+            assertEquals(listOf(uniqueName, uniqueName.removeSuffix(".txt") + "(1).txt"), names)
+        } finally {
+            destinations.forEach { store.delete(it) }
+            source.delete()
+        }
+    }
+
+    private fun task(id: String, storageName: String) = DownloadTask(
+        id = id,
+        ownerId = "instrumented-test",
+        fileName = storageName,
+        remotePath = "/$storageName",
+        storageName = storageName,
+        mimeType = "text/plain",
+        status = DownloadStatus.RUNNING,
+        createdAt = 1L,
+        updatedAt = 1L,
+    )
 }

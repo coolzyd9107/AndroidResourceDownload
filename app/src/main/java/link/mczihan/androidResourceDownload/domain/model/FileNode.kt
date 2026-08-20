@@ -8,4 +8,5 @@ data class FileNode(
     val lastModified: Long? = null,
     val mimeType: String? = null,
     val etag: String? = null,
+    val isUploadTemporary: Boolean = false,
 )

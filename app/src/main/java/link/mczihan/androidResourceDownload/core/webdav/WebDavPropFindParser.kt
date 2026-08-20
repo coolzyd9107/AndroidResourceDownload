@@ -126,6 +126,7 @@ class WebDavPropFindParser(
             displayName = properties.displayName?.takeIf { it.isNotBlank() }
                 ?: resolvedPath.name.orEmpty(),
             isCollection = properties.isCollection,
+            resourceTypeKnown = properties.resourceTypeKnown,
             contentLength = properties.contentLength,
             lastModifiedEpochMillis = properties.lastModifiedEpochMillis,
             contentType = properties.contentType,
@@ -165,7 +166,10 @@ class WebDavPropFindParser(
                     result.contentLength = readText(parser).trim().toLongOrNull()?.takeIf { it >= 0L }
                 }
                 "getlastmodified" -> result.lastModifiedEpochMillis = parseHttpDate(readText(parser).trim())
-                "resourcetype" -> result.isCollection = parseResourceType(parser)
+                "resourcetype" -> {
+                    result.resourceTypeKnown = true
+                    result.isCollection = parseResourceType(parser)
+                }
                 "getcontenttype" -> result.contentType = readText(parser).trim().ifEmpty { null }
                 "getetag" -> result.etag = readText(parser).trim().ifEmpty { null }
                 else -> skipSubtree(parser)
@@ -256,6 +260,7 @@ class WebDavPropFindParser(
     private class MutableProperties(
         var displayName: String? = null,
         var isCollection: Boolean = false,
+        var resourceTypeKnown: Boolean = false,
         var contentLength: Long? = null,
         var lastModifiedEpochMillis: Long? = null,
         var contentType: String? = null,
@@ -264,6 +269,7 @@ class WebDavPropFindParser(
         fun merge(other: MutableProperties) {
             displayName = other.displayName ?: displayName
             isCollection = isCollection || other.isCollection
+            resourceTypeKnown = resourceTypeKnown || other.resourceTypeKnown
             contentLength = other.contentLength ?: contentLength
             lastModifiedEpochMillis = other.lastModifiedEpochMillis ?: lastModifiedEpochMillis
             contentType = other.contentType ?: contentType

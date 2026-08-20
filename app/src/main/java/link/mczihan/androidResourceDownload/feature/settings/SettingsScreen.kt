@@ -5,19 +5,25 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.core.theme.ThemeMode
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,10 +55,13 @@ import link.mczihan.androidResourceDownload.core.theme.ThemeMode
 fun SettingsScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    noticeState: NoticeUiState = NoticeUiState.Loading,
+    onRetryNotice: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showAbout by rememberSaveable { mutableStateOf(false) }
+    var showNotice by rememberSaveable { mutableStateOf(false) }
     var showLogout by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
@@ -117,6 +127,21 @@ fun SettingsScreen(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             ListItem(
+                headlineContent = { Text("公告") },
+                supportingContent = {
+                    Text(
+                        when (noticeState) {
+                            NoticeUiState.Loading -> "正在获取最新公告"
+                            is NoticeUiState.Content -> "查看最新公告"
+                            NoticeUiState.Empty -> "暂无公告"
+                            NoticeUiState.Error -> "获取失败"
+                        },
+                    )
+                },
+                leadingContent = { SettingsIcon(Icons.Default.Campaign) },
+                modifier = Modifier.clickable { showNotice = true },
+            )
+            ListItem(
                 headlineContent = { Text("关于") },
                 supportingContent = { Text("版本与开源信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
@@ -132,11 +157,57 @@ fun SettingsScreen(
         }
     }
 
+    if (showNotice) {
+        AlertDialog(
+            onDismissRequest = { showNotice = false },
+            title = { Text("公告") },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    when (val state = noticeState) {
+                        NoticeUiState.Loading -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("正在获取最新公告")
+                        }
+                        is NoticeUiState.Content -> Text(state.text)
+                        NoticeUiState.Empty -> Text("暂无公告")
+                        NoticeUiState.Error -> Text("公告获取失败，请检查网络后重试。")
+                    }
+                }
+            },
+            confirmButton = {
+                if (noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty) {
+                    TextButton(onClick = onRetryNotice) { Text("重试") }
+                } else {
+                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
+                }
+            },
+            dismissButton = if (
+                noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty
+            ) {
+                {
+                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
+                }
+            } else {
+                null
+            },
+        )
+    }
+
     if (showAbout) {
         AlertDialog(
             onDismissRequest = { showAbout = false },
             title = { Text("关于资源下载") },
-            text = { Text("版本 1.0.0\n用于访问团队文件和管理下载任务。") },
+            text = {
+                Text("版本 ${BuildConfig.VERSION_NAME}\n用于访问团队文件和管理下载任务。")
+            },
             confirmButton = {
                 TextButton(onClick = { showAbout = false }) {
                     Text("确定")

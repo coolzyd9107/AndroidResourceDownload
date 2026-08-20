@@ -53,6 +53,7 @@ fun LoginScreen(
     modifier: Modifier = Modifier,
     busy: Boolean = false,
     message: String? = null,
+    onPolicyAccepted: () -> Unit = {},
 ) {
     var agreementAccepted by rememberSaveable { mutableStateOf(false) }
     var showAgreementError by rememberSaveable { mutableStateOf(false) }
@@ -149,7 +150,10 @@ fun LoginScreen(
                     checked = agreementAccepted,
                     onCheckedChange = {
                         agreementAccepted = it
-                        if (it) showAgreementError = false
+                        if (it) {
+                            showAgreementError = false
+                            onPolicyAccepted()
+                        }
                     },
                 )
                 Text(
@@ -185,14 +189,15 @@ fun LoginScreen(
             text = {
                 Text(
                     "登录即表示你同意必要的账号验证与文件访问规则。" +
-                        "使用纯数字 QQ 邮箱登录时，QQ 号将发送给腾讯 QQ 头像服务，仅用于加载头像；" +
-                        "加载失败时显示默认头像。",
+                        "使用纯数字 QQ 邮箱登录时，QQ 号将发送给腾讯 QQ 服务，" +
+                        "仅用于加载头像和昵称；获取失败时显示默认头像和邮箱前缀。",
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         agreementAccepted = true
+                        onPolicyAccepted()
                         showAgreementError = false
                         showPolicy = false
                     },

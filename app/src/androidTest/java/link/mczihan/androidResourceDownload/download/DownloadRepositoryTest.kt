@@ -100,6 +100,23 @@ class DownloadRepositoryTest {
         assertNull(database.downloadTaskDao().findById(task.ownerId, task.id))
     }
 
+    @Test
+    fun removeMissingSuccessfulDeletesOnlyRowsWithoutFiles() = runBlocking {
+        val missing = task(DownloadStatus.SUCCESS).copy(
+            publicUri = "content://media/external_primary/downloads/999999999",
+        )
+        val private = task(DownloadStatus.SUCCESS)
+        fileStore.ensureTaskDirectory(private)
+        fileStore.finalFile(private).writeText("complete")
+        database.downloadTaskDao().insert(DownloadTaskEntity.fromDomain(missing))
+        database.downloadTaskDao().insert(DownloadTaskEntity.fromDomain(private))
+
+        repository.removeMissingSuccessful(missing.ownerId)
+
+        assertNull(database.downloadTaskDao().findById(missing.ownerId, missing.id))
+        assertTrue(database.downloadTaskDao().findById(private.ownerId, private.id) != null)
+    }
+
     private fun task(status: DownloadStatus): DownloadTask {
         val id = UUID.randomUUID().toString()
         return DownloadTask(

@@ -53,6 +53,9 @@ abstract class DownloadTaskDao {
     )
     abstract suspend fun findUncommittedPublications(ownerId: String): List<DownloadTaskEntity>
 
+    @Query("SELECT * FROM download_tasks WHERE owner_id = :ownerId AND status = 'SUCCESS'")
+    abstract suspend fun findSuccessfulForOwner(ownerId: String): List<DownloadTaskEntity>
+
     @Query(
         """
         UPDATE download_tasks

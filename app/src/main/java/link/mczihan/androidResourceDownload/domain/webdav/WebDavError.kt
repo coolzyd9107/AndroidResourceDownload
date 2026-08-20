@@ -16,6 +16,9 @@ sealed class WebDavException(
     class ReadWriteCredentialRequired :
         WebDavException("This WebDAV operation requires READ_WRITE permission")
 
+    class CollectionOverwriteDenied :
+        WebDavException("A WebDAV collection cannot be overwritten")
+
     class NotFound(val statusCode: Int = 404) :
         WebDavException("WebDAV resource was not found ($statusCode)")
 

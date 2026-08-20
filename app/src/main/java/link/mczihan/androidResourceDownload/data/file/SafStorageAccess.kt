@@ -8,11 +8,20 @@ import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 import java.io.OutputStream
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import link.mczihan.androidResourceDownload.core.common.collisionFileName
 import timber.log.Timber
 
 /**
@@ -30,6 +39,8 @@ import timber.log.Timber
 class SafStorageAccess @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    private val allocationMutex = Mutex()
+
     /**
      * Builds an [Intent] that opens the system file picker in "select directory"
      * mode. Launch with `ActivityResultContracts.StartActivityForResult` or
@@ -86,7 +97,7 @@ class SafStorageAccess @Inject constructor(
 
     /**
      * Writes [source] into the directory identified by [treeUri], creating a
-     * file named [fileName] (or replacing an existing one with the same name).
+     * file named [fileName], adding a numeric suffix when the name already exists.
      *
      * @return the content:// URI of the written file, or null on failure.
      */
@@ -95,25 +106,45 @@ class SafStorageAccess @Inject constructor(
         fileName: String,
         mimeType: String,
         source: File,
-    ): Uri? = withContext(Dispatchers.IO) {
-        val tree = DocumentFile.fromTreeUri(context, treeUri)
-            ?: return@withContext null.also { Timber.w("SAF tree is null: %s", treeUri) }
-        if (!tree.canWrite()) return@withContext null.also {
-            Timber.w("SAF tree is not writable: %s", treeUri)
-        }
-        val existing = tree.findFile(fileName)
-        val target = existing ?: tree.createFile(mimeType, fileName)
-        ?: return@withContext null.also { Timber.w("SAF createFile returned null") }
-        runCatching {
-            context.contentResolver.openOutputStream(target.uri, "w")?.use { output ->
-                copy(source, output)
-                output.flush()
+    ): Uri? {
+        val createdDocument = AtomicReference<DocumentFile?>()
+        return try {
+            val result = withContext(Dispatchers.IO) {
+                allocationMutex.withLock {
+                    val tree = DocumentFile.fromTreeUri(context, treeUri)
+                        ?: return@withLock null.also { Timber.w("SAF tree is null: %s", treeUri) }
+                    if (!tree.canWrite()) return@withLock null.also {
+                        Timber.w("SAF tree is not writable: %s", treeUri)
+                    }
+                    val target = createAvailableDocument(tree, fileName, mimeType)
+                        ?: return@withLock null.also { Timber.w("SAF createFile returned null") }
+                    createdDocument.set(target)
+                    try {
+                        val output = context.contentResolver.openOutputStream(target.uri, "w")
+                            ?: throw IOException("SAF openOutputStream returned null")
+                        output.use {
+                            copy(source, output)
+                            output.flush()
+                        }
+                        target.uri
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        deleteCreatedDocument(target)
+                        createdDocument.set(null)
+                        Timber.w(error, "SAF write failed for %s", fileName)
+                        null
+                    }
+                }
             }
-        }.onFailure { error ->
-            Timber.w(error, "SAF write failed for %s", fileName)
-            return@withContext null
+            createdDocument.set(null)
+            result
+        } catch (error: CancellationException) {
+            withContext(NonCancellable + Dispatchers.IO) {
+                createdDocument.getAndSet(null)?.let(::deleteCreatedDocument)
+            }
+            throw error
         }
-        target.uri
     }
 
     /**
@@ -124,12 +155,45 @@ class SafStorageAccess @Inject constructor(
         treeUri: Uri,
         fileName: String,
         mimeType: String,
-    ): OutputStream? = withContext(Dispatchers.IO) {
-        val tree = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext null
-        if (!tree.canWrite()) return@withContext null
-        val existing = tree.findFile(fileName)
-        val target = existing ?: tree.createFile(mimeType, fileName) ?: return@withContext null
-        runCatching { context.contentResolver.openOutputStream(target.uri, "w") }.getOrNull()
+    ): OutputStream? {
+        val createdDocument = AtomicReference<DocumentFile?>()
+        val createdStream = AtomicReference<OutputStream?>()
+        return try {
+            val result = withContext(Dispatchers.IO) {
+                allocationMutex.withLock {
+                    val tree = DocumentFile.fromTreeUri(context, treeUri) ?: return@withLock null
+                    if (!tree.canWrite()) return@withLock null
+                    val target = createAvailableDocument(tree, fileName, mimeType) ?: return@withLock null
+                    createdDocument.set(target)
+                    try {
+                        context.contentResolver.openOutputStream(target.uri, "w").also { output ->
+                            if (output == null) {
+                                deleteCreatedDocument(target)
+                                createdDocument.set(null)
+                            } else {
+                                createdStream.set(output)
+                            }
+                        }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        deleteCreatedDocument(target)
+                        createdDocument.set(null)
+                        Timber.w(error, "SAF stream creation failed for %s", fileName)
+                        null
+                    }
+                }
+            }
+            createdDocument.set(null)
+            createdStream.set(null)
+            result
+        } catch (error: CancellationException) {
+            withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { createdStream.getAndSet(null)?.close() }
+                createdDocument.getAndSet(null)?.let(::deleteCreatedDocument)
+            }
+            throw error
+        }
     }
 
     /** Lists immediate children of [treeUri]. */
@@ -153,10 +217,11 @@ class SafStorageAccess @Inject constructor(
             .getOrDefault(false)
     }
 
-    private fun copy(source: File, output: OutputStream) {
+    private suspend fun copy(source: File, output: OutputStream) {
         FileInputStream(source).use { input ->
             val buffer = ByteArray(BUFFER_SIZE)
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val read = input.read(buffer)
                 if (read < 0) break
                 if (read == 0) continue
@@ -165,8 +230,34 @@ class SafStorageAccess @Inject constructor(
         }
     }
 
+    private fun createAvailableDocument(
+        tree: DocumentFile,
+        requestedName: String,
+        mimeType: String,
+    ): DocumentFile? {
+        val existingNames = tree.listFiles().mapNotNullTo(mutableSetOf(), DocumentFile::getName)
+        for (index in 0..MAX_COLLISION_INDEX) {
+            val candidate = collisionFileName(requestedName, index)
+            if (candidate in existingNames || tree.findFile(candidate) != null) continue
+            val created = tree.createFile(mimeType, candidate) ?: continue
+            val actualName = created.name
+            if (actualName != null && actualName !in existingNames) return created
+            if (actualName in existingNames) {
+                Timber.w("SAF provider returned an existing document for %s", candidate)
+                return null
+            }
+            if (!deleteCreatedDocument(created)) return null
+        }
+        return null
+    }
+
+    private fun deleteCreatedDocument(document: DocumentFile): Boolean = document.delete().also {
+        if (!it) Timber.w("Unable to clean SAF document: %s", document.uri)
+    }
+
     private companion object {
         const val BUFFER_SIZE = 64 * 1024
+        const val MAX_COLLISION_INDEX = 10_000
     }
 }
 

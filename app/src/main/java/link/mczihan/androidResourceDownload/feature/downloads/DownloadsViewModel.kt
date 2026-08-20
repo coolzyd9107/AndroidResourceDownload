@@ -5,9 +5,15 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -34,7 +40,41 @@ class DownloadsViewModel @Inject constructor(
         .filterNotNull()
         .flatMapLatest(repository::observe)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
+    private val speedEstimator = DownloadSpeedEstimator()
+    private val _currentSpeeds = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val currentSpeeds = _currentSpeeds.asStateFlow()
     val messages = messageChannel.receiveAsFlow()
+    private var speedTrackingJob: Job? = null
+    private var reconciliationJob: Job? = null
+
+    fun startSpeedTracking() {
+        if (speedTrackingJob?.isActive == true) return
+        speedTrackingJob = viewModelScope.launch {
+            coroutineScope {
+                launch {
+                    tasks.collect { currentTasks ->
+                        _currentSpeeds.value = speedEstimator.update(
+                            currentTasks,
+                            System.currentTimeMillis(),
+                        )
+                    }
+                }
+                launch {
+                    while (isActive) {
+                        delay(SPEED_REFRESH_INTERVAL_MILLIS)
+                        _currentSpeeds.value = speedEstimator.snapshot(System.currentTimeMillis())
+                    }
+                }
+            }
+        }
+    }
+
+    fun stopSpeedTracking() {
+        speedTrackingJob?.cancel()
+        speedTrackingJob = null
+        speedEstimator.clear()
+        _currentSpeeds.value = emptyMap()
+    }
 
     fun bindOwner(value: String) {
         queueController.activate(value)
@@ -86,6 +126,13 @@ class DownloadsViewModel @Inject constructor(
         if (!queueController.startIfNeeded(owner)) messageChannel.send("无法启动下载队列")
     }
 
+    fun removeMissingSuccessful(ownerId: String): Job {
+        reconciliationJob?.cancel()
+        return viewModelScope.launch {
+            repository.removeMissingSuccessful(ownerId)
+        }.also { reconciliationJob = it }
+    }
+
     fun cancel(taskId: String) = withOwner { owner ->
         if (!queueController.cancel(owner, taskId)) messageChannel.send("任务状态已发生变化")
     }
@@ -105,5 +152,9 @@ class DownloadsViewModel @Inject constructor(
     private fun withOwner(block: suspend (String) -> Unit) {
         val currentOwner = ownerId.value ?: return
         viewModelScope.launch { block(currentOwner) }
+    }
+
+    private companion object {
+        const val SPEED_REFRESH_INTERVAL_MILLIS = 1_000L
     }
 }

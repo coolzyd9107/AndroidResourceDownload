@@ -195,6 +195,33 @@ class DownloadRepository @Inject constructor(
         }
     }
 
+    suspend fun removeMissingSuccessful(ownerId: String) = enqueueMutex.withLock {
+        dao.findSuccessfulForOwner(ownerId).forEach { entity ->
+            val task = entity.toDomain()
+            when (publicDownloadStore.presence(task.publicUri)) {
+                PublicDownloadPresence.PRESENT,
+                PublicDownloadPresence.UNKNOWN,
+                -> Unit
+                PublicDownloadPresence.MISSING -> if (!fileStore.hasFinalFile(task)) {
+                    removeConfirmedMissing(ownerId, task)
+                }
+                PublicDownloadPresence.PENDING -> if (!fileStore.hasFinalFile(task)) {
+                    withContext(NonCancellable) {
+                        if (publicDownloadStore.delete(task.publicUri)) {
+                            removeConfirmedMissing(ownerId, task)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun removeConfirmedMissing(ownerId: String, task: DownloadTask) {
+        withContext(NonCancellable) {
+            if (dao.deleteTerminal(ownerId, task.id) == 1) fileStore.deleteAll(task)
+        }
+    }
+
     private suspend fun hasCompletedFile(entity: DownloadTaskEntity): Boolean {
         var task = entity.toDomain()
         if (publicDownloadStore.exists(task.publicUri)) {

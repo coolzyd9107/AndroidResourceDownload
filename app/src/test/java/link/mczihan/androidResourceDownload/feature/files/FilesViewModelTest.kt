@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.setMain
 import link.mczihan.androidResourceDownload.data.file.FileRepository
 import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
+import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -94,6 +95,82 @@ class FilesViewModelTest {
 
         assertEquals(1, requestCount)
         assertEquals("/", viewModel.state.value.path.toString())
+    }
+
+    @Test
+    fun moveConflictWaitsForExplicitOverwriteThenRefreshes() = runTest(dispatcher) {
+        val overwriteAttempts = mutableListOf<Boolean>()
+        var listCalls = 0
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> {
+                listCalls++
+                return emptyList()
+            }
+
+            override suspend fun move(
+                source: WebDavPath,
+                destination: WebDavPath,
+                overwrite: Boolean,
+                sourceIsCollection: Boolean,
+                sourceEtag: String?,
+            ) {
+                overwriteAttempts += overwrite
+                if (!overwrite) throw WebDavException.PreconditionFailed()
+            }
+
+            override suspend fun isCollection(path: WebDavPath): Boolean = false
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.move(
+            source = WebDavPath.parseDecoded("/source.txt"),
+            sourceIsDirectory = false,
+            destinationDirectory = "/archive",
+            destinationName = "source.txt",
+        )
+        advanceUntilIdle()
+        assertTrue(viewModel.mutationState.value is FileMutationState.AwaitingOverwrite)
+
+        viewModel.confirmOverwrite()
+        advanceUntilIdle()
+
+        assertEquals(listOf(false, true), overwriteAttempts)
+        assertEquals(FileMutationState.Idle, viewModel.mutationState.value)
+        assertEquals(2, listCalls)
+    }
+
+    @Test
+    fun collectionConflictNeverOffersOverwrite() = runTest(dispatcher) {
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun copy(
+                source: WebDavPath,
+                destination: WebDavPath,
+                overwrite: Boolean,
+                sourceIsCollection: Boolean,
+                sourceEtag: String?,
+            ) {
+                throw WebDavException.PreconditionFailed()
+            }
+
+            override suspend fun isCollection(path: WebDavPath): Boolean = true
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.copy(
+            source = WebDavPath.parseDecoded("/source"),
+            sourceIsDirectory = true,
+            destinationDirectory = "/archive",
+            destinationName = "source",
+        )
+        advanceUntilIdle()
+
+        val failure = viewModel.mutationState.value as FileMutationState.Failed
+        assertEquals(null, failure.operation)
+        assertTrue(failure.message.contains("禁止直接覆盖"))
     }
 
     private class FakeFileRepository(

@@ -77,6 +77,7 @@ import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 @Composable
 fun DownloadsScreen(
     tasks: List<DownloadTask>,
+    currentSpeeds: Map<String, Long> = emptyMap(),
     onStatusChange: (taskId: String, status: DownloadStatus) -> Unit,
     onOpen: (DownloadTask) -> Unit,
     onDelete: (taskId: String) -> Unit,
@@ -147,6 +148,7 @@ fun DownloadsScreen(
                     items(visibleTasks, key = DownloadTask::id) { task ->
                         DownloadTaskItem(
                             task = task,
+                            currentSpeed = currentSpeeds[task.id] ?: 0L,
                             onStatusChange = { status -> onStatusChange(task.id, status) },
                             onOpen = { onOpen(task) },
                             onDelete = { onDelete(task.id) },
@@ -170,6 +172,7 @@ fun DownloadsScreen(
 @Composable
 private fun DownloadTaskItem(
     task: DownloadTask,
+    currentSpeed: Long,
     onStatusChange: (DownloadStatus) -> Unit,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
@@ -241,7 +244,7 @@ private fun DownloadTaskItem(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = taskProgressText(task, progress),
+                        text = taskProgressText(task, progress, currentSpeed),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 2,
@@ -431,7 +434,11 @@ private fun AnimatedDeleteIconButton(
     }
 }
 
-private fun taskProgressText(task: DownloadTask, progress: Float): String = when (task.status) {
+private fun taskProgressText(
+    task: DownloadTask,
+    progress: Float,
+    currentSpeed: Long,
+): String = when (task.status) {
     DownloadStatus.SUCCESS -> formatFileSize(task.totalBytes)
     DownloadStatus.FAILED -> task.errorMessage ?: "下载中断，可从断点重试"
     DownloadStatus.CANCELLED -> "任务已取消"
@@ -443,6 +450,11 @@ private fun taskProgressText(task: DownloadTask, progress: Float): String = when
             append(" · ")
             append((progress * 100).toInt())
             append('%')
+        }
+        if (task.status == DownloadStatus.RUNNING) {
+            append(" · ")
+            append(formatFileSize(currentSpeed))
+            append("/s")
         }
     }
 }

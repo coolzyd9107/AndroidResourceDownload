@@ -5,6 +5,7 @@ import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -36,8 +37,10 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.Response
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
+import okio.Buffer
 import okio.source
 import timber.log.Timber
 
@@ -55,12 +58,35 @@ class OkHttpWebDavClient(
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
+    private val mutationHttpClient = httpClient.newBuilder()
+        .readTimeout(MUTATION_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+        .writeTimeout(MUTATION_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+        .build()
 
     override suspend fun propFind(
         path: WebDavPath,
         depth: WebDavDepth,
+    ): List<WebDavResource> = propFindAt(endpoint.collectionUrlFor(path), depth)
+
+    override suspend fun propFindResource(path: WebDavPath): WebDavResource? {
+        try {
+            return propFindAt(endpoint.urlFor(path), WebDavDepth.ZERO).resourceAt(path)
+        } catch (_: WebDavException.NotFound) {
+            // Some servers distinguish a collection URI only by its trailing slash.
+        } catch (_: WebDavException.RedirectRejected) {
+            // Retry the canonical collection URI without following a write-adjacent redirect.
+        }
+        return try {
+            propFindAt(endpoint.collectionUrlFor(path), WebDavDepth.ZERO).resourceAt(path)
+        } catch (_: WebDavException.NotFound) {
+            null
+        }
+    }
+
+    private suspend fun propFindAt(
+        url: HttpUrl,
+        depth: WebDavDepth,
     ): List<WebDavResource> = withContext(Dispatchers.IO) {
-        val url = endpoint.collectionUrlFor(path)
         val response = executeAuthenticated { lease ->
             Request.Builder()
                 .url(url)
@@ -92,6 +118,10 @@ class OkHttpWebDavClient(
             }
         }
     }
+
+    private fun List<WebDavResource>.resourceAt(path: WebDavPath): WebDavResource =
+        firstOrNull { it.path == path }
+            ?: throw WebDavException.InvalidResponse("WebDAV PROPFIND response omitted the requested resource")
 
     override suspend fun head(path: WebDavPath): WebDavMetadata {
         val response = executeAuthenticated { lease ->
@@ -175,11 +205,12 @@ class OkHttpWebDavClient(
         }
     }
 
-    override suspend fun put(path: WebDavPath, upload: WebDavUpload) {
+    override suspend fun put(path: WebDavPath, upload: WebDavUpload, overwrite: Boolean) {
         executeWrite { lease ->
             Request.Builder()
                 .url(endpoint.urlFor(path))
                 .header("Authorization", lease.basicAuthorization())
+                .apply { if (!overwrite) header("If-None-Match", "*") }
                 .put(StreamingUploadRequestBody(upload))
                 .build()
         }.use(::requireSuccess)
@@ -195,11 +226,14 @@ class OkHttpWebDavClient(
         }.use { requireStatus(it, setOf(200, 201)) }
     }
 
-    override suspend fun delete(path: WebDavPath) {
+    override suspend fun delete(path: WebDavPath, isCollection: Boolean, ifMatch: String?) {
+        validateOptionalHeader(ifMatch, "If-Match")
+        val strongEtag = ifMatch.strongEntityTagOrNull()
         executeWrite { lease ->
             Request.Builder()
-                .url(endpoint.urlFor(path))
+                .url(if (isCollection) endpoint.collectionUrlFor(path) else endpoint.urlFor(path))
                 .header("Authorization", lease.basicAuthorization())
+                .apply { if (strongEtag != null) header("If-Match", strongEtag) }
                 .delete()
                 .build()
         }.use { requireStatus(it, setOf(200, 202, 204)) }
@@ -209,15 +243,53 @@ class OkHttpWebDavClient(
         source: WebDavPath,
         destination: WebDavPath,
         overwrite: Boolean,
+        sourceIsCollection: Boolean,
+        sourceEtag: String?,
     ) {
-        val destinationUrl = endpoint.urlFor(destination)
+        validateOptionalHeader(sourceEtag, "If-Match")
+        val strongEtag = sourceEtag.strongEntityTagOrNull()
+        val sourceUrl = if (sourceIsCollection) endpoint.collectionUrlFor(source) else endpoint.urlFor(source)
+        val destinationUrl = if (sourceIsCollection) {
+            endpoint.collectionUrlFor(destination)
+        } else {
+            endpoint.urlFor(destination)
+        }
         executeWrite { lease ->
             Request.Builder()
-                .url(endpoint.urlFor(source))
+                .url(sourceUrl)
                 .header("Authorization", lease.basicAuthorization())
                 .header("Destination", destinationUrl.toString())
                 .header("Overwrite", if (overwrite) "T" else "F")
+                .apply { if (strongEtag != null) header("If-Match", strongEtag) }
                 .method("MOVE", null)
+                .build()
+        }.use { requireStatus(it, setOf(200, 201, 204)) }
+    }
+
+    override suspend fun copy(
+        source: WebDavPath,
+        destination: WebDavPath,
+        overwrite: Boolean,
+        sourceIsCollection: Boolean,
+        sourceEtag: String?,
+    ) {
+        validateOptionalHeader(sourceEtag, "If-Match")
+        val strongEtag = sourceEtag.strongEntityTagOrNull()
+        val sourceUrl = if (sourceIsCollection) endpoint.collectionUrlFor(source) else endpoint.urlFor(source)
+        val destinationUrl = if (sourceIsCollection) {
+            endpoint.collectionUrlFor(destination)
+        } else {
+            endpoint.urlFor(destination)
+        }
+        executeWrite { lease ->
+            Request.Builder()
+                .url(sourceUrl)
+                .header("Authorization", lease.basicAuthorization())
+                .header("Destination", destinationUrl.toString())
+                .header("Overwrite", if (overwrite) "T" else "F")
+                .header("Depth", "infinity")
+                .apply { if (strongEtag != null) header("If-Match", strongEtag) }
+                .method("COPY", null)
                 .build()
         }.use { requireStatus(it, setOf(200, 201, 204)) }
     }
@@ -288,7 +360,8 @@ class OkHttpWebDavClient(
             throw WebDavException.UnsafePath("WebDAV request escaped the configured origin")
         }
         return suspendCancellableCoroutine { continuation ->
-            val call = httpClient.newCall(request)
+            val client = if (request.method in WRITE_METHODS) mutationHttpClient else httpClient
+            val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(
                 object : Callback {
@@ -370,6 +443,20 @@ class OkHttpWebDavClient(
         }
     }
 
+    private fun String?.strongEntityTagOrNull(): String? {
+        val value = this ?: return null
+        if (value.startsWith("W/", ignoreCase = true) ||
+            value.length < 2 || value.first() != '"' || value.last() != '"'
+        ) {
+            return null
+        }
+        return value.takeIf { candidate ->
+            candidate.substring(1, candidate.lastIndex).all { character ->
+                character == '\u0021' || character in '\u0023'..'\u007e'
+            }
+        }
+    }
+
     private fun parseHttpDate(value: String): Long? {
         for (pattern in HTTP_DATE_PATTERNS) {
             val formatter = SimpleDateFormat(pattern, Locale.US).apply {
@@ -386,13 +473,24 @@ class OkHttpWebDavClient(
     private class StreamingUploadRequestBody(
         private val upload: WebDavUpload,
     ) : RequestBody() {
-        override fun contentType(): MediaType? = upload.contentType?.toMediaType()
+        override fun contentType(): MediaType? = upload.contentType?.toMediaTypeOrNull()
 
         override fun contentLength(): Long = upload.contentLength ?: -1L
 
         override fun writeTo(sink: BufferedSink) {
             upload.openStream().use { input ->
-                input.source().use { source -> sink.writeAll(source) }
+                input.source().use { source ->
+                    val buffer = Buffer()
+                    var uploadedBytes = 0L
+                    while (true) {
+                        val read = source.read(buffer, UPLOAD_BUFFER_SIZE)
+                        if (read < 0L) break
+                        if (read == 0L) continue
+                        sink.write(buffer, read)
+                        uploadedBytes += read
+                        upload.onProgress(uploadedBytes)
+                    }
+                }
             }
         }
     }
@@ -401,7 +499,10 @@ class OkHttpWebDavClient(
         private val GMT: TimeZone = TimeZone.getTimeZone("GMT")
         private val CONTENT_RANGE_PATTERN = Regex("bytes (\\d+)-(\\d+)/(\\d+|\\*)")
         private val REDIRECT_STATUS_CODES = setOf(301, 302, 303, 307, 308)
+        private val WRITE_METHODS = setOf("PUT", "MKCOL", "DELETE", "MOVE", "COPY")
         private const val MAX_REDIRECTS = 5
+        private const val MUTATION_TIMEOUT_MINUTES = 5L
+        private const val UPLOAD_BUFFER_SIZE = 64 * 1024L
         private val HTTP_DATE_PATTERNS = listOf(
             "EEE, dd MMM yyyy HH:mm:ss zzz",
             "EEEE, dd-MMM-yy HH:mm:ss zzz",

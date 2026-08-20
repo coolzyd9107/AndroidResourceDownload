@@ -95,11 +95,14 @@ class DefaultAuthRepository(
     }
 
     override suspend fun logout(session: AuthSession?) {
-        val targetSession = session ?: sessionStore.read()
-        sessionMutex.withLock {
+        val targetSession = sessionMutex.withLock {
             val current = sessionStore.read()
-            if (targetSession == null || current?.refreshToken == targetSession.refreshToken) {
+            if (session == null) {
                 sessionStore.clear()
+                current
+            } else {
+                if (current?.refreshToken == session.refreshToken) sessionStore.clear()
+                session
             }
         }
         if (targetSession != null) {

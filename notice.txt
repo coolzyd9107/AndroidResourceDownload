@@ -1,0 +1,7 @@
+AndroidResourceDownload 2.0.0
+
+- 新增 Material 3 Expressive 界面与预测性返回动画。
+- 下载页支持实时速度显示、重复文件安全重命名和失效完成任务清理。
+- 个人中心支持 GitHub 与 QQ 头像，纯数字 QQ 邮箱可获取 QQ 昵称。
+- 设置页新增在线公告栏。
+- 管理员账号支持向 123 云盘 WebDAV 上传、移动、复制和删除云端文件。

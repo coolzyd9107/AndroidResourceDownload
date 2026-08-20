@@ -6,6 +6,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import link.mczihan.androidResourceDownload.data.file.FileRepository
+import link.mczihan.androidResourceDownload.data.file.ContentResolverUploadSource
+import link.mczihan.androidResourceDownload.data.file.UploadSourceResolver
 import link.mczihan.androidResourceDownload.data.file.WebDavFileRepository
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
 
@@ -16,4 +18,8 @@ object FileModule {
     @Singleton
     fun provideFileRepository(webDavClient: WebDavClient): FileRepository =
         WebDavFileRepository(webDavClient)
+
+    @Provides
+    @Singleton
+    fun provideUploadSourceResolver(source: ContentResolverUploadSource): UploadSourceResolver = source
 }

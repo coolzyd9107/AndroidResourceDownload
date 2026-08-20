@@ -4,6 +4,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
 import link.mczihan.androidResourceDownload.BuildConfig
@@ -68,7 +69,20 @@ object NetworkModule {
     @Provides
     @Singleton
     @WebDavHttpClient
-    fun provideWebDavHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+    fun provideWebDavHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    @Provides
+    @Singleton
+    @PublicHttpClient
+    fun providePublicHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
+        .build()
 
     @Provides
     @Singleton

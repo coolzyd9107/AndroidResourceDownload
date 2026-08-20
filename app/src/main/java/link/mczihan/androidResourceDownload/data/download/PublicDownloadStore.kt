@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -27,13 +28,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import link.mczihan.androidResourceDownload.core.common.collisionFileName
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 
 enum class PublicDownloadOperation {
     CREATE,
     WRITE,
     PUBLISH,
+}
+
+enum class PublicDownloadPresence {
+    PRESENT,
+    PENDING,
+    MISSING,
+    UNKNOWN,
 }
 
 class PublicDownloadException(
@@ -47,15 +58,18 @@ class PublicDownloadStore @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val resolver = context.contentResolver
+    private val createMutex = Mutex()
 
     suspend fun create(task: DownloadTask, mimeType: String?): String {
         val createdUri = AtomicReference<Uri?>()
         return try {
             withContext(Dispatchers.IO) {
-                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    createWithMediaStore(task, mimeType)
-                } else {
-                    createLegacyDownload(task)
+                val uri = createMutex.withLock {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        createWithMediaStore(task, mimeType)
+                    } else {
+                        createLegacyDownload(task)
+                    }
                 }
                 createdUri.set(uri)
                 uri.toString()
@@ -104,6 +118,16 @@ class PublicDownloadStore @Inject constructor(
         parsePublicUri(publicUri)?.let(::exists) == true
     }
 
+    suspend fun presence(publicUri: String?): PublicDownloadPresence = withContext(Dispatchers.IO) {
+        if (publicUri == null) return@withContext PublicDownloadPresence.MISSING
+        val uri = parsePublicUri(publicUri) ?: return@withContext PublicDownloadPresence.UNKNOWN
+        when (uri.scheme) {
+            ContentResolver.SCHEME_CONTENT -> contentPresence(uri)
+            ContentResolver.SCHEME_FILE -> legacyPresence(uri)
+            else -> PublicDownloadPresence.MISSING
+        }
+    }
+
     suspend fun delete(publicUri: String?): Boolean = withContext(Dispatchers.IO) {
         if (publicUri == null) return@withContext true
         parsePublicUri(publicUri)?.let(::delete) == true
@@ -131,29 +155,80 @@ class PublicDownloadStore @Inject constructor(
         task: DownloadTask,
         mimeType: String?,
     ): Uri {
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, task.storageName)
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeType ?: DEFAULT_MIME_TYPE)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val existingNames = mediaStoreNames(collection).toMutableSet()
+        for (index in 0..MAX_COLLISION_INDEX) {
+            val displayName = collisionFileName(task.storageName, index)
+            if (displayName in existingNames) continue
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType ?: DEFAULT_MIME_TYPE)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = try {
+                resolver.insert(collection, values) ?: throw PublicDownloadException(
+                    PublicDownloadOperation.CREATE,
+                    "MediaStore did not create a public download",
+                )
+            } catch (error: PublicDownloadException) {
+                throw error
+            } catch (error: Exception) {
+                throw PublicDownloadException(
+                    PublicDownloadOperation.CREATE,
+                    "Unable to create a public download",
+                    error,
+                )
+            }
+            val actualName = try {
+                mediaStoreDisplayName(uri)
+            } catch (error: Exception) {
+                delete(uri)
+                throw PublicDownloadException(
+                    PublicDownloadOperation.CREATE,
+                    "Unable to verify the public download name",
+                    error,
+                )
+            }
+            if (actualName == displayName) return uri
+            if (!delete(uri)) {
+                throw PublicDownloadException(
+                    PublicDownloadOperation.CREATE,
+                    "Unable to release a conflicting public download name",
+                )
+            }
+            existingNames += displayName
+            actualName?.let(existingNames::add)
         }
-        return try {
-            resolver.insert(
-                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                values,
-            ) ?: throw PublicDownloadException(
-                PublicDownloadOperation.CREATE,
-                "MediaStore did not create a public download",
-            )
-        } catch (error: PublicDownloadException) {
-            throw error
-        } catch (error: Exception) {
-            throw PublicDownloadException(
-                PublicDownloadOperation.CREATE,
-                "Unable to create a public download",
-                error,
-            )
+        throw PublicDownloadException(
+            PublicDownloadOperation.CREATE,
+            "Unable to allocate a public download name",
+        )
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun mediaStoreNames(collection: Uri): Set<String> {
+        val cursor = resolver.query(
+            collection,
+            arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+            "${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+            arrayOf("${Environment.DIRECTORY_DOWNLOADS}/"),
+            null,
+        ) ?: throw IOException("MediaStore did not enumerate public downloads")
+        return cursor.use {
+            val nameColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            buildSet { while (it.moveToNext()) add(it.getString(nameColumn)) }
         }
+    }
+
+    private fun mediaStoreDisplayName(uri: Uri): String? = resolver.query(
+        uri,
+        arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        cursor.takeIf { it.moveToFirst() }?.getString(0)
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -283,6 +358,47 @@ class PublicDownloadStore @Inject constructor(
         else -> false
     }
 
+    private fun contentPresence(uri: Uri): PublicDownloadPresence = try {
+        val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.IS_PENDING)
+        } else {
+            arrayOf(MediaStore.MediaColumns._ID)
+        }
+        val cursor = resolver.query(
+            uri,
+            projection,
+            null,
+            null,
+            null,
+        ) ?: return PublicDownloadPresence.UNKNOWN
+        cursor.use {
+            when {
+                !it.moveToFirst() -> PublicDownloadPresence.MISSING
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it.getInt(1) != 0 ->
+                    PublicDownloadPresence.PENDING
+                else -> PublicDownloadPresence.PRESENT
+            }
+        }
+    } catch (_: Exception) {
+        PublicDownloadPresence.UNKNOWN
+    }
+
+    @Suppress("DEPRECATION")
+    private fun legacyPresence(uri: Uri): PublicDownloadPresence {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+            ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return PublicDownloadPresence.UNKNOWN
+        }
+        val file = legacyFile(uri) ?: return PublicDownloadPresence.MISSING
+        return runCatching {
+            if (file.isFile) PublicDownloadPresence.PRESENT else PublicDownloadPresence.MISSING
+        }.getOrDefault(PublicDownloadPresence.UNKNOWN)
+    }
+
     private fun delete(uri: Uri): Boolean = when (uri.scheme) {
         ContentResolver.SCHEME_CONTENT -> runCatching {
             resolver.delete(uri, null, null) > 0 || contentRowExists(uri) == false
@@ -336,11 +452,8 @@ class PublicDownloadStore @Inject constructor(
 
     private fun moveToAvailableFile(stage: File, requestedName: String): File {
         val directory = stage.parentFile ?: throw IOException("Public download stage has no parent")
-        val extensionStart = requestedName.lastIndexOf('.').takeIf { it > 0 } ?: requestedName.length
-        val base = requestedName.substring(0, extensionStart)
-        val extension = requestedName.substring(extensionStart)
         for (index in 0..MAX_COLLISION_INDEX) {
-            val name = if (index == 0) requestedName else "$base ($index)$extension"
+            val name = collisionFileName(requestedName, index)
             val candidate = File(directory, name).absoluteFile
             if (candidate.parentFile != directory) {
                 throw IOException("Public download path escaped its root")

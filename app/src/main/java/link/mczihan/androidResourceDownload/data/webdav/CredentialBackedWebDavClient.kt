@@ -54,6 +54,9 @@ class CredentialBackedWebDavClient(
     override suspend fun propFind(path: WebDavPath, depth: WebDavDepth): List<WebDavResource> =
         execute { it.propFind(path, depth) }
 
+    override suspend fun propFindResource(path: WebDavPath): WebDavResource? =
+        execute { it.propFindResource(path) }
+
     override suspend fun head(path: WebDavPath): WebDavMetadata = execute { it.head(path) }
 
     override suspend fun get(
@@ -62,14 +65,29 @@ class CredentialBackedWebDavClient(
         ifRange: String?,
     ): WebDavReadResponse = execute { it.get(path, range, ifRange) }
 
-    override suspend fun put(path: WebDavPath, upload: WebDavUpload) = execute { it.put(path, upload) }
+    override suspend fun put(path: WebDavPath, upload: WebDavUpload, overwrite: Boolean) =
+        execute { it.put(path, upload, overwrite) }
 
     override suspend fun makeCollection(path: WebDavPath) = execute { it.makeCollection(path) }
 
-    override suspend fun delete(path: WebDavPath) = execute { it.delete(path) }
+    override suspend fun delete(path: WebDavPath, isCollection: Boolean, ifMatch: String?) =
+        execute { it.delete(path, isCollection, ifMatch) }
 
-    override suspend fun move(source: WebDavPath, destination: WebDavPath, overwrite: Boolean) =
-        execute { it.move(source, destination, overwrite) }
+    override suspend fun move(
+        source: WebDavPath,
+        destination: WebDavPath,
+        overwrite: Boolean,
+        sourceIsCollection: Boolean,
+        sourceEtag: String?,
+    ) = execute { it.move(source, destination, overwrite, sourceIsCollection, sourceEtag) }
+
+    override suspend fun copy(
+        source: WebDavPath,
+        destination: WebDavPath,
+        overwrite: Boolean,
+        sourceIsCollection: Boolean,
+        sourceEtag: String?,
+    ) = execute { it.copy(source, destination, overwrite, sourceIsCollection, sourceEtag) }
 
     private class FixedCredentialProvider(
         private val lease: CredentialLease,

@@ -2,7 +2,47 @@ package link.mczihan.androidResourceDownload.data.file
 
 import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
+import link.mczihan.androidResourceDownload.domain.webdav.WebDavUpload
 
 interface FileRepository {
     suspend fun list(path: WebDavPath): List<FileNode>
+
+    suspend fun upload(
+        path: WebDavPath,
+        upload: WebDavUpload,
+        overwrite: Boolean = false,
+        onCommitting: () -> Unit = {},
+    ) {
+        throw UnsupportedOperationException("Upload is not supported")
+    }
+
+    suspend fun isCollection(path: WebDavPath): Boolean? = null
+
+    suspend fun move(
+        source: WebDavPath,
+        destination: WebDavPath,
+        overwrite: Boolean = false,
+        sourceIsCollection: Boolean = false,
+        sourceEtag: String? = null,
+    ) {
+        throw UnsupportedOperationException("Move is not supported")
+    }
+
+    suspend fun copy(
+        source: WebDavPath,
+        destination: WebDavPath,
+        overwrite: Boolean = false,
+        sourceIsCollection: Boolean = false,
+        sourceEtag: String? = null,
+    ) {
+        throw UnsupportedOperationException("Copy is not supported")
+    }
+
+    suspend fun delete(
+        path: WebDavPath,
+        isCollection: Boolean = false,
+        etag: String? = null,
+    ) {
+        throw UnsupportedOperationException("Delete is not supported")
+    }
 }

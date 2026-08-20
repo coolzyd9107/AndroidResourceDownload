@@ -1,7 +1,9 @@
 package link.mczihan.androidResourceDownload.webdav
 
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicLong
 import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import kotlinx.coroutines.runBlocking
 import link.mczihan.androidResourceDownload.data.webdav.OkHttpWebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.CredentialLease
@@ -12,6 +14,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavDepth
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPermission
+import link.mczihan.androidResourceDownload.domain.webdav.WebDavUpload
 import okhttp3.Call
 import okhttp3.Credentials
 import okhttp3.EventListener
@@ -21,6 +24,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -337,13 +341,224 @@ class OkHttpWebDavClientTest {
         }
     }
 
-    private fun credentialProvider(): WebDavCredentialProvider =
+    @Test
+    fun probesFilesWithoutTrailingSlashAndFallsBackForCollections() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(207)
+                    .setBody(propFindResponse("/root/file.txt", collection = false)),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(301)
+                    .setHeader("Location", "/root/folder/"),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(207)
+                    .setBody(propFindResponse("/root/folder/", collection = true)),
+            )
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(),
+            )
+
+            val file = runBlocking {
+                client.propFindResource(WebDavPath.parseDecoded("/file.txt"))
+            }
+            val folder = runBlocking {
+                client.propFindResource(WebDavPath.parseDecoded("/folder"))
+            }
+
+            assertEquals(false, file?.isCollection)
+            assertEquals(true, file?.resourceTypeKnown)
+            assertEquals(true, folder?.isCollection)
+            assertEquals("/root/file.txt", server.takeRequest().path)
+            assertEquals("/root/folder", server.takeRequest().path)
+            assertEquals("/root/folder/", server.takeRequest().path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun putStreamsProgressAndPreventsOverwriteByDefault() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            val progress = AtomicLong()
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_WRITE),
+            )
+
+            runBlocking {
+                client.put(
+                    WebDavPath.parseDecoded("/folder/file.txt"),
+                    WebDavUpload(
+                        contentLength = 5L,
+                        contentType = "text/plain",
+                        openStream = { ByteArrayInputStream("hello".toByteArray()) },
+                        onProgress = progress::set,
+                    ),
+                )
+            }
+
+            val request = server.takeRequest()
+            assertEquals("PUT", request.method)
+            assertEquals("/root/folder/file.txt", request.path)
+            assertEquals("*", request.getHeader("If-None-Match"))
+            assertEquals("hello", request.body.readUtf8())
+            assertEquals(5L, progress.get())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun moveCopyAndDeleteSendNativeWebDavMethods() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setResponseCode(204))
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_WRITE),
+            )
+            val source = WebDavPath.parseDecoded("/source")
+            val destination = WebDavPath.parseDecoded("/archive/destination")
+
+            runBlocking {
+                client.move(
+                    source,
+                    destination,
+                    sourceIsCollection = true,
+                    sourceEtag = "\"v1\"",
+                )
+                client.copy(
+                    source,
+                    destination,
+                    sourceIsCollection = true,
+                    sourceEtag = "\"v1\"",
+                )
+                client.delete(source, isCollection = true, ifMatch = "\"v1\"")
+            }
+
+            val move = server.takeRequest()
+            val copy = server.takeRequest()
+            val delete = server.takeRequest()
+            assertEquals("MOVE", move.method)
+            assertEquals("/root/source/", move.path)
+            assertEquals(server.url("/root/archive/destination/").toString(), move.getHeader("Destination"))
+            assertEquals("F", move.getHeader("Overwrite"))
+            assertEquals("\"v1\"", move.getHeader("If-Match"))
+            assertEquals("COPY", copy.method)
+            assertEquals("/root/source/", copy.path)
+            assertEquals("infinity", copy.getHeader("Depth"))
+            assertEquals("F", copy.getHeader("Overwrite"))
+            assertEquals("\"v1\"", copy.getHeader("If-Match"))
+            assertEquals("DELETE", delete.method)
+            assertEquals("/root/source/", delete.path)
+            assertEquals("\"v1\"", delete.getHeader("If-Match"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun writeOperationsDoNotForwardWeakOrMalformedEntityTags() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setResponseCode(204))
+            server.enqueue(MockResponse().setResponseCode(204))
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_WRITE),
+            )
+
+            runBlocking {
+                client.move(
+                    source = WebDavPath.parseDecoded("/source.txt"),
+                    destination = WebDavPath.parseDecoded("/destination.txt"),
+                    sourceEtag = "W/\"weak\"",
+                )
+                client.copy(
+                    source = WebDavPath.parseDecoded("/source.txt"),
+                    destination = WebDavPath.parseDecoded("/copy.txt"),
+                    sourceEtag = "unquoted-etag",
+                )
+                client.delete(
+                    path = WebDavPath.parseDecoded("/destination.txt"),
+                    ifMatch = "\"contains space\"",
+                )
+                client.delete(
+                    path = WebDavPath.parseDecoded("/copy.txt"),
+                    ifMatch = "\"unicode-文件\"",
+                )
+            }
+
+            assertNull(server.takeRequest().getHeader("If-Match"))
+            assertNull(server.takeRequest().getHeader("If-Match"))
+            assertNull(server.takeRequest().getHeader("If-Match"))
+            assertNull(server.takeRequest().getHeader("If-Match"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun writeConflictIsMappedAndReadOnlyCredentialSendsNoRequest() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(412))
+            val writer = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_WRITE),
+            )
+            val conflict = runCatching {
+                runBlocking {
+                    writer.put(
+                        WebDavPath.parseDecoded("/file.txt"),
+                        WebDavUpload(openStream = { ByteArrayInputStream(byteArrayOf()) }),
+                    )
+                }
+            }.exceptionOrNull()
+            assertTrue(conflict is WebDavException.PreconditionFailed)
+            server.takeRequest()
+
+            val reader = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_ONLY),
+            )
+            val denied = runCatching {
+                runBlocking { reader.delete(WebDavPath.parseDecoded("/file.txt")) }
+            }.exceptionOrNull()
+            assertTrue(denied is WebDavException.ReadWriteCredentialRequired)
+            assertNull(server.takeRequest(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    private fun credentialProvider(
+        permission: WebDavPermission = WebDavPermission.READ_ONLY,
+    ): WebDavCredentialProvider =
         object : WebDavCredentialProvider {
             private val lease = CredentialLease(
                 credential = WebDavCredential(
                     username = "reader",
                     password = "secret",
-                    permission = WebDavPermission.READ_ONLY,
+                    permission = permission,
                 ),
                 generation = 1L,
             )
@@ -354,4 +569,20 @@ class OkHttpWebDavClientTest {
 
             override suspend fun clear() = Unit
         }
+
+    private fun propFindResponse(href: String, collection: Boolean): String =
+        """<?xml version="1.0" encoding="UTF-8"?>
+            <D:multistatus xmlns:D="DAV:">
+              <D:response>
+                <D:href>$href</D:href>
+                <D:propstat>
+                  <D:prop>
+                    <D:displayname>${href.trimEnd('/').substringAfterLast('/')}</D:displayname>
+                    <D:resourcetype>${if (collection) "<D:collection/>" else ""}</D:resourcetype>
+                  </D:prop>
+                  <D:status>HTTP/1.1 200 OK</D:status>
+                </D:propstat>
+              </D:response>
+            </D:multistatus>
+        """.trimIndent()
 }

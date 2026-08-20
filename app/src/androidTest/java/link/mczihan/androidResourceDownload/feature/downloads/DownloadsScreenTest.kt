@@ -3,6 +3,7 @@ package link.mczihan.androidResourceDownload.feature.downloads
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 import org.junit.Rule
@@ -61,6 +62,23 @@ class DownloadsScreenTest {
 
         composeRule.onNode(hasContentDescription("删除下载任务")).assertDoesNotExist()
         composeRule.onNode(hasContentDescription("删除下载任务和本地文件")).assertDoesNotExist()
+    }
+
+    @Test
+    fun runningTaskShowsCurrentSpeed() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsScreen(
+                    tasks = listOf(task("running", DownloadStatus.RUNNING)),
+                    currentSpeeds = mapOf("running" to 1_024L),
+                    onStatusChange = { _, _ -> },
+                    onOpen = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("0 B / -- · 1.0 KB/s").assertExists()
     }
 
     private fun task(id: String, status: DownloadStatus) = DownloadTask(

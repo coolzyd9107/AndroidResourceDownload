@@ -12,4 +12,8 @@ annotation class WebDavHttpClient
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
+annotation class PublicHttpClient
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
 annotation class BackendRetrofit

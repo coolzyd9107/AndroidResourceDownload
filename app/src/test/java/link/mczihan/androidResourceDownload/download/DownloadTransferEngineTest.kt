@@ -230,14 +230,29 @@ class DownloadTransferEngineTest {
             return responder(range, ifRange)
         }
 
-        override suspend fun put(path: WebDavPath, upload: WebDavUpload) = error("Not used")
+        override suspend fun put(path: WebDavPath, upload: WebDavUpload, overwrite: Boolean) =
+            error("Not used")
 
         override suspend fun makeCollection(path: WebDavPath) = error("Not used")
 
-        override suspend fun delete(path: WebDavPath) = error("Not used")
-
-        override suspend fun move(source: WebDavPath, destination: WebDavPath, overwrite: Boolean) =
+        override suspend fun delete(path: WebDavPath, isCollection: Boolean, ifMatch: String?) =
             error("Not used")
+
+        override suspend fun move(
+            source: WebDavPath,
+            destination: WebDavPath,
+            overwrite: Boolean,
+            sourceIsCollection: Boolean,
+            sourceEtag: String?,
+        ) = error("Not used")
+
+        override suspend fun copy(
+            source: WebDavPath,
+            destination: WebDavPath,
+            overwrite: Boolean,
+            sourceIsCollection: Boolean,
+            sourceEtag: String?,
+        ) = error("Not used")
     }
 
     private companion object {

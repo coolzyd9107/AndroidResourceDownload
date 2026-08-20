@@ -6,15 +6,19 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.data.auth.AuthRepository
+import link.mczihan.androidResourceDownload.data.profile.QqNicknameRepository
+import link.mczihan.androidResourceDownload.data.settings.PrivacyConsentRepository
 import link.mczihan.androidResourceDownload.domain.model.AuthSession
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavCredentialProvider
 import link.mczihan.androidResourceDownload.service.DownloadQueueController
@@ -37,9 +41,16 @@ class AuthViewModel @Inject constructor(
     private val credentialProvider: WebDavCredentialProvider,
     private val oauthCallbackBus: OAuthCallbackBus,
     private val downloadQueueController: DownloadQueueController,
+    private val qqNicknameRepository: QqNicknameRepository,
+    private val privacyConsentRepository: PrivacyConsentRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow<AuthUiState>(AuthUiState.Restoring)
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
+    val privacyConsentAccepted = privacyConsentRepository.accepted.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        false,
+    )
     private val githubCallbackMutex = Mutex()
 
     init {
@@ -162,17 +173,22 @@ class AuthViewModel @Inject constructor(
         _state.value = AuthUiState.LoggingOut
         viewModelScope.launch {
             credentialProvider.clear()
+            qqNicknameRepository.clear()
             pendingOAuthStore.clear()
             val stopJob = launch {
                 runCatching { downloadQueueController.stop(ownerId) }
             }
-            runCatching { repository.logout(session) }
+            runCatching { repository.logout() }
             stopJob.join()
             _state.value = AuthUiState.Anonymous
         }
     }
 
     fun reportError(message: String) = setError(message)
+
+    fun acceptPrivacyPolicy() {
+        viewModelScope.launch { privacyConsentRepository.acceptCurrentPolicy() }
+    }
 
     private suspend fun AuthSession.asAuthenticatedState(): AuthUiState.Authenticated {
         credentialProvider.clear()

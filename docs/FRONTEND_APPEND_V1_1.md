@@ -44,7 +44,7 @@ demoMode=false
 - `PROPFIND`：目录列表，`Depth: 1`，流式 XML 解析
 - `HEAD`：长度、ETag、Last-Modified、Range 能力
 - `GET`：普通和 Range 下载，校验 `206` 的 `Content-Range`
-- `PUT`、`MKCOL`、`DELETE`、`MOVE`：仅 `READ_WRITE` 凭据允许构造请求
+- `PUT`、`MKCOL`、`DELETE`、`MOVE`、`COPY`：仅 `READ_WRITE` 凭据允许构造请求
 
 Basic Auth 按请求附加，不使用全局拦截器；跨源重定向被禁止。所有路径以解码后的安全 segment 表示，拒绝 `.`、`..`、斜线、反斜线、控制字符、编码分隔符和越过 credential root 的 href。
 
@@ -56,4 +56,4 @@ GitHub OAuth callback 由后端 HTTPS 接收，后端只通过 App deep link 返
 
 Room 现在仅持久化任务所有者、远程安全路径、进度、状态和续传校验信息；WebDAV 地址、用户名、密码及短期解析 URL 均不进入数据库。前台服务按用户串行执行队列，文件先写入应用内部目录的 `.part`，仅在强 ETag 或原始 Last-Modified 匹配且 `206 Content-Range` 有效时追加，完成后通过 FileProvider 打开。
 
-SAF 上传、管理员写操作和 APK 更新安装仍待后续阶段实现。
+管理员账号可通过系统文件选择器上传，并可移动、复制、删除云端文件或目录。上传先写入同目录唯一临时名，完成后用 `MOVE` 提交；默认禁止覆盖，冲突后必须由管理员明确确认。普通用户不显示写操作，READ_ONLY 凭据也会在网络请求构造前拒绝写入。

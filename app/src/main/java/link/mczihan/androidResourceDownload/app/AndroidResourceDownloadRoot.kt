@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -73,7 +74,9 @@ import link.mczihan.androidResourceDownload.feature.downloads.DownloadsScreen
 import link.mczihan.androidResourceDownload.feature.downloads.DownloadsViewModel
 import link.mczihan.androidResourceDownload.feature.files.FilesScreen
 import link.mczihan.androidResourceDownload.feature.profile.ProfileScreen
+import link.mczihan.androidResourceDownload.feature.profile.ProfileViewModel
 import link.mczihan.androidResourceDownload.feature.settings.SettingsScreen
+import link.mczihan.androidResourceDownload.feature.settings.SettingsViewModel
 import link.mczihan.androidResourceDownload.feature.settings.ThemeViewModel
 
 private object RootRoute {
@@ -100,6 +103,7 @@ fun AndroidResourceDownloadRoot(
 ) {
     val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
     val authState by authViewModel.state.collectAsStateWithLifecycle()
+    val privacyConsentAccepted by authViewModel.privacyConsentAccepted.collectAsStateWithLifecycle()
     var sessionUser by remember { mutableStateOf<User?>(null) }
 
     AndroidResourceDownloadTheme(themeMode = themeMode) {
@@ -183,6 +187,7 @@ fun AndroidResourceDownloadRoot(
                             authState is AuthUiState.Authenticating ||
                             authState is AuthUiState.LoggingOut,
                         message = (authState as? AuthUiState.Error)?.message,
+                        onPolicyAccepted = authViewModel::acceptPrivacyPolicy,
                     )
                 }
                 composable(RootRoute.Email) {
@@ -255,8 +260,24 @@ fun AndroidResourceDownloadRoot(
                     if (user == null) {
                         LaunchedEffect(Unit) { navController.popBackStack() }
                     } else {
+                        val profileViewModel = hiltViewModel<ProfileViewModel>()
+                        val qqNickname by profileViewModel.qqNickname.collectAsStateWithLifecycle()
+                        LaunchedEffect(
+                            user.id,
+                            user.email,
+                            user.loginType,
+                            privacyConsentAccepted,
+                        ) {
+                            if (privacyConsentAccepted) {
+                                profileViewModel.load(user)
+                            } else {
+                                profileViewModel.clear()
+                            }
+                        }
                         ProfileScreen(
                             user = user,
+                            qqNickname = qqNickname,
+                            allowQqLookup = privacyConsentAccepted,
                             onBack = { navController.popBackStack() },
                             onLogout = {
                                 if (BuildConfig.DEMO_MODE) {
@@ -296,6 +317,10 @@ private fun MainShell(
     val context = LocalContext.current
     val downloadsViewModel = if (BuildConfig.DEMO_MODE) null else hiltViewModel<DownloadsViewModel>()
     val persistedTasks = downloadsViewModel?.tasks?.collectAsStateWithLifecycle()?.value.orEmpty()
+    val currentSpeeds = downloadsViewModel?.currentSpeeds
+        ?.collectAsStateWithLifecycle()
+        ?.value
+        .orEmpty()
     var pendingPermissionDownload by remember { mutableStateOf<FileNode?>(null) }
     var pendingPermissionRetryId by remember { mutableStateOf<String?>(null) }
     var pendingPermissionStartQueue by remember { mutableStateOf(false) }
@@ -470,8 +495,21 @@ private fun MainShell(
                     fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
                 },
             ) {
+                LifecycleResumeEffect(downloadsViewModel, user.id) {
+                    downloadsViewModel?.startSpeedTracking()
+                    val reconciliation = if (BuildConfig.DEMO_MODE) {
+                        null
+                    } else {
+                        downloadsViewModel?.removeMissingSuccessful(user.id)
+                    }
+                    onPauseOrDispose {
+                        reconciliation?.cancel()
+                        downloadsViewModel?.stopSpeedTracking()
+                    }
+                }
                 DownloadsScreen(
                     tasks = if (BuildConfig.DEMO_MODE) demoTasks else persistedTasks,
+                    currentSpeeds = if (BuildConfig.DEMO_MODE) emptyMap() else currentSpeeds,
                     onStatusChange = { taskId, status ->
                         if (BuildConfig.DEMO_MODE) {
                             demoTasks = demoTasks.map { task ->
@@ -535,9 +573,17 @@ private fun MainShell(
                     fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
                 },
             ) {
+                val settingsViewModel = hiltViewModel<SettingsViewModel>()
+                val noticeState by settingsViewModel.noticeState.collectAsStateWithLifecycle()
+                LifecycleResumeEffect(settingsViewModel) {
+                    settingsViewModel.refreshNotice()
+                    onPauseOrDispose { }
+                }
                 SettingsScreen(
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
+                    noticeState = noticeState,
+                    onRetryNotice = settingsViewModel::refreshNotice,
                     onLogout = onLogout,
                 )
             }
