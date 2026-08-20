@@ -288,29 +288,52 @@ class OkHttpWebDavClientTest {
     }
 
     @Test
-    fun rejectsCrossOriginRedirectForFileGet() {
-        val server = MockWebServer()
-        server.start()
+    fun followsCrossOriginRedirectStrippingCredentialsForFileGet() {
+        val webdavServer = MockWebServer()
+        val cdnServer = MockWebServer()
+        webdavServer.start()
+        cdnServer.start()
         try {
-            server.enqueue(
+            webdavServer.enqueue(
                 MockResponse()
                     .setResponseCode(302)
-                    .setHeader("Location", "https://example.com/download/file.txt"),
+                    .setHeader("Location", cdnServer.url("/download/file.txt").toString()),
+            )
+            cdnServer.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "text/plain")
+                    .setBody("hello from cdn"),
             )
             val client = OkHttpWebDavClient(
-                endpoint = server.url("/root/"),
+                endpoint = webdavServer.url("/root/"),
                 credentialProvider = credentialProvider(),
             )
 
-            val error = runCatching {
-                runBlocking { client.get(WebDavPath.parseDecoded("/file.txt")) }
-            }.exceptionOrNull()
+            val response = runBlocking { client.get(WebDavPath.parseDecoded("/file.txt")) }
+            val body = response.use {
+                ByteArrayOutputStream().use { output ->
+                    it.stream.copyTo(output)
+                    output.toString(Charsets.UTF_8.name())
+                }
+            }
 
-            assertTrue(error is WebDavException.CrossOriginRedirect)
-            assertEquals("/root/file.txt", server.takeRequest().path)
-            assertEquals(1, server.requestCount)
+            assertEquals("hello from cdn", body)
+
+            val webdavRequest = webdavServer.takeRequest()
+            val cdnRequest = cdnServer.takeRequest()
+            assertEquals("/root/file.txt", webdavRequest.path)
+            assertEquals("/download/file.txt", cdnRequest.path)
+
+            // WebDAV origin request carries credentials
+            val authorization = Credentials.basic("reader", "secret", Charsets.UTF_8)
+            assertEquals(authorization, webdavRequest.getHeader("Authorization"))
+            // Cross-origin CDN request must NOT carry credentials
+            assertEquals(null, cdnRequest.getHeader("Authorization"))
+            assertEquals(2, webdavServer.requestCount + cdnServer.requestCount)
         } finally {
-            server.shutdown()
+            webdavServer.shutdown()
+            cdnServer.shutdown()
         }
     }
 
