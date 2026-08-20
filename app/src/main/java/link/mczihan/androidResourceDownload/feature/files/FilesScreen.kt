@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -841,17 +842,20 @@ private fun FileDetailsSheet(
                         Text("复制")
                     }
                 }
-                TextButton(
+                FilledTonalButton(
                     onClick = onDelete,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
                 ) {
                     Icon(
                         Icons.Default.Delete,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text("删除")
                 }
             }
         }
