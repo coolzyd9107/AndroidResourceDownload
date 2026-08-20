@@ -136,6 +136,106 @@ class OkHttpWebDavClientTest {
         }
     }
 
+    @Test
+    fun fallsBackToRangeProbeWhenServerDoesNotSupportHead() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(405))
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 0-0/5")
+                    .setHeader("ETag", "\"v1\"")
+                    .setBody("h"),
+            )
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(),
+            )
+
+            val metadata = runBlocking {
+                client.head(WebDavPath.parseDecoded("/file.txt"))
+            }
+
+            assertEquals(5L, metadata.contentLength)
+            assertEquals("\"v1\"", metadata.etag)
+            assertTrue(metadata.acceptsByteRanges)
+            val headRequest = server.takeRequest()
+            val probeRequest = server.takeRequest()
+            assertEquals("HEAD", headRequest.method)
+            assertEquals("GET", probeRequest.method)
+            assertEquals("bytes=0-0", probeRequest.getHeader("Range"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun fallsBackToOrdinaryGetWhenMetadataRangeProbeIsRejected() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(405))
+            server.enqueue(MockResponse().setResponseCode(416))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("hello"))
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(),
+            )
+
+            val metadata = runBlocking {
+                client.head(WebDavPath.parseDecoded("/file.txt"))
+            }
+
+            assertEquals(5L, metadata.contentLength)
+            val headRequest = server.takeRequest()
+            val probeRequest = server.takeRequest()
+            val fallbackRequest = server.takeRequest()
+            assertEquals("HEAD", headRequest.method)
+            assertEquals("bytes=0-0", probeRequest.getHeader("Range"))
+            assertEquals("GET", fallbackRequest.method)
+            assertEquals(null, fallbackRequest.getHeader("Range"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun headRedirectProbesOriginalUrlWithoutFollowingLocation() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", "https://example.com/credential-target"),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 0-0/5")
+                    .setBody("h"),
+            )
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(),
+            )
+
+            runBlocking {
+                client.head(WebDavPath.parseDecoded("/file.txt"))
+            }
+
+            val headRequest = server.takeRequest()
+            val probeRequest = server.takeRequest()
+            assertEquals("/root/file.txt", headRequest.path)
+            assertEquals("/root/file.txt", probeRequest.path)
+            assertEquals("bytes=0-0", probeRequest.getHeader("Range"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
     private fun credentialProvider(): WebDavCredentialProvider =
         object : WebDavCredentialProvider {
             private val lease = CredentialLease(

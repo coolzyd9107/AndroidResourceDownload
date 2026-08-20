@@ -101,10 +101,29 @@ class OkHttpWebDavClient(
                 .head()
                 .build()
         }
+        if (response.code == 405 || response.code == 501 || response.code in 300..399) {
+            response.close()
+            return probeMetadataWithGet(path)
+        }
         response.use {
             requireSuccess(it)
             return it.toMetadata()
         }
+    }
+
+    private suspend fun probeMetadataWithGet(path: WebDavPath): WebDavMetadata = try {
+        get(path, WebDavByteRange(start = 0L, endInclusive = 0L)).use { response ->
+            response.metadata.copy(
+                contentLength = if (response.statusCode == 206) {
+                    response.contentRange?.totalLength
+                } else {
+                    response.metadata.contentLength
+                },
+                acceptsByteRanges = response.statusCode == 206 || response.metadata.acceptsByteRanges,
+            )
+        }
+    } catch (_: WebDavException.RangeNotSatisfiable) {
+        get(path).use(WebDavReadResponse::metadata)
     }
 
     override suspend fun get(

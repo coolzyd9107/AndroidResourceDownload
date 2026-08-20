@@ -313,10 +313,18 @@ class DownloadService : Service() {
         is WebDavException.InvalidResponse,
         is DownloadIntegrityException,
         -> "服务器返回的文件数据无效"
-        is WebDavException.RedirectRejected,
-        is WebDavException.ServerError,
-        is WebDavException.UnexpectedStatus,
-        -> "服务器暂时无法提供该文件，可重试"
+        is WebDavException.RedirectRejected ->
+            "服务器返回重定向（HTTP $statusCode），请检查 WebDAV 地址"
+        is WebDavException.ServerError -> "服务器错误（HTTP $statusCode），可重试"
+        is WebDavException.UnexpectedStatus -> "服务器返回 HTTP $statusCode，无法下载"
+        is WebDavException.Conflict -> "服务器报告文件状态冲突（HTTP $statusCode）"
+        is WebDavException.PreconditionFailed -> "远程文件已发生变化（HTTP $statusCode），可重试"
+        is WebDavException.RangeNotSatisfiable -> "服务器拒绝下载范围（HTTP $statusCode），可重试"
+        is WebDavException.Locked -> "远程文件已锁定（HTTP $statusCode）"
+        is WebDavException.UnsafePath,
+        is WebDavException.ResponseTooLarge,
+        -> "服务器返回的文件信息无效"
+        is WebDavException.ReadWriteCredentialRequired -> "当前 WebDAV 凭据不允许此操作"
         is PublicDownloadException -> when (operation) {
             PublicDownloadOperation.CREATE -> "无法在系统下载目录创建文件"
             PublicDownloadOperation.WRITE -> "无法写入系统下载目录"
