@@ -291,6 +291,117 @@ class FilesViewModelTest {
         assertEquals(FilePreviewUiState.Idle, viewModel.previewState.value)
     }
 
+    @Test
+    fun completePlainTextCanBeEditedAndSaved() = runTest(dispatcher) {
+        val file = FileNode(
+            "notes.txt",
+            "/notes.txt",
+            isDirectory = false,
+            mimeType = "text/plain",
+            etag = "\"v1\"",
+        )
+        var savedText: String? = null
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun preview(file: FileNode): FilePreviewContent =
+                FilePreviewContent.Text("old text", entityTag = "\"v1\"")
+
+            override suspend fun updateText(
+                file: FileNode,
+                original: FilePreviewContent.Text,
+                text: String,
+            ) {
+                savedText = text
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+        viewModel.preview(file)
+        advanceUntilIdle()
+
+        viewModel.startPreviewEdit()
+        viewModel.updatePreviewDraft("new text")
+        val editing = viewModel.previewState.value as FilePreviewUiState.Editing
+        assertEquals("new text", editing.draft)
+
+        viewModel.savePreviewEdit()
+        advanceUntilIdle()
+
+        assertEquals("new text", savedText)
+        assertEquals(FilePreviewUiState.Idle, viewModel.previewState.value)
+    }
+
+    @Test
+    fun editConflictKeepsDraftAndShowsError() = runTest(dispatcher) {
+        val file = FileNode("notes.txt", "/notes.txt", isDirectory = false, mimeType = "text/plain")
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun preview(file: FileNode): FilePreviewContent =
+                FilePreviewContent.Text("old text", entityTag = "\"v1\"")
+
+            override suspend fun updateText(
+                file: FileNode,
+                original: FilePreviewContent.Text,
+                text: String,
+            ) {
+                throw WebDavException.PreconditionFailed()
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+        viewModel.preview(file)
+        advanceUntilIdle()
+        viewModel.startPreviewEdit()
+        viewModel.updatePreviewDraft("my draft")
+
+        viewModel.savePreviewEdit()
+        advanceUntilIdle()
+
+        val editing = viewModel.previewState.value as FilePreviewUiState.Editing
+        assertEquals("my draft", editing.draft)
+        assertTrue(editing.error.orEmpty().contains("已被修改"))
+    }
+
+    @Test
+    fun truncatedTextCannotEnterEditMode() = runTest(dispatcher) {
+        val file = FileNode("large.txt", "/large.txt", isDirectory = false, mimeType = "text/plain")
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun preview(file: FileNode): FilePreviewContent =
+                FilePreviewContent.Text("prefix", truncated = true, entityTag = "\"v1\"")
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+        viewModel.preview(file)
+        advanceUntilIdle()
+
+        viewModel.startPreviewEdit()
+
+        assertTrue(viewModel.previewState.value is FilePreviewUiState.Content)
+    }
+
+    @Test
+    fun textWithoutStrongPreviewEtagCannotEnterEditMode() = runTest(dispatcher) {
+        val file = FileNode("notes.txt", "/notes.txt", isDirectory = false, mimeType = "text/plain")
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun preview(file: FileNode): FilePreviewContent =
+                FilePreviewContent.Text("content", entityTag = "W/\"weak\"")
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+        viewModel.preview(file)
+        advanceUntilIdle()
+
+        viewModel.startPreviewEdit()
+
+        assertTrue(viewModel.previewState.value is FilePreviewUiState.Content)
+    }
+
     private class FakeFileRepository(
         private val loader: suspend (WebDavPath) -> List<FileNode>,
     ) : FileRepository {

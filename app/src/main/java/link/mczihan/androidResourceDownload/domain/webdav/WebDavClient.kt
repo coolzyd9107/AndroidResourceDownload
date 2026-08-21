@@ -21,6 +21,7 @@ interface WebDavClient {
         path: WebDavPath,
         upload: WebDavUpload,
         overwrite: Boolean = false,
+        ifMatch: String? = null,
     )
 
     suspend fun makeCollection(path: WebDavPath)

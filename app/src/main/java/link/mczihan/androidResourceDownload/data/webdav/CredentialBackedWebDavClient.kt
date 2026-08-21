@@ -65,8 +65,12 @@ class CredentialBackedWebDavClient(
         ifRange: String?,
     ): WebDavReadResponse = execute { it.get(path, range, ifRange) }
 
-    override suspend fun put(path: WebDavPath, upload: WebDavUpload, overwrite: Boolean) =
-        execute { it.put(path, upload, overwrite) }
+    override suspend fun put(
+        path: WebDavPath,
+        upload: WebDavUpload,
+        overwrite: Boolean,
+        ifMatch: String?,
+    ) = execute { it.put(path, upload, overwrite, ifMatch) }
 
     override suspend fun makeCollection(path: WebDavPath) = execute { it.makeCollection(path) }
 

@@ -230,7 +230,12 @@ class DownloadTransferEngineTest {
             return responder(range, ifRange)
         }
 
-        override suspend fun put(path: WebDavPath, upload: WebDavUpload, overwrite: Boolean) =
+        override suspend fun put(
+            path: WebDavPath,
+            upload: WebDavUpload,
+            overwrite: Boolean,
+            ifMatch: String?,
+        ) =
             error("Not used")
 
         override suspend fun makeCollection(path: WebDavPath) = error("Not used")

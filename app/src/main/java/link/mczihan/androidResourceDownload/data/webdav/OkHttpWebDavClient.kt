@@ -26,6 +26,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavReadResponse
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavResource
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavStatusMapper
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavUpload
+import link.mczihan.androidResourceDownload.domain.webdav.strongEntityTagOrNull
 import okhttp3.Authenticator
 import okhttp3.Call
 import okhttp3.Callback
@@ -205,12 +206,26 @@ class OkHttpWebDavClient(
         }
     }
 
-    override suspend fun put(path: WebDavPath, upload: WebDavUpload, overwrite: Boolean) {
+    override suspend fun put(
+        path: WebDavPath,
+        upload: WebDavUpload,
+        overwrite: Boolean,
+        ifMatch: String?,
+    ) {
+        validateOptionalHeader(ifMatch, "If-Match")
+        val strongEtag = ifMatch.strongEntityTagOrNull()
+        require(ifMatch == null || strongEtag != null) { "If-Match must be a strong entity tag" }
         executeWrite { lease ->
             Request.Builder()
                 .url(endpoint.urlFor(path))
                 .header("Authorization", lease.basicAuthorization())
-                .apply { if (!overwrite) header("If-None-Match", "*") }
+                .apply {
+                    if (strongEtag != null) {
+                        header("If-Match", strongEtag)
+                    } else if (!overwrite) {
+                        header("If-None-Match", "*")
+                    }
+                }
                 .put(StreamingUploadRequestBody(upload))
                 .build()
         }.use(::requireSuccess)
@@ -443,20 +458,6 @@ class OkHttpWebDavClient(
     private fun validateOptionalHeader(value: String?, name: String) {
         if (value != null && (value.isBlank() || value.any { Character.isISOControl(it) })) {
             throw IllegalArgumentException("$name must not be blank or contain control characters")
-        }
-    }
-
-    private fun String?.strongEntityTagOrNull(): String? {
-        val value = this ?: return null
-        if (value.startsWith("W/", ignoreCase = true) ||
-            value.length < 2 || value.first() != '"' || value.last() != '"'
-        ) {
-            return null
-        }
-        return value.takeIf { candidate ->
-            candidate.substring(1, candidate.lastIndex).all { character ->
-                character == '\u0021' || character in '\u0023'..'\u007e'
-            }
         }
     }
 

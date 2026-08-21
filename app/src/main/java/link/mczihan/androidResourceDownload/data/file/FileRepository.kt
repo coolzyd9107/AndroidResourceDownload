@@ -12,6 +12,14 @@ interface FileRepository {
         throw UnsupportedOperationException("Preview is not supported")
     }
 
+    suspend fun updateText(
+        file: FileNode,
+        original: FilePreviewContent.Text,
+        text: String,
+    ) {
+        throw UnsupportedOperationException("Text editing is not supported")
+    }
+
     suspend fun upload(
         path: WebDavPath,
         upload: WebDavUpload,

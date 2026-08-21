@@ -49,10 +49,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
@@ -123,9 +125,11 @@ import link.mczihan.androidResourceDownload.data.mock.mockFilesForPath
 import link.mczihan.androidResourceDownload.data.mock.mockPreviewForFile
 import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewFormat
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.previewFormat
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
+import link.mczihan.androidResourceDownload.domain.webdav.strongEntityTagOrNull
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -628,6 +632,7 @@ fun FilesScreen(
     if (previewState != FilePreviewUiState.Idle) {
         FilePreviewDialog(
             state = previewState,
+            editable = isAdmin,
             onDismiss = {
                 if (viewModel == null) {
                     demoPreviewState = FilePreviewUiState.Idle
@@ -645,6 +650,57 @@ fun FilesScreen(
                     } ?: FilePreviewUiState.Idle
                 } else {
                     viewModel.retryPreview()
+                }
+            },
+            onEdit = {
+                if (viewModel == null) {
+                    val state = demoPreviewState as? FilePreviewUiState.Content
+                    val text = state?.preview as? FilePreviewContent.Text
+                    if (state != null && text != null && !text.truncated) {
+                        demoPreviewState = FilePreviewUiState.Editing(
+                            file = state.file,
+                            original = text,
+                            draft = text.text,
+                        )
+                    }
+                } else {
+                    viewModel.startPreviewEdit()
+                }
+            },
+            onDraftChange = { text ->
+                if (viewModel == null) {
+                    val state = demoPreviewState as? FilePreviewUiState.Editing
+                    if (state != null && text.length <= MAX_EDITED_TEXT_CHARACTERS) {
+                        demoPreviewState = state.copy(draft = text, error = null)
+                    }
+                } else {
+                    viewModel.updatePreviewDraft(text)
+                }
+            },
+            onSave = {
+                if (!isAdmin) {
+                    Unit
+                } else if (viewModel == null) {
+                    val state = demoPreviewState as? FilePreviewUiState.Editing
+                    if (state != null && state.draft != state.original.text) {
+                        demoPreviewState = FilePreviewUiState.Content(
+                            state.file,
+                            state.original.copy(text = state.draft),
+                        )
+                        onMessage("演示模式不执行云端文件操作")
+                    }
+                } else {
+                    viewModel.savePreviewEdit()
+                }
+            },
+            onCancelEdit = {
+                if (viewModel == null) {
+                    val state = demoPreviewState as? FilePreviewUiState.Editing
+                    if (state != null && !state.saving) {
+                        demoPreviewState = FilePreviewUiState.Content(state.file, state.original)
+                    }
+                } else {
+                    viewModel.cancelPreviewEdit()
                 }
             },
         )
@@ -1039,12 +1095,39 @@ private fun FileDetailsSheet(
 @Composable
 private fun FilePreviewDialog(
     state: FilePreviewUiState,
+    editable: Boolean,
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
+    onEdit: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancelEdit: () -> Unit,
 ) {
     val file = state.fileOrNull() ?: return
+    val editing = state as? FilePreviewUiState.Editing
+    val saving = editing?.saving == true
+    var showDiscardEdit by rememberSaveable(file.path) { mutableStateOf(false) }
+    val requestExitEdit = {
+        when {
+            saving -> Unit
+            editing?.draft != editing?.original?.text -> showDiscardEdit = true
+            else -> onCancelEdit()
+        }
+    }
+    val canEdit = editable && state is FilePreviewUiState.Content &&
+        state.file.previewFormat() == FilePreviewFormat.PLAIN_TEXT &&
+        (state.preview as? FilePreviewContent.Text)?.let { text ->
+            !text.truncated && text.encodingEditable &&
+                text.entityTag.strongEntityTagOrNull() != null
+        } == true
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            when {
+                saving -> Unit
+                editing != null -> requestExitEdit()
+                else -> onDismiss()
+            }
+        },
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
@@ -1062,8 +1145,42 @@ private fun FilePreviewDialog(
                             )
                         },
                         navigationIcon = {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.Default.Close, contentDescription = "关闭预览")
+                            IconButton(
+                                enabled = !saving,
+                                onClick = if (editing == null) onDismiss else requestExitEdit,
+                            ) {
+                                Icon(
+                                    imageVector = if (editing == null) {
+                                        Icons.Default.Close
+                                    } else {
+                                        Icons.AutoMirrored.Filled.ArrowBack
+                                    },
+                                    contentDescription = if (editing == null) "关闭预览" else "退出编辑",
+                                )
+                            }
+                        },
+                        actions = {
+                            if (canEdit) {
+                                IconButton(onClick = onEdit) {
+                                    Icon(Icons.Default.Edit, contentDescription = "编辑文本")
+                                }
+                            }
+                            if (editing != null) {
+                                if (saving) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier
+                                            .padding(horizontal = 12.dp)
+                                            .size(24.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else if (editable) {
+                                    IconButton(
+                                        enabled = editing.draft != editing.original.text,
+                                        onClick = onSave,
+                                    ) {
+                                        Icon(Icons.Default.Save, contentDescription = "保存编辑")
+                                    }
+                                }
                             }
                         },
                     )
@@ -1115,10 +1232,63 @@ private fun FilePreviewDialog(
                                 .padding(innerPadding),
                         )
                     }
+                    is FilePreviewUiState.Editing -> TextEditorPane(
+                        state = state,
+                        editable = editable,
+                        onDraftChange = onDraftChange,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding),
+                    )
                 }
             }
         }
+        if (showDiscardEdit && editing != null && !saving) {
+            AlertDialog(
+                onDismissRequest = { showDiscardEdit = false },
+                title = { Text("放弃修改？") },
+                text = { Text("尚未保存的修改将会丢失。") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDiscardEdit = false
+                            onCancelEdit()
+                        },
+                    ) { Text("放弃") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDiscardEdit = false }) { Text("继续编辑") }
+                },
+            )
+        }
     }
+}
+
+@Composable
+private fun TextEditorPane(
+    state: FilePreviewUiState.Editing,
+    editable: Boolean,
+    onDraftChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = state.draft,
+        onValueChange = onDraftChange,
+        modifier = modifier.padding(16.dp),
+        enabled = editable && !state.saving,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+        label = { Text("编辑文本") },
+        supportingText = {
+            Text(
+                when {
+                    !editable -> "当前账户无编辑权限"
+                    state.error != null -> state.error
+                    else -> "${state.draft.length}/$MAX_EDITED_TEXT_CHARACTERS"
+                },
+            )
+        },
+        isError = state.error != null,
+    )
 }
 
 @Composable
@@ -1610,10 +1780,12 @@ private fun FilePreviewUiState.fileOrNull(): FileNode? = when (this) {
     FilePreviewUiState.Idle -> null
     is FilePreviewUiState.Loading -> file
     is FilePreviewUiState.Content -> file
+    is FilePreviewUiState.Editing -> file
     is FilePreviewUiState.Error -> file
 }
 
 private const val IMAGE_PREVIEW_DECODE_SIZE = 2_048
+private const val MAX_EDITED_TEXT_CHARACTERS = 100_000
 private const val MAX_IMAGE_PREVIEW_SCALE = 5f
 private const val MAX_IMAGE_PAN = 4_096f
 

@@ -31,6 +31,7 @@ class WebDavFilePreviewTest {
                 MockResponse()
                     .setResponseCode(206)
                     .setHeader("Content-Type", "text/plain; charset=utf-8")
+                    .setHeader("ETag", "\"preview-v1\"")
                     .setHeader("Content-Range", "bytes 0-${body.lastIndex}/${body.size}")
                     .setBody(Buffer().write(body)),
             )
@@ -41,6 +42,8 @@ class WebDavFilePreviewTest {
 
             assertEquals("你好 preview", preview.text)
             assertFalse(preview.truncated)
+            assertEquals("\"preview-v1\"", preview.entityTag)
+            assertEquals("text/plain; charset=utf-8", preview.contentType)
             assertEquals("bytes=0-524288", server.takeRequest().getHeader("Range"))
         } finally {
             server.shutdown()
@@ -50,10 +53,36 @@ class WebDavFilePreviewTest {
     @Test
     fun decodesUtf16AndGbkText() {
         val utf16 = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) + "预览".toByteArray(Charsets.UTF_16LE)
-        assertEquals("预览", decodePlainText(utf16, "text/plain", false)?.text)
+        val decodedUtf16 = requireNotNull(decodePlainText(utf16, "text/plain", false))
+        assertEquals("预览", decodedUtf16.text)
+        assertEquals("UTF-16LE", decodedUtf16.charsetName)
+        assertTrue(decodedUtf16.hasBom)
+        val encodedUtf16 = encodeEditedText("修改", decodedUtf16.charsetName, decodedUtf16.hasBom)
+        assertTrue(encodedUtf16.take(2).toByteArray().contentEquals(byteArrayOf(0xFF.toByte(), 0xFE.toByte())))
+        assertEquals("修改", encodedUtf16.drop(2).toByteArray().toString(Charsets.UTF_16LE))
+        assertTrue(
+            requireNotNull(
+                decodePlainText(utf16, "text/plain; charset=utf-16", false),
+            ).encodingEditable,
+        )
+
+        val utf16WithNul = byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x41, 0x00, 0x00, 0x00)
+        assertFalse(requireNotNull(decodePlainText(utf16WithNul, "text/plain", false)).encodingEditable)
+
+        val utf32Charset = charset("UTF-32LE")
+        val utf32 = byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x00, 0x00) +
+            "text".toByteArray(utf32Charset)
+        val decodedUtf32 = requireNotNull(decodePlainText(utf32, "text/plain", false))
+        assertEquals("text", decodedUtf32.text)
+        assertFalse(decodedUtf32.encodingEditable)
 
         val gbk = "中文内容".toByteArray(charset("GB18030"))
-        assertEquals("中文内容", decodePlainText(gbk, "text/plain; charset=gbk", false)?.text)
+        val decodedGbk = requireNotNull(decodePlainText(gbk, "text/plain; charset=gbk", false))
+        assertEquals("中文内容", decodedGbk.text)
+        assertTrue(
+            encodeEditedText("中文内容", decodedGbk.charsetName, decodedGbk.hasBom)
+                .contentEquals("中文内容".toByteArray(charset("GBK"))),
+        )
         assertEquals(null, decodePlainText(gbk, "text/plain", false))
 
         val windows1252 = "résumé".toByteArray(charset("windows-1252"))
@@ -62,6 +91,145 @@ class WebDavFilePreviewTest {
             "résumé",
             decodePlainText(windows1252, "text/plain; charset=windows-1252", false)?.text,
         )
+        val unsupported = requireNotNull(
+            decodePlainText("plain".toByteArray(), "text/plain; charset=us-ascii", false),
+        )
+        assertFalse(unsupported.encodingEditable)
+        val conflicting = requireNotNull(
+            decodePlainText(
+                "plain".toByteArray(),
+                "text/plain; charset=utf-8; charset=windows-1252",
+                false,
+            ),
+        )
+        assertFalse(conflicting.encodingEditable)
+        assertTrue(
+            runCatching { encodeEditedText("中文", "windows-1252", false) }
+                .exceptionOrNull() is TextEncodingException,
+        )
+    }
+
+    @Test
+    fun textUpdateUsesConditionalPutAndPreservesBom() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(204))
+            val repository = repository(server, WebDavPermission.READ_WRITE)
+            val file = FileNode(
+                name = "notes.txt",
+                path = "/notes.txt",
+                isDirectory = false,
+                mimeType = "text/plain; charset=utf-8",
+                etag = "\"stale-list-etag\"",
+            )
+            val original = FilePreviewContent.Text(
+                text = "old",
+                charsetName = "UTF-8",
+                hasBom = true,
+                contentType = "text/plain; charset=utf-8",
+                entityTag = "\"preview-v1\"",
+            )
+
+            runBlocking { repository.updateText(file, original, "new text") }
+
+            val request = server.takeRequest()
+            assertEquals("PUT", request.method)
+            assertEquals("/root/notes.txt", request.path)
+            assertEquals("\"preview-v1\"", request.getHeader("If-Match"))
+            assertEquals(null, request.getHeader("If-None-Match"))
+            assertTrue(
+                request.body.readByteArray().contentEquals(
+                    byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) +
+                        "new text".toByteArray(),
+                ),
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun textUpdateRequiresStrongPreviewEtagBeforeNetwork() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val repository = repository(server, WebDavPermission.READ_WRITE)
+            val file = FileNode("notes.txt", "/notes.txt", isDirectory = false, mimeType = "text/plain")
+
+            val error = runCatching {
+                runBlocking {
+                    repository.updateText(
+                        file,
+                        FilePreviewContent.Text("old", entityTag = "W/\"weak\""),
+                        "new",
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(error is IllegalArgumentException)
+            assertEquals(0, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun textUpdateRejectsRootAndMalformedRepresentationBeforeNetwork() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val repository = repository(server, WebDavPermission.READ_WRITE)
+            val rootFile = FileNode("root.txt", "/", isDirectory = false, mimeType = "text/plain")
+            val malformedType = FileNode(
+                "notes.txt",
+                "/notes.txt",
+                isDirectory = false,
+                mimeType = "text/plain",
+            )
+            val validOriginal = FilePreviewContent.Text("old", entityTag = "\"v1\"")
+            val malformedOriginal = validOriginal.copy(contentType = "not a media type")
+
+            val rootError = runCatching {
+                runBlocking { repository.updateText(rootFile, validOriginal, "new") }
+            }.exceptionOrNull()
+            val typeError = runCatching {
+                runBlocking { repository.updateText(malformedType, malformedOriginal, "new") }
+            }.exceptionOrNull()
+
+            assertTrue(rootError is IllegalArgumentException)
+            assertTrue(typeError is IllegalArgumentException)
+            assertEquals(0, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun actualGetContentTypeMustStillBePlainText() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val body = "{\\rtf1 content}".toByteArray()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Type", "application/rtf")
+                    .setHeader("ETag", "\"v1\"")
+                    .setHeader("Content-Range", "bytes 0-${body.lastIndex}/${body.size}")
+                    .setBody(Buffer().write(body)),
+            )
+
+            val error = runCatching {
+                runBlocking {
+                    repository(server).preview(file("misreported.txt", body.size.toLong(), "text/plain"))
+                }
+            }.exceptionOrNull()
+
+            assertTrue(error is WebDavException.InvalidResponse)
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test
@@ -280,16 +448,21 @@ class WebDavFilePreviewTest {
         }
     }
 
-    private fun repository(server: MockWebServer): WebDavFileRepository = WebDavFileRepository(
+    private fun repository(
+        server: MockWebServer,
+        permission: WebDavPermission = WebDavPermission.READ_ONLY,
+    ): WebDavFileRepository = WebDavFileRepository(
         OkHttpWebDavClient(
             endpoint = server.url("/root/"),
-            credentialProvider = credentialProvider(),
+            credentialProvider = credentialProvider(permission),
         ),
     )
 
-    private fun credentialProvider(): WebDavCredentialProvider = object : WebDavCredentialProvider {
+    private fun credentialProvider(
+        permission: WebDavPermission,
+    ): WebDavCredentialProvider = object : WebDavCredentialProvider {
         private val lease = CredentialLease(
-            WebDavCredential("reader", "secret", WebDavPermission.READ_ONLY),
+            WebDavCredential("reader", "secret", permission),
             generation = 1L,
         )
 

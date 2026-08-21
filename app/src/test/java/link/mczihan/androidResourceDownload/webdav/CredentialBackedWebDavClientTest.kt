@@ -55,12 +55,18 @@ class CredentialBackedWebDavClientTest {
                             ByteArrayInputStream("hello".toByteArray())
                         },
                     ),
+                    overwrite = true,
+                    ifMatch = "\"v1\"",
                 )
             }
 
             assertEquals(2, opens.get())
-            assertEquals("hello", server.takeRequest().body.readUtf8())
-            assertEquals("hello", server.takeRequest().body.readUtf8())
+            val firstRequest = server.takeRequest()
+            val secondRequest = server.takeRequest()
+            assertEquals("hello", firstRequest.body.readUtf8())
+            assertEquals("hello", secondRequest.body.readUtf8())
+            assertEquals("\"v1\"", firstRequest.getHeader("If-Match"))
+            assertEquals("\"v1\"", secondRequest.getHeader("If-Match"))
         } finally {
             server.shutdown()
         }

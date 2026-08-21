@@ -1,5 +1,6 @@
 package link.mczihan.androidResourceDownload.data.file
 
+import java.io.ByteArrayInputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -8,11 +9,14 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewFormat
+import link.mczihan.androidResourceDownload.domain.model.previewFormat
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavResource
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavUpload
+import link.mczihan.androidResourceDownload.domain.webdav.strongEntityTagOrNull
 
 class WebDavFileRepository @Inject constructor(
     private val webDavClient: WebDavClient,
@@ -29,6 +33,41 @@ class WebDavFileRepository @Inject constructor(
 
     override suspend fun preview(file: FileNode): FilePreviewContent =
         loadWebDavFilePreview(webDavClient, file)
+
+    override suspend fun updateText(
+        file: FileNode,
+        original: FilePreviewContent.Text,
+        text: String,
+    ) {
+        require(
+            file.previewFormat() == FilePreviewFormat.PLAIN_TEXT &&
+                !original.truncated && original.encodingEditable,
+        ) {
+            "Only complete plain-text previews can be edited"
+        }
+        require(isPlainTextRepresentation(original.contentType)) {
+            "Preview response is not an editable plain-text representation"
+        }
+        val entityTag = requireNotNull(original.entityTag.strongEntityTagOrNull()) {
+            "A strong preview ETag is required for editing"
+        }
+        val bytes = encodeEditedText(text, original.charsetName, original.hasBom)
+        if (bytes.size > MAX_EDITED_TEXT_BYTES) {
+            throw WebDavException.ResponseTooLarge(MAX_EDITED_TEXT_BYTES.toLong())
+        }
+        val path = WebDavPath.parseDecoded(file.path)
+        requireMutablePath(path)
+        webDavClient.put(
+            path = path,
+            upload = WebDavUpload(
+                contentLength = bytes.size.toLong(),
+                contentType = original.contentType ?: "text/plain; charset=${original.charsetName}",
+                openStream = { ByteArrayInputStream(bytes) },
+            ),
+            overwrite = true,
+            ifMatch = entityTag,
+        )
+    }
 
     override suspend fun upload(
         path: WebDavPath,
@@ -155,3 +194,5 @@ private val UPLOAD_TEMPORARY_NAME = Regex(
     "^\\.ard-upload-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-" +
         "[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.part$",
 )
+
+private const val MAX_EDITED_TEXT_BYTES = 512 * 1024

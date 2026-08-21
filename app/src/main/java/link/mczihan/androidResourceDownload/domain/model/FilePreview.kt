@@ -13,6 +13,11 @@ sealed interface FilePreviewContent {
         val text: String,
         val truncated: Boolean = false,
         val monospace: Boolean = true,
+        val charsetName: String = "UTF-8",
+        val hasBom: Boolean = false,
+        val contentType: String? = null,
+        val entityTag: String? = null,
+        val encodingEditable: Boolean = true,
     ) : FilePreviewContent
 
     data class Image(

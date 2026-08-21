@@ -39,6 +39,8 @@ fun mockPreviewForFile(file: FileNode): FilePreviewContent? = when (file.path) {
             - 优化下载任务恢复
             - 完善深色模式显示
         """.trimIndent(),
+        contentType = "text/plain; charset=utf-8",
+        entityTag = "\"mock-preview-v1\"",
     )
     "/预览示例.png" -> FilePreviewContent.Image(
         bytes = Base64.getDecoder().decode(

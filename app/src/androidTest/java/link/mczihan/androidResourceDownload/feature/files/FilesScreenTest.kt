@@ -4,9 +4,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.espresso.Espresso
 import link.mczihan.androidResourceDownload.domain.model.Role
 import org.junit.Rule
@@ -92,6 +94,7 @@ class FilesScreenTest {
 
         composeRule.onNodeWithText("Android Resource Download 2.1.0", substring = true)
             .assertIsDisplayed()
+        composeRule.onNode(hasContentDescription("编辑文本")).assertDoesNotExist()
     }
 
     @Test
@@ -102,6 +105,7 @@ class FilesScreenTest {
         composeRule.onNodeWithText("预览").assertIsDisplayed().performClick()
 
         composeRule.onNode(hasContentDescription("预览示例.png")).assertExists()
+        composeRule.onNode(hasContentDescription("编辑文本")).assertDoesNotExist()
     }
 
     @Test
@@ -112,6 +116,38 @@ class FilesScreenTest {
 
         composeRule.onNodeWithText("预览").assertDoesNotExist()
         composeRule.onNodeWithText("下载").assertIsDisplayed()
+    }
+
+    @Test
+    fun adminCanEditCompletePlainTextPreview() {
+        setFilesScreen(Role.ADMIN)
+
+        composeRule.onNodeWithText("应用发布").performClick()
+        composeRule.onNodeWithText("release-notes.txt").performClick()
+        composeRule.onNodeWithText("预览").performClick()
+        composeRule.onNode(hasContentDescription("编辑文本")).assertIsDisplayed().performClick()
+
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("edited text")
+        composeRule.onNode(hasContentDescription("保存编辑")).assertIsEnabled().performClick()
+
+        composeRule.onNode(hasContentDescription("编辑文本")).assertIsDisplayed()
+    }
+
+    @Test
+    fun dirtyTextDraftRequiresDiscardConfirmation() {
+        setFilesScreen(Role.ADMIN)
+
+        composeRule.onNodeWithText("应用发布").performClick()
+        composeRule.onNodeWithText("release-notes.txt").performClick()
+        composeRule.onNodeWithText("预览").performClick()
+        composeRule.onNode(hasContentDescription("编辑文本")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("unsaved text")
+
+        composeRule.onNode(hasContentDescription("退出编辑")).performClick()
+
+        composeRule.onNodeWithText("放弃修改？").assertIsDisplayed()
+        composeRule.onNodeWithText("继续编辑").performClick()
+        composeRule.onNode(hasContentDescription("保存编辑")).assertIsDisplayed()
     }
 
     private fun setFilesScreen(role: Role) {

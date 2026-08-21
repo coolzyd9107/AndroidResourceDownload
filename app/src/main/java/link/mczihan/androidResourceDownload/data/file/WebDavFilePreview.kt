@@ -3,6 +3,7 @@ package link.mczihan.androidResourceDownload.data.file
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
+import java.nio.CharBuffer
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.util.ArrayDeque
@@ -20,6 +21,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavReadResponse
+import link.mczihan.androidResourceDownload.domain.webdav.strongEntityTagOrNull
 import org.kxml2.io.KXmlParser
 import org.xmlpull.v1.XmlPullParser
 
@@ -33,14 +35,24 @@ internal suspend fun loadWebDavFilePreview(
     when (format) {
         FilePreviewFormat.PLAIN_TEXT -> {
             val fetched = fetchPreviewBytes(webDavClient, path, TEXT_FETCH_BYTES, allowPrefix = true)
+            val effectiveContentType = fetched.mimeType?.trim()?.takeIf(String::isNotEmpty)
+                ?: file.mimeType?.trim()?.takeIf(String::isNotEmpty)
+            if (!isPlainTextRepresentation(effectiveContentType)) {
+                throw WebDavException.InvalidResponse("GET response is not a plain-text representation")
+            }
             val decoded = parseInterruptibly {
-                decodePlainText(fetched.bytes, fetched.mimeType, fetched.truncated)
+                decodePlainText(fetched.bytes, effectiveContentType, fetched.truncated)
                     ?: throw WebDavException.InvalidResponse("Text preview has an unsupported encoding")
             }
             FilePreviewContent.Text(
                 text = decoded.text,
                 truncated = decoded.truncated,
                 monospace = true,
+                charsetName = decoded.charsetName,
+                hasBom = decoded.hasBom,
+                contentType = effectiveContentType,
+                entityTag = fetched.entityTag,
+                encodingEditable = decoded.encodingEditable,
             )
         }
         FilePreviewFormat.RTF -> {
@@ -138,6 +150,7 @@ private suspend fun fetchPreviewBytes(
             FetchedPreviewBytes(
                 bytes = if (exceededLimit) readBytes.copyOf(maximumBytes) else readBytes,
                 mimeType = current.metadata.contentType,
+                entityTag = current.metadata.etag.strongEntityTagOrNull(),
                 truncated = truncated,
             )
         }
@@ -179,12 +192,16 @@ private fun InputStream.readAtMost(maximumBytes: Int): ByteArray {
 private data class FetchedPreviewBytes(
     val bytes: ByteArray,
     val mimeType: String?,
+    val entityTag: String?,
     val truncated: Boolean,
 )
 
 internal data class DecodedPreviewText(
     val text: String,
     val truncated: Boolean,
+    val charsetName: String = "UTF-8",
+    val hasBom: Boolean = false,
+    val encodingEditable: Boolean = true,
 )
 
 internal fun decodePlainText(
@@ -193,37 +210,154 @@ internal fun decodePlainText(
     sourceTruncated: Boolean,
 ): DecodedPreviewText? {
     val bom = detectBom(bytes)
-    val payload = bytes.copyOfRange(bom?.second ?: 0, bytes.size)
-    val declaredCharset = mimeType?.let(::declaredCharset)
-    val decoded = when {
-        bom != null -> decodeStrict(payload, bom.first, allowTrailingTrim = sourceTruncated)
-        declaredCharset != null -> decodeStrict(
-            payload,
-            declaredCharset,
-            allowTrailingTrim = sourceTruncated,
-        )
-        else -> decodeStrict(payload, Charsets.UTF_8, allowTrailingTrim = sourceTruncated)
-    }?.removePrefix("\uFEFF")?.takeIf(::isPlausibleText) ?: return null
-    return limitPreviewText(decoded, sourceTruncated)
+    val bomCharset = bom?.charset ?: if (bom != null) return null else null
+    val payload = bytes.copyOfRange(bom?.length ?: 0, bytes.size)
+    val declaration = parseCharsetDeclaration(mimeType)
+    val declaredCharset = declaration.charset
+    val charset = bomCharset ?: declaredCharset ?: Charsets.UTF_8
+    val decoded = decodeStrict(payload, charset, allowTrailingTrim = sourceTruncated)
+        ?.removePrefix("\uFEFF")
+        ?.takeIf(::isPlausibleText)
+        ?: return null
+    return limitPreviewText(
+        value = decoded,
+        alreadyTruncated = sourceTruncated,
+        charsetName = charset.name(),
+        hasBom = bom != null,
+        encodingEditable = bom?.editable != false &&
+            (!declaration.present || declaration.valid && declaredCharset != null) &&
+            (bomCharset == null || declaredCharset == null || charsetsCompatible(declaredCharset, bomCharset)) &&
+            isStrictlyEditableText(decoded),
+    )
 }
 
-private fun detectBom(bytes: ByteArray): Pair<Charset, Int>? = when {
-    bytes.startsWith(0xEF, 0xBB, 0xBF) -> Charsets.UTF_8 to 3
-    bytes.startsWith(0xFF, 0xFE) -> Charsets.UTF_16LE to 2
-    bytes.startsWith(0xFE, 0xFF) -> Charsets.UTF_16BE to 2
+internal fun encodeEditedText(
+    text: String,
+    charsetName: String,
+    includeBom: Boolean,
+): ByteArray {
+    val requestedCharset = runCatching { Charset.forName(charsetName) }
+        .getOrElse { throw IllegalArgumentException("Unsupported text encoding", it) }
+    val charset = if (!includeBom && requestedCharset.name().equals("UTF-16", ignoreCase = true)) {
+        Charsets.UTF_16BE
+    } else {
+        requestedCharset
+    }
+    val content = try {
+        val encoded = charset.newEncoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .encode(CharBuffer.wrap(text))
+        ByteArray(encoded.remaining()).also(encoded::get)
+    } catch (error: Exception) {
+        throw TextEncodingException(error)
+    }
+    if (!includeBom || requestedCharset.name().equals("UTF-16", ignoreCase = true)) return content
+    val bom = when {
+        charset == Charsets.UTF_8 -> byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        charset == Charsets.UTF_16LE -> byteArrayOf(0xFF.toByte(), 0xFE.toByte())
+        charset == Charsets.UTF_16BE -> byteArrayOf(0xFE.toByte(), 0xFF.toByte())
+        else -> return content
+    }
+    return bom + content
+}
+
+private fun detectBom(bytes: ByteArray): DetectedBom? = when {
+    bytes.startsWith(0xFF, 0xFE, 0x00, 0x00) -> DetectedBom(
+        charset = runCatching { Charset.forName("UTF-32LE") }.getOrNull(),
+        length = 4,
+        editable = false,
+    )
+    bytes.startsWith(0x00, 0x00, 0xFE, 0xFF) -> DetectedBom(
+        charset = runCatching { Charset.forName("UTF-32BE") }.getOrNull(),
+        length = 4,
+        editable = false,
+    )
+    bytes.startsWith(0xEF, 0xBB, 0xBF) -> DetectedBom(Charsets.UTF_8, 3)
+    bytes.startsWith(0xFF, 0xFE) -> DetectedBom(Charsets.UTF_16LE, 2)
+    bytes.startsWith(0xFE, 0xFF) -> DetectedBom(Charsets.UTF_16BE, 2)
     else -> null
 }
+
+private data class DetectedBom(
+    val charset: Charset?,
+    val length: Int,
+    val editable: Boolean = true,
+)
 
 private fun ByteArray.startsWith(vararg expected: Int): Boolean =
     size >= expected.size && expected.indices.all { index -> this[index].toInt() and 0xFF == expected[index] }
 
-private fun declaredCharset(mimeType: String): Charset? {
-    val name = CHARSET_PATTERN.find(mimeType)?.groupValues?.get(1)?.trim('"', '\'')
-        ?.lowercase()
-        ?: return null
+private fun allowedCharset(name: String): Charset? {
     val canonicalName = ALLOWED_CHARSETS[name] ?: return null
     return runCatching { Charset.forName(canonicalName) }.getOrNull()
 }
+
+private data class CharsetDeclaration(
+    val present: Boolean,
+    val valid: Boolean,
+    val charset: Charset?,
+)
+
+private fun parseCharsetDeclaration(contentType: String?): CharsetDeclaration {
+    if (contentType == null) return CharsetDeclaration(false, true, null)
+    val parameters = splitContentTypeParameters(contentType)
+        ?: return CharsetDeclaration(true, false, null)
+    val charsetValues = mutableListOf<String>()
+    var malformed = false
+    for (parameter in parameters.drop(1)) {
+        val separator = parameter.indexOf('=')
+        val key = if (separator >= 0) parameter.substring(0, separator).trim() else parameter.trim()
+        if (!key.equals("charset", ignoreCase = true)) continue
+        if (separator < 0) {
+            malformed = true
+            continue
+        }
+        val rawValue = parameter.substring(separator + 1).trim()
+        val value = when {
+            rawValue.startsWith('"') && rawValue.endsWith('"') && rawValue.length >= 2 ->
+                rawValue.substring(1, rawValue.lastIndex)
+            '"' in rawValue || '\\' in rawValue -> {
+                malformed = true
+                ""
+            }
+            else -> rawValue
+        }.trim().lowercase()
+        if (value.isEmpty()) malformed = true else charsetValues += value
+    }
+    if (charsetValues.isEmpty()) return CharsetDeclaration(malformed, !malformed, null)
+    val resolved = charsetValues.map(::allowedCharset)
+    val valid = !malformed && resolved.all { it != null } &&
+        resolved.mapNotNull { it?.name()?.lowercase() }.distinct().size == 1
+    return CharsetDeclaration(true, valid, resolved.firstOrNull())
+}
+
+private fun splitContentTypeParameters(value: String): List<String>? {
+    val result = mutableListOf<String>()
+    val current = StringBuilder()
+    var quoted = false
+    for (character in value) {
+        when {
+            character == '"' -> {
+                quoted = !quoted
+                current.append(character)
+            }
+            character == ';' && !quoted -> {
+                result += current.toString()
+                current.clear()
+            }
+            else -> current.append(character)
+        }
+    }
+    if (quoted) return null
+    result += current.toString()
+    return result
+}
+
+private fun charsetsCompatible(declared: Charset, bom: Charset): Boolean =
+    declared.name().equals(bom.name(), ignoreCase = true) ||
+        declared.name().equals("UTF-16", ignoreCase = true) &&
+        (bom == Charsets.UTF_16LE || bom == Charsets.UTF_16BE)
 
 private fun decodeStrict(bytes: ByteArray, charset: Charset, allowTrailingTrim: Boolean): String? {
     val maximumTrim = if (allowTrailingTrim) minOf(4, bytes.size) else 0
@@ -248,7 +382,26 @@ private fun isPlausibleText(value: String): Boolean {
     return disallowedControls <= maxOf(4, value.length / 100)
 }
 
-private fun limitPreviewText(value: String, alreadyTruncated: Boolean = false): DecodedPreviewText {
+private fun isStrictlyEditableText(value: String): Boolean = value.none { character ->
+    Character.isISOControl(character) && character != '\n' && character != '\r' && character != '\t'
+}
+
+internal fun isPlainTextRepresentation(contentType: String?): Boolean {
+    val baseType = contentType?.substringBefore(';')?.trim()?.lowercase()
+    if (baseType.isNullOrEmpty()) return true
+    if (!MEDIA_TYPE_PATTERN.matches(baseType)) return false
+    if (baseType in GENERIC_TEXT_CONTENT_TYPES) return true
+    if (baseType == "text/rtf") return false
+    return baseType.startsWith("text/") || baseType in PLAIN_TEXT_CONTENT_TYPES
+}
+
+private fun limitPreviewText(
+    value: String,
+    alreadyTruncated: Boolean = false,
+    charsetName: String = "UTF-8",
+    hasBom: Boolean = false,
+    encodingEditable: Boolean = true,
+): DecodedPreviewText {
     var end = minOf(value.length, MAX_TEXT_CHARACTERS)
     var lines = 1
     var index = 0
@@ -262,6 +415,9 @@ private fun limitPreviewText(value: String, alreadyTruncated: Boolean = false): 
     return DecodedPreviewText(
         text = value.substring(0, end),
         truncated = alreadyTruncated || end < value.length,
+        charsetName = charsetName,
+        hasBom = hasBom,
+        encodingEditable = encodingEditable,
     )
 }
 
@@ -463,8 +619,13 @@ private fun InputStream.drainAtMost(maximumBytes: Int): Int {
 
 private fun preflightOfficeXml(xml: ByteArray) {
     val bom = detectBom(xml)
-    val payload = xml.copyOfRange(bom?.second ?: 0, xml.size)
-    val source = decodeStrict(payload, bom?.first ?: Charsets.UTF_8, allowTrailingTrim = false)
+    val charset = bom?.charset ?: if (bom != null) {
+        throw WebDavException.InvalidResponse("Document preview XML encoding is unsupported")
+    } else {
+        Charsets.UTF_8
+    }
+    val payload = xml.copyOfRange(bom?.length ?: 0, xml.size)
+    val source = decodeStrict(payload, charset, allowTrailingTrim = false)
         ?: throw WebDavException.InvalidResponse("Document preview XML encoding is invalid")
     var index = 0
     var tokens = 0
@@ -679,7 +840,6 @@ internal fun hasSupportedImageSignature(bytes: ByteArray): Boolean =
         bytes.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) &&
         bytes.copyOfRange(8, 12).contentEquals("WEBP".toByteArray())
 
-private val CHARSET_PATTERN = Regex("charset\\s*=\\s*([^;\\s]+)", RegexOption.IGNORE_CASE)
 private val ALLOWED_CHARSETS = mapOf(
     "utf-8" to "UTF-8",
     "utf8" to "UTF-8",
@@ -691,6 +851,22 @@ private val ALLOWED_CHARSETS = mapOf(
     "gb18030" to "GB18030",
     "windows-1252" to "windows-1252",
     "iso-8859-1" to "ISO-8859-1",
+)
+private val GENERIC_TEXT_CONTENT_TYPES = setOf("application/octet-stream", "binary/octet-stream")
+private val PLAIN_TEXT_CONTENT_TYPES = setOf(
+    "application/json",
+    "application/ld+json",
+    "application/xml",
+    "application/xhtml+xml",
+    "application/yaml",
+    "application/x-yaml",
+    "application/toml",
+    "application/javascript",
+    "application/x-javascript",
+    "application/sql",
+)
+private val MEDIA_TYPE_PATTERN = Regex(
+    "[a-z0-9!#$&^_.+\\-]+/[a-z0-9!#$&^_.+\\-]+",
 )
 private val GB18030: Charset = Charset.forName("GB18030")
 private val WINDOWS_1252: Charset = Charset.forName("windows-1252")
@@ -724,3 +900,8 @@ private const val MAX_XML_EVENTS = 100_000
 private const val MAX_XML_TEXT_TOKEN = 64 * 1024
 private const val MAX_XML_MARKUP_TOKEN = 8 * 1024
 private const val PARSER_CANCELLATION_INTERVAL = 1_024
+
+internal class TextEncodingException(cause: Throwable) : IllegalArgumentException(
+    "Text contains characters that cannot be represented by its original encoding",
+    cause,
+)

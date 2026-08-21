@@ -547,6 +547,36 @@ class OkHttpWebDavClientTest {
     }
 
     @Test
+    fun conditionalPutRejectsWeakEtagBeforeNetwork() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_WRITE),
+            )
+
+            val error = runCatching {
+                runBlocking {
+                    client.put(
+                        path = WebDavPath.parseDecoded("/notes.txt"),
+                        upload = WebDavUpload(
+                            openStream = { ByteArrayInputStream("text".toByteArray()) },
+                        ),
+                        overwrite = true,
+                        ifMatch = "W/\"weak\"",
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(error is IllegalArgumentException)
+            assertNull(server.takeRequest(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun writeConflictIsMappedAndReadOnlyCredentialSendsNoRequest() {
         val server = MockWebServer()
         server.start()

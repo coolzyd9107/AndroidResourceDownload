@@ -14,14 +14,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import link.mczihan.androidResourceDownload.data.file.FileRepository
+import link.mczihan.androidResourceDownload.data.file.TextEncodingException
 import link.mczihan.androidResourceDownload.data.file.UploadSourceResolver
 import link.mczihan.androidResourceDownload.data.file.UploadDocument
 import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
+import link.mczihan.androidResourceDownload.domain.model.FilePreviewFormat
 import link.mczihan.androidResourceDownload.domain.model.previewFormat
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
+import link.mczihan.androidResourceDownload.domain.webdav.strongEntityTagOrNull
 
 internal const val MAX_DIRECTORY_NAME_LENGTH = 100
 
@@ -45,6 +49,13 @@ sealed interface FilePreviewUiState {
     data object Idle : FilePreviewUiState
     data class Loading(val file: FileNode) : FilePreviewUiState
     data class Content(val file: FileNode, val preview: FilePreviewContent) : FilePreviewUiState
+    data class Editing(
+        val file: FileNode,
+        val original: FilePreviewContent.Text,
+        val draft: String,
+        val saving: Boolean = false,
+        val error: String? = null,
+    ) : FilePreviewUiState
     data class Error(val file: FileNode, val message: String) : FilePreviewUiState
 }
 
@@ -170,7 +181,71 @@ class FilesViewModel @Inject constructor(
         preview(file)
     }
 
+    fun startPreviewEdit() {
+        val state = _previewState.value as? FilePreviewUiState.Content ?: return
+        val text = state.preview as? FilePreviewContent.Text ?: return
+        if (state.file.previewFormat() != FilePreviewFormat.PLAIN_TEXT ||
+            text.truncated || !text.encodingEditable || text.entityTag.strongEntityTagOrNull() == null
+        ) {
+            return
+        }
+        _previewState.value = FilePreviewUiState.Editing(
+            file = state.file,
+            original = text,
+            draft = text.text,
+        )
+    }
+
+    fun updatePreviewDraft(text: String) {
+        val state = _previewState.value as? FilePreviewUiState.Editing ?: return
+        if (state.saving || text.length > MAX_EDITED_TEXT_CHARACTERS) return
+        _previewState.value = state.copy(draft = text, error = null)
+    }
+
+    fun cancelPreviewEdit() {
+        val state = _previewState.value as? FilePreviewUiState.Editing ?: return
+        if (state.saving) return
+        _previewState.value = FilePreviewUiState.Content(state.file, state.original)
+    }
+
+    fun savePreviewEdit() {
+        val state = _previewState.value as? FilePreviewUiState.Editing ?: return
+        if (state.saving || state.draft == state.original.text) return
+        previewJob?.cancel()
+        val version = ++previewVersion
+        _previewState.value = state.copy(saving = true, error = null)
+        previewJob = viewModelScope.launch {
+            try {
+                withTimeout(TEXT_SAVE_TIMEOUT_MILLIS) {
+                    repository.updateText(state.file, state.original, state.draft)
+                }
+                if (version != previewVersion) return@launch
+                _previewState.value = FilePreviewUiState.Idle
+                load(_state.value.path)
+                messageChannel.send("已保存 ${state.file.path}")
+            } catch (_: TimeoutCancellationException) {
+                if (version == previewVersion) {
+                    _previewState.value = state.copy(saving = false, error = "保存超时，请确认网络后重试")
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: WebDavException.PreconditionFailed) {
+                if (version == previewVersion) {
+                    _previewState.value = state.copy(
+                        saving = false,
+                        error = "云端文件已被修改，请取消编辑并重新打开预览",
+                    )
+                }
+            } catch (error: Exception) {
+                if (version == previewVersion) {
+                    _previewState.value = state.copy(saving = false, error = error.editMessage())
+                }
+            }
+        }
+    }
+
     fun dismissPreview() {
+        if ((_previewState.value as? FilePreviewUiState.Editing)?.saving == true) return
         previewVersion++
         previewJob?.cancel()
         _previewState.value = FilePreviewUiState.Idle
@@ -504,7 +579,21 @@ class FilesViewModel @Inject constructor(
         else -> "预览加载失败，请稍后重试"
     }
 
+    private fun Exception.editMessage(): String = when (this) {
+        is WebDavException.AuthenticationRequired -> "WebDAV 凭据已失效，请重新登录"
+        is WebDavException.PermissionDenied,
+        is WebDavException.ReadWriteCredentialRequired,
+        -> "当前账户没有编辑权限"
+        is WebDavException.NotFound -> "云端文件不存在，列表可能已变化"
+        is WebDavException.ResponseTooLarge -> "编辑后的文本过大，无法保存"
+        is WebDavException.Network -> "网络连接失败，请稍后重试"
+        is TextEncodingException -> "新增字符无法使用文件原编码保存"
+        else -> "保存失败，请稍后重试"
+    }
+
     private companion object {
+        const val MAX_EDITED_TEXT_CHARACTERS = 100_000
+        const val TEXT_SAVE_TIMEOUT_MILLIS = 60_000L
         const val PROGRESS_UPDATE_INTERVAL_MILLIS = 100L
     }
 }
