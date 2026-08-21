@@ -13,6 +13,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,11 +48,15 @@ class UploadTaskDaoTest {
 
         assertEquals("root", dao.claimNextDirectory("owner", 10L)?.id)
         assertNull(dao.claimNextFile("owner", 11L))
-        assertEquals(1, dao.complete("root", 0L, 11L))
+        assertTrue(dao.completeAndDelete("root", 0L, 11L))
+        assertNull(dao.status("root"))
         assertEquals("child", dao.claimNextDirectory("owner", 12L)?.id)
-        assertEquals(1, dao.complete("child", 0L, 13L))
+        assertTrue(dao.completeAndDelete("child", 0L, 13L))
+        assertNull(dao.status("child"))
         assertEquals("file", dao.claimNextFile("owner", 14L)?.id)
         assertEquals(UploadStatus.RUNNING, dao.status("file"))
+        assertTrue(dao.completeAndDelete("file", 10L, 15L))
+        assertNull(dao.status("file"))
     }
 
     @Test
@@ -81,7 +86,8 @@ class UploadTaskDaoTest {
         assertEquals(2, dao.retryFailedBatch("owner", "batch", 13L))
         assertNull(dao.claimNextFile("owner", 14L))
         assertEquals("root", dao.claimNextDirectory("owner", 15L)?.id)
-        assertEquals(1, dao.complete("root", 0L, 16L))
+        assertTrue(dao.completeAndDelete("root", 0L, 16L))
+        assertNull(dao.status("root"))
         assertEquals("file", dao.claimNextFile("owner", 17L)?.id)
     }
 

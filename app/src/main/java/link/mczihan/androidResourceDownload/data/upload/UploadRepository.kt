@@ -180,7 +180,11 @@ class UploadRepository @Inject constructor(
 
     suspend fun complete(task: UploadTask, uploadedBytes: Long): Boolean = mutationMutex.withLock {
         withContext(NonCancellable) {
-            val completed = dao.complete(task.id, uploadedBytes, System.currentTimeMillis()) == 1
+            val completed = dao.completeAndDelete(
+                task.id,
+                uploadedBytes,
+                System.currentTimeMillis(),
+            )
             if (completed) task.permissionUri?.let { releasePermissionIfUnused(it) }
             completed
         }

@@ -242,6 +242,19 @@ abstract class UploadTaskDao {
     )
     abstract suspend fun complete(taskId: String, uploadedBytes: Long, now: Long): Int
 
+    @Query("DELETE FROM upload_tasks WHERE id = :taskId AND status = 'SUCCESS'")
+    protected abstract suspend fun deleteCompleted(taskId: String): Int
+
+    @Transaction
+    open suspend fun completeAndDelete(
+        taskId: String,
+        uploadedBytes: Long,
+        now: Long,
+    ): Boolean {
+        if (complete(taskId, uploadedBytes, now) != 1) return false
+        return deleteCompleted(taskId) == 1
+    }
+
     @Query(
         """
         UPDATE upload_tasks
