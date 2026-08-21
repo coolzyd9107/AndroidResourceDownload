@@ -12,7 +12,6 @@ import link.mczihan.androidResourceDownload.domain.model.DownloadTask
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavByteRange
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
-import link.mczihan.androidResourceDownload.domain.webdav.WebDavMetadata
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavReadResponse
 
@@ -49,66 +48,75 @@ class DownloadTransferEngine @Inject constructor(
         require(!path.isRoot) { "The WebDAV root cannot be downloaded" }
         fileStore.ensureTaskDirectory(task)
 
-        val head = webDavClient.head(path)
-        val currentValidator = head.resumeValidator()
-        val storedValidator = task.resumeValidator()
+        // Resume logic (same approach as Windows port): check for an existing .part
+        // file, try a Range request, and let the server's 206-vs-200 response decide
+        // whether we append or restart. No HEAD pre-flight or etag/lastModified
+        // validator — 123pan WebDAV HEAD often omits validator headers yet GET Range
+        // works fine.
         var offset = fileStore.partialFile(task).takeIf { it.isFile }?.length() ?: 0L
-        val canResume = offset > 0L &&
-            head.acceptsByteRanges &&
-            currentValidator != null &&
-            currentValidator == storedValidator &&
-            (head.contentLength == null || offset <= head.contentLength)
-        if (offset > 0L && !canResume) {
-            fileStore.truncatePartial(task)
-            offset = 0L
-        }
+        val range = if (offset > 0L) WebDavByteRange(offset) else null
 
-        onPreparation(head.toPreparation(task, offset))
-        if (offset > 0L && head.contentLength == offset) {
-            currentCoroutineContext().ensureActive()
-            fileStore.finalize(task)
-            return@withContext DownloadTransferResult(
-                totalBytes = offset,
-                downloadedBytes = offset,
-                supportRange = head.acceptsByteRanges,
-                etag = head.etag,
-                lastModified = head.lastModified,
-                mimeType = head.contentType ?: task.mimeType,
-            )
-        }
-        var response = if (offset > 0L) {
+        var response = if (range != null) {
             try {
-                webDavClient.get(path, WebDavByteRange(offset), currentValidator)
+                webDavClient.get(path, range, null)
             } catch (_: WebDavException.RangeNotSatisfiable) {
                 fileStore.truncatePartial(task)
                 offset = 0L
-                onPreparation(head.toPreparation(task, offset))
                 webDavClient.get(path)
             }
         } else {
             webDavClient.get(path)
         }
 
-        if (offset > 0L && response.statusCode == 206 &&
-            !response.metadata.matchesValidator(currentValidator)
-        ) {
+        val isPartial = response.statusCode == 206
+        // If server ignored Range and returned 200, discard stale partial bytes
+        if (offset > 0L && !isPartial) {
             response.close()
             fileStore.truncatePartial(task)
             offset = 0L
-            onPreparation(head.toPreparation(task, offset))
             response = webDavClient.get(path)
         }
 
-        if (offset > 0L && response.statusCode == 200) {
-            fileStore.truncatePartial(task)
-            offset = 0L
-            onPreparation(response.metadata.toPreparation(task, offset))
+        val totalBytes = if (isPartial) {
+            response.contentRange?.totalLength ?: response.metadata.contentLength
+        } else {
+            response.metadata.contentLength ?: response.contentRange?.totalLength
+        }
+        val mimeType = response.metadata.contentType ?: task.mimeType
+        val etag = response.metadata.etag
+        val lastModified = response.metadata.lastModified
+        val supportRange = response.metadata.acceptsByteRanges || isPartial
+
+        val startBytes = if (isPartial) offset else 0L
+        onPreparation(
+            DownloadPreparation(
+                totalBytes = totalBytes,
+                downloadedBytes = startBytes,
+                supportRange = supportRange,
+                etag = etag,
+                lastModified = lastModified,
+                mimeType = mimeType,
+            ),
+        )
+
+        // Short-circuit: partial file already covers the whole resource
+        if (isPartial && totalBytes != null && offset >= totalBytes) {
+            currentCoroutineContext().ensureActive()
+            response.close()
+            fileStore.finalize(task)
+            return@withContext DownloadTransferResult(
+                totalBytes = totalBytes,
+                downloadedBytes = offset,
+                supportRange = supportRange,
+                etag = etag,
+                lastModified = lastModified,
+                mimeType = mimeType,
+            )
         }
 
         response.use { body ->
-            val totalBytes = body.totalBytes(head)
-            val append = offset > 0L && body.statusCode == 206
-            var downloadedBytes = if (append) offset else 0L
+            val append = isPartial
+            var downloadedBytes = startBytes
             FileOutputStream(fileStore.partialFile(task), append).use { output ->
                 val buffer = ByteArray(BUFFER_SIZE)
                 while (true) {
@@ -148,43 +156,13 @@ class DownloadTransferEngine @Inject constructor(
             DownloadTransferResult(
                 totalBytes = totalBytes ?: downloadedBytes,
                 downloadedBytes = downloadedBytes,
-                supportRange = head.acceptsByteRanges || body.statusCode == 206,
-                etag = metadata.etag ?: head.etag,
-                lastModified = metadata.lastModified ?: head.lastModified,
-                mimeType = metadata.contentType ?: head.contentType ?: task.mimeType,
+                supportRange = supportRange,
+                etag = metadata.etag ?: etag,
+                lastModified = metadata.lastModified ?: lastModified,
+                mimeType = metadata.contentType ?: mimeType,
             )
         }
     }
-
-    private fun WebDavReadResponse.totalBytes(head: WebDavMetadata): Long? = when (statusCode) {
-        206 -> contentRange?.totalLength ?: head.contentLength
-        else -> metadata.contentLength ?: head.contentLength
-    }
-
-    private fun WebDavMetadata.toPreparation(task: DownloadTask, downloadedBytes: Long) =
-        DownloadPreparation(
-            totalBytes = contentLength ?: task.totalBytes,
-            downloadedBytes = downloadedBytes,
-            supportRange = acceptsByteRanges,
-            etag = etag,
-            lastModified = lastModified,
-            mimeType = contentType ?: task.mimeType,
-        )
-
-    private fun DownloadTask.resumeValidator(): String? =
-        etag?.takeIf(::isStrongEtag) ?: lastModified
-
-    private fun WebDavMetadata.resumeValidator(): String? =
-        etag?.takeIf(::isStrongEtag) ?: lastModified
-
-    private fun WebDavMetadata.matchesValidator(validator: String?): Boolean = when {
-        validator == null -> false
-        isStrongEtag(validator) -> etag == validator
-        else -> lastModified == validator
-    }
-
-    private fun isStrongEtag(value: String): Boolean =
-        value.startsWith('"') && value.endsWith('"') && !value.startsWith("W/", ignoreCase = true)
 
     private companion object {
         const val BUFFER_SIZE = 64 * 1024
