@@ -27,7 +27,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.strongEntityTagOrNull
 
-internal const val MAX_DIRECTORY_NAME_LENGTH = 100
+internal const val MAX_RESOURCE_NAME_LENGTH = 100
 
 sealed interface FilesUiState {
     val path: WebDavPath
@@ -63,6 +63,12 @@ sealed interface FileOperation {
     data class Upload(val document: UploadDocument, val destination: WebDavPath) : FileOperation
     data class CreateDirectory(val path: WebDavPath) : FileOperation
     data class Move(
+        val source: WebDavPath,
+        val destination: WebDavPath,
+        val sourceIsDirectory: Boolean,
+        val sourceEtag: String?,
+    ) : FileOperation
+    data class Rename(
         val source: WebDavPath,
         val destination: WebDavPath,
         val sourceIsDirectory: Boolean,
@@ -282,8 +288,8 @@ class FilesViewModel @Inject constructor(
     fun createDirectory(name: String) {
         if (_mutationState.value != FileMutationState.Idle) return
         val normalizedName = name.trim()
-        if (normalizedName.length !in 1..MAX_DIRECTORY_NAME_LENGTH) {
-            _mutationState.value = FileMutationState.Failed(null, "文件夹名称需为 1-$MAX_DIRECTORY_NAME_LENGTH 个字符")
+        if (normalizedName.length !in 1..MAX_RESOURCE_NAME_LENGTH) {
+            _mutationState.value = FileMutationState.Failed(null, "文件夹名称需为 1-$MAX_RESOURCE_NAME_LENGTH 个字符")
             return
         }
         val destination = runCatching { _state.value.path.child(normalizedName) }
@@ -343,6 +349,41 @@ class FilesViewModel @Inject constructor(
         sourceEtag: String? = null,
     ) {
         transfer(source, sourceIsDirectory, sourceEtag, destinationDirectory, move = false)
+    }
+
+    fun rename(
+        source: WebDavPath,
+        sourceIsDirectory: Boolean,
+        newName: String,
+        sourceEtag: String? = null,
+    ) {
+        if (_mutationState.value != FileMutationState.Idle) return
+        val label = if (sourceIsDirectory) "文件夹名称" else "文件名"
+        if (newName.isBlank() || newName.length > MAX_RESOURCE_NAME_LENGTH) {
+            _mutationState.value = FileMutationState.Failed(
+                null,
+                "$label 需为 1-$MAX_RESOURCE_NAME_LENGTH 个字符",
+            )
+            return
+        }
+        if (source.name == null) {
+            _mutationState.value = FileMutationState.Failed(null, "WebDAV 根目录不能重命名")
+            return
+        }
+        val parent = WebDavPath.fromDecodedSegments(source.decodedSegments.dropLast(1))
+        val destination = runCatching { parent.child(newName) }
+            .getOrElse {
+                _mutationState.value = FileMutationState.Failed(null, "$label 包含无效字符")
+                return
+            }
+        if (destination == source) {
+            _mutationState.value = FileMutationState.Failed(null, "新名称与当前名称相同")
+            return
+        }
+        runOperation(
+            FileOperation.Rename(source, destination, sourceIsDirectory, sourceEtag),
+            overwrite = false,
+        )
     }
 
     fun delete(path: WebDavPath, isDirectory: Boolean = false, etag: String? = null) {
@@ -447,6 +488,13 @@ class FilesViewModel @Inject constructor(
                         sourceIsCollection = operation.sourceIsDirectory,
                         sourceEtag = operation.sourceEtag,
                     )
+                    is FileOperation.Rename -> repository.move(
+                        operation.source,
+                        operation.destination,
+                        overwrite = false,
+                        sourceIsCollection = operation.sourceIsDirectory,
+                        sourceEtag = operation.sourceEtag,
+                    )
                     is FileOperation.Copy -> repository.copy(
                         operation.source,
                         operation.destination,
@@ -481,6 +529,16 @@ class FilesViewModel @Inject constructor(
                     )
                     return@launch
                 }
+                if (operation is FileOperation.Rename) {
+                    updateMutation(
+                        version,
+                        FileMutationState.Failed(
+                            null,
+                            "同名文件或文件夹已存在，或原文件或文件夹已发生变化，请刷新后重试",
+                        ),
+                    )
+                    return@launch
+                }
                 val destination = operation.destinationOrNull()
                 if (overwrite || destination == null) {
                     updateMutation(
@@ -509,7 +567,15 @@ class FilesViewModel @Inject constructor(
                 }
                 updateMutation(version, nextState)
             } catch (error: Exception) {
-                updateMutation(version, FileMutationState.Failed(operation, error.userMessage()))
+                val failure = if (operation is FileOperation.Rename && error is WebDavException.Conflict) {
+                    FileMutationState.Failed(
+                        null,
+                        "无法重命名：同名文件或文件夹已存在，或云端发生冲突",
+                    )
+                } else {
+                    FileMutationState.Failed(operation, error.userMessage())
+                }
+                updateMutation(version, failure)
             }
         }
     }
@@ -541,6 +607,7 @@ class FilesViewModel @Inject constructor(
         is FileOperation.Upload -> "已上传到 $destination"
         is FileOperation.CreateDirectory -> "已创建文件夹 $path"
         is FileOperation.Move -> "已移动到 $destination"
+        is FileOperation.Rename -> "已重命名为 ${destination.name}"
         is FileOperation.Copy -> "已复制到 $destination"
         is FileOperation.Delete -> "已删除 $path"
     }
@@ -549,6 +616,7 @@ class FilesViewModel @Inject constructor(
         is FileOperation.Upload -> destination
         is FileOperation.CreateDirectory -> path
         is FileOperation.Move -> destination
+        is FileOperation.Rename -> destination
         is FileOperation.Copy -> destination
         is FileOperation.Delete -> null
     }

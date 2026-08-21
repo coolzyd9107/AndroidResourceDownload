@@ -148,6 +148,7 @@ fun FilesScreen(
     }
     var selectedFile by remember { mutableStateOf<FileNode?>(null) }
     var transferRequest by remember { mutableStateOf<TransferRequest?>(null) }
+    var renameTarget by remember { mutableStateOf<FileNode?>(null) }
     var deleteTarget by remember { mutableStateOf<FileNode?>(null) }
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
     var demoDestinationPath by remember { mutableStateOf(WebDavPath.root()) }
@@ -172,6 +173,7 @@ fun FilesScreen(
     LaunchedEffect(isAdmin) {
         if (!isAdmin) {
             transferRequest = null
+            renameTarget = null
             deleteTarget = null
             showCreateDirectoryDialog = false
             viewModel?.dismissDestinationPicker()
@@ -181,6 +183,7 @@ fun FilesScreen(
         viewModel?.messages?.collect { message ->
             selectedFile = null
             transferRequest = null
+            renameTarget = null
             deleteTarget = null
             onMessage(message)
         }
@@ -267,6 +270,7 @@ fun FilesScreen(
     PredictiveBackHandler(
         enabled = selectedFile == null &&
             transferRequest == null &&
+            renameTarget == null &&
             deleteTarget == null &&
             !showCreateDirectoryDialog &&
             previewState == FilePreviewUiState.Idle &&
@@ -516,6 +520,10 @@ fun FilesScreen(
                 onDownload(file)
                 selectedFile = null
             },
+            onRename = {
+                selectedFile = null
+                renameTarget = file
+            },
             onMove = {
                 selectedFile = null
                 transferRequest = TransferRequest(file, TransferType.MOVE)
@@ -541,6 +549,26 @@ fun FilesScreen(
                 } else {
                     deleteTarget = file
                 }
+            },
+        )
+    }
+
+    renameTarget?.takeIf { isAdmin }?.let { file ->
+        RenameResourceDialog(
+            file = file,
+            onDismiss = { renameTarget = null },
+            onConfirm = { newName ->
+                if (viewModel == null) {
+                    onMessage("演示模式不执行云端文件操作")
+                } else {
+                    viewModel.rename(
+                        source = WebDavPath.parseDecoded(file.path),
+                        sourceIsDirectory = file.isDirectory,
+                        newName = newName,
+                        sourceEtag = file.etag,
+                    )
+                }
+                renameTarget = null
             },
         )
     }
@@ -970,6 +998,7 @@ private fun FileDetailsSheet(
     onPreview: (() -> Unit)?,
     onDismiss: () -> Unit,
     onDownload: () -> Unit,
+    onRename: () -> Unit,
     onMove: () -> Unit,
     onCopy: () -> Unit,
     onDelete: () -> Unit,
@@ -978,6 +1007,7 @@ private fun FileDetailsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -1050,6 +1080,14 @@ private fun FileDetailsSheet(
                 }
             }
             if (isAdmin) {
+                FilledTonalButton(
+                    onClick = onRename,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("重命名")
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1610,8 +1648,8 @@ private fun CreateDirectoryDialog(
     val normalizedName = name.trim()
     val validationMessage = when {
         normalizedName.isEmpty() -> null
-        normalizedName.length > MAX_DIRECTORY_NAME_LENGTH ->
-            "文件夹名称不能超过 $MAX_DIRECTORY_NAME_LENGTH 个字符"
+        normalizedName.length > MAX_RESOURCE_NAME_LENGTH ->
+            "文件夹名称不能超过 $MAX_RESOURCE_NAME_LENGTH 个字符"
         runCatching { directory.child(normalizedName) }.isFailure -> "文件夹名称包含无效字符"
         else -> null
     }
@@ -1645,6 +1683,63 @@ private fun CreateDirectoryDialog(
                 enabled = valid,
                 onClick = { onConfirm(normalizedName) },
             ) { Text("创建") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+@Composable
+private fun RenameResourceDialog(
+    file: FileNode,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val source = remember(file.path) { WebDavPath.parseDecoded(file.path) }
+    val currentName = requireNotNull(source.name)
+    val parent = remember(source) {
+        WebDavPath.fromDecodedSegments(source.decodedSegments.dropLast(1))
+    }
+    var name by remember(file.path) { mutableStateOf(currentName) }
+    val resourceLabel = if (file.isDirectory) "文件夹名称" else "文件名"
+    val validationMessage = when {
+        name.isBlank() -> null
+        name.length > MAX_RESOURCE_NAME_LENGTH ->
+            "$resourceLabel 不能超过 $MAX_RESOURCE_NAME_LENGTH 个字符"
+        runCatching { parent.child(name) }.isFailure -> "$resourceLabel 包含无效字符"
+        else -> null
+    }
+    val valid = name.isNotBlank() &&
+        name != currentName &&
+        validationMessage == null
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (file.isDirectory) "重命名文件夹" else "重命名文件") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "位置：$parent",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("新名称") },
+                    singleLine = true,
+                    isError = validationMessage != null,
+                    supportingText = validationMessage?.let { message ->
+                        { Text(message) }
+                    },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = valid,
+                onClick = { onConfirm(name) },
+            ) { Text("重命名") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
@@ -1757,6 +1852,7 @@ private fun FileOperation.actionLabel(): String = when (this) {
     is FileOperation.Upload -> "正在上传"
     is FileOperation.CreateDirectory -> "正在新建文件夹"
     is FileOperation.Move -> "正在移动"
+    is FileOperation.Rename -> "正在重命名"
     is FileOperation.Copy -> "正在复制"
     is FileOperation.Delete -> "正在删除"
 }
@@ -1765,6 +1861,7 @@ private fun FileOperation.targetDescription(): String = when (this) {
     is FileOperation.Upload -> destination.toString()
     is FileOperation.CreateDirectory -> path.toString()
     is FileOperation.Move -> destination.toString()
+    is FileOperation.Rename -> destination.toString()
     is FileOperation.Copy -> destination.toString()
     is FileOperation.Delete -> path.toString()
 }

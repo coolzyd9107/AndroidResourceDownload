@@ -102,6 +102,51 @@ class WebDavFileRepositoryTest {
     }
 
     @Test
+    fun sameDirectoryMoveRenamesFilesAndDirectories() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setResponseCode(204))
+            val repository = repository(server)
+
+            runBlocking {
+                repository.move(
+                    source = WebDavPath.parseDecoded("/资料/old name.txt"),
+                    destination = WebDavPath.parseDecoded("/资料/新名称.txt"),
+                    sourceEtag = "\"v1\"",
+                )
+                repository.move(
+                    source = WebDavPath.parseDecoded("/资料/旧目录"),
+                    destination = WebDavPath.parseDecoded("/资料/新目录"),
+                    sourceIsCollection = true,
+                )
+            }
+
+            val fileRename = server.takeRequest()
+            assertEquals("MOVE", fileRename.method)
+            assertEquals("/root/%E8%B5%84%E6%96%99/old%20name.txt", fileRename.path)
+            assertEquals(
+                server.url("/root/%E8%B5%84%E6%96%99/%E6%96%B0%E5%90%8D%E7%A7%B0.txt").toString(),
+                fileRename.getHeader("Destination"),
+            )
+            assertEquals("F", fileRename.getHeader("Overwrite"))
+            assertEquals("\"v1\"", fileRename.getHeader("If-Match"))
+
+            val directoryRename = server.takeRequest()
+            assertEquals("MOVE", directoryRename.method)
+            assertEquals("/root/%E8%B5%84%E6%96%99/%E6%97%A7%E7%9B%AE%E5%BD%95/", directoryRename.path)
+            assertEquals(
+                server.url("/root/%E8%B5%84%E6%96%99/%E6%96%B0%E7%9B%AE%E5%BD%95/").toString(),
+                directoryRename.getHeader("Destination"),
+            )
+            assertEquals("F", directoryRename.getHeader("Overwrite"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun confirmedOverwriteRejectsCollectionTargetBeforeWrite() {
         val server = MockWebServer()
         server.start()

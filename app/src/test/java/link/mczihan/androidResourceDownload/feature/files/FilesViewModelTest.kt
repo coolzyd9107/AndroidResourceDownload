@@ -17,6 +17,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavException
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -238,6 +239,175 @@ class FilesViewModelTest {
         runCurrent()
 
         viewModel.createDirectory("existing")
+        advanceUntilIdle()
+
+        val failure = viewModel.mutationState.value as FileMutationState.Failed
+        assertEquals(null, failure.operation)
+        assertTrue(failure.message.contains("同名"))
+    }
+
+    @Test
+    fun renameFileMovesWithinParentWithoutOverwriteAndRefreshes() = runTest(dispatcher) {
+        var actualSource: WebDavPath? = null
+        var actualDestination: WebDavPath? = null
+        var actualOverwrite: Boolean? = null
+        var actualCollection: Boolean? = null
+        var actualEtag: String? = null
+        var listCalls = 0
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> {
+                listCalls++
+                return emptyList()
+            }
+
+            override suspend fun move(
+                source: WebDavPath,
+                destination: WebDavPath,
+                overwrite: Boolean,
+                sourceIsCollection: Boolean,
+                sourceEtag: String?,
+            ) {
+                actualSource = source
+                actualDestination = destination
+                actualOverwrite = overwrite
+                actualCollection = sourceIsCollection
+                actualEtag = sourceEtag
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.rename(
+            source = WebDavPath.parseDecoded("/资料/old.txt"),
+            sourceIsDirectory = false,
+            newName = "new.txt",
+            sourceEtag = "\"v1\"",
+        )
+        advanceUntilIdle()
+
+        assertEquals("/资料/old.txt", actualSource.toString())
+        assertEquals("/资料/new.txt", actualDestination.toString())
+        assertFalse(requireNotNull(actualOverwrite))
+        assertFalse(requireNotNull(actualCollection))
+        assertEquals("\"v1\"", actualEtag)
+        assertEquals(2, listCalls)
+        assertEquals(FileMutationState.Idle, viewModel.mutationState.value)
+    }
+
+    @Test
+    fun renameDirectoryUsesCollectionMove() = runTest(dispatcher) {
+        var actualDestination: WebDavPath? = null
+        var actualCollection = false
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun move(
+                source: WebDavPath,
+                destination: WebDavPath,
+                overwrite: Boolean,
+                sourceIsCollection: Boolean,
+                sourceEtag: String?,
+            ) {
+                actualDestination = destination
+                actualCollection = sourceIsCollection
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.rename(
+            source = WebDavPath.parseDecoded("/旧目录"),
+            sourceIsDirectory = true,
+            newName = "新目录",
+        )
+        advanceUntilIdle()
+
+        assertEquals("/新目录", actualDestination.toString())
+        assertTrue(actualCollection)
+    }
+
+    @Test
+    fun renameRejectsUnchangedAndUnsafeNamesBeforeRepositoryCall() = runTest(dispatcher) {
+        var moveCalls = 0
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun move(
+                source: WebDavPath,
+                destination: WebDavPath,
+                overwrite: Boolean,
+                sourceIsCollection: Boolean,
+                sourceEtag: String?,
+            ) {
+                moveCalls++
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+        val source = WebDavPath.parseDecoded("/notes.txt")
+
+        viewModel.rename(source, sourceIsDirectory = false, newName = "notes.txt")
+        assertTrue((viewModel.mutationState.value as FileMutationState.Failed).message.contains("相同"))
+        viewModel.dismissMutation()
+
+        viewModel.rename(source, sourceIsDirectory = false, newName = "../notes.txt")
+
+        assertTrue((viewModel.mutationState.value as FileMutationState.Failed).message.contains("无效字符"))
+        assertEquals(0, moveCalls)
+    }
+
+    @Test
+    fun renamePreservesBoundarySpacesInNewName() = runTest(dispatcher) {
+        var actualDestination: WebDavPath? = null
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun move(
+                source: WebDavPath,
+                destination: WebDavPath,
+                overwrite: Boolean,
+                sourceIsCollection: Boolean,
+                sourceEtag: String?,
+            ) {
+                actualDestination = destination
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.rename(
+            source = WebDavPath.parseDecoded("/notes.txt"),
+            sourceIsDirectory = false,
+            newName = " notes.txt ",
+        )
+        advanceUntilIdle()
+
+        assertEquals("/ notes.txt ", actualDestination.toString())
+    }
+
+    @Test
+    fun renameConflictNeverOffersOverwrite() = runTest(dispatcher) {
+        val repository = object : FileRepository {
+            override suspend fun list(path: WebDavPath): List<FileNode> = emptyList()
+
+            override suspend fun move(
+                source: WebDavPath,
+                destination: WebDavPath,
+                overwrite: Boolean,
+                sourceIsCollection: Boolean,
+                sourceEtag: String?,
+            ) {
+                throw WebDavException.PreconditionFailed()
+            }
+        }
+        val viewModel = FilesViewModel(repository)
+        runCurrent()
+
+        viewModel.rename(
+            source = WebDavPath.parseDecoded("/notes.txt"),
+            sourceIsDirectory = false,
+            newName = "existing.txt",
+        )
         advanceUntilIdle()
 
         val failure = viewModel.mutationState.value as FileMutationState.Failed

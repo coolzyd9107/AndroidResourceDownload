@@ -3,6 +3,8 @@ package link.mczihan.androidResourceDownload.feature.files
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -49,15 +51,16 @@ class FilesScreenTest {
     }
 
     @Test
-    fun adminSeesUploadMoveCopyAndDeleteActions() {
+    fun adminSeesUploadRenameMoveCopyAndDeleteActions() {
         setFilesScreen(Role.ADMIN)
 
         composeRule.onNode(hasContentDescription("上传文件")).assertExists()
         composeRule.onNode(hasContentDescription("新建文件夹")).assertExists()
         composeRule.onNode(hasContentDescription("管理 应用发布")).performClick()
-        composeRule.onNodeWithText("移动").assertExists()
-        composeRule.onNodeWithText("复制").assertExists()
-        composeRule.onNodeWithText("删除").assertExists()
+        composeRule.onNodeWithText("重命名").assertIsDisplayed()
+        composeRule.onNodeWithText("移动").assertIsDisplayed()
+        composeRule.onNodeWithText("复制").assertIsDisplayed()
+        composeRule.onNodeWithText("删除").assertIsDisplayed()
     }
 
     @Test
@@ -85,6 +88,37 @@ class FilesScreenTest {
     }
 
     @Test
+    fun adminCanRenameFolderWithValidatedName() {
+        setFilesScreen(Role.ADMIN)
+
+        composeRule.onNode(hasContentDescription("管理 应用发布")).performClick()
+        composeRule.onNodeWithText("重命名").performClick()
+
+        composeRule.onNodeWithText("重命名文件夹").assertIsDisplayed()
+        composeRule.onNode(hasSetTextAction()).assertTextEquals("应用发布")
+        composeRule.onNodeWithText("重命名").assertIsNotEnabled()
+
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("../新版发布")
+        composeRule.onNodeWithText("文件夹名称包含无效字符").assertIsDisplayed()
+        composeRule.onNodeWithText("重命名").assertIsNotEnabled()
+
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("新版发布")
+        composeRule.onNodeWithText("重命名").assertIsEnabled()
+    }
+
+    @Test
+    fun adminCanOpenRenameForFile() {
+        setFilesScreen(Role.ADMIN)
+
+        composeRule.onNodeWithText("应用发布").performClick()
+        composeRule.onNode(hasContentDescription("管理 release-notes.txt")).performClick()
+        composeRule.onNodeWithText("重命名").performClick()
+
+        composeRule.onNodeWithText("重命名文件").assertIsDisplayed()
+        composeRule.onNode(hasSetTextAction()).assertTextEquals("release-notes.txt")
+    }
+
+    @Test
     fun supportedTextFileShowsPreviewAndOpensContent() {
         setFilesScreen(Role.USER)
 
@@ -92,7 +126,7 @@ class FilesScreenTest {
         composeRule.onNodeWithText("release-notes.txt").performClick()
         composeRule.onNodeWithText("预览").assertIsDisplayed().performClick()
 
-        composeRule.onNodeWithText("Android Resource Download 2.2.1", substring = true)
+        composeRule.onNodeWithText("Android Resource Download 2.2.2", substring = true)
             .assertIsDisplayed()
         composeRule.onNode(hasContentDescription("编辑文本")).assertDoesNotExist()
     }
