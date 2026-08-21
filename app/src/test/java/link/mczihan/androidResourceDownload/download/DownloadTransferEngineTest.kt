@@ -57,16 +57,15 @@ class DownloadTransferEngineTest {
     }
 
     @Test
-    fun resumesOnlyWithMatchingValidatorAndContentRange() = runBlocking {
+    fun resumesWithRangeRequestAndAppendsPartial() = runBlocking {
         val store = DownloadFileStore(temporaryFolder.newFolder("resume"))
         val task = task("task-resume", etag = ETAG)
         store.ensureTaskDirectory(task)
         store.partialFile(task).writeText("hel")
         val client = FakeWebDavClient(
             headMetadata = metadata(length = 5L, etag = ETAG, acceptsRanges = true),
-        ) { range, ifRange ->
+        ) { range, _ ->
             assertEquals(3L, range?.start)
-            assertEquals(ETAG, ifRange)
             response(
                 status = 206,
                 body = "lo",
@@ -100,38 +99,59 @@ class DownloadTransferEngineTest {
     }
 
     @Test
-    fun changedValidatorDiscardsPartialBeforeGet() = runBlocking {
+    fun serverIgnoringRangeFallsBackToFullDownload() = runBlocking {
         val store = DownloadFileStore(temporaryFolder.newFolder("changed"))
         val task = task("task-changed", etag = ETAG)
         store.ensureTaskDirectory(task)
         store.partialFile(task).writeText("old")
+        var requestCount = 0
         val client = FakeWebDavClient(
             headMetadata = metadata(length = 5L, etag = NEW_ETAG, acceptsRanges = true),
-        ) { range, ifRange ->
-            assertNull(range)
-            assertNull(ifRange)
-            response(status = 200, body = "fresh", length = 5L, etag = NEW_ETAG)
+        ) { range, _ ->
+            requestCount++
+            if (requestCount == 1) {
+                // First request has Range, server ignores it and returns 200
+                assertEquals(3L, range?.start)
+                response(status = 200, body = "fresh", length = 5L, etag = NEW_ETAG)
+            } else {
+                // Second request is full download after truncation
+                assertNull(range)
+                response(status = 200, body = "fresh", length = 5L, etag = NEW_ETAG)
+            }
         }
 
         DownloadTransferEngine(client, store).transfer(task, {}, { _, _ -> })
 
         assertEquals("fresh", store.finalFile(task).readText())
+        assertEquals(2, client.requests.size)
     }
 
     @Test
-    fun completeValidatedPartialFinalizesWithoutAnotherGet() = runBlocking {
+    fun completePartialWithRangeNotSatisfiableReDownloadsFullFile() = runBlocking {
         val store = DownloadFileStore(temporaryFolder.newFolder("complete-partial"))
         val task = task("task-complete", etag = ETAG)
         store.ensureTaskDirectory(task)
         store.partialFile(task).writeText("hello")
+        var requestCount = 0
         val client = FakeWebDavClient(
             headMetadata = metadata(length = 5L, etag = ETAG, acceptsRanges = true),
-        ) { _, _ -> error("GET must not be called for a complete validated partial") }
+        ) { range, _ ->
+            requestCount++
+            if (requestCount == 1) {
+                // Range starts at end of file -> 416
+                assertEquals(5L, range?.start)
+                throw WebDavException.RangeNotSatisfiable(416)
+            } else {
+                // Fallback: full download
+                assertNull(range)
+                response(status = 200, body = "hello", length = 5L, etag = ETAG)
+            }
+        }
 
         val result = DownloadTransferEngine(client, store).transfer(task, {}, { _, _ -> })
 
         assertEquals("hello", store.finalFile(task).readText())
-        assertTrue(client.requests.isEmpty())
+        assertEquals(2, client.requests.size)
         assertEquals(5L, result.totalBytes)
     }
 
