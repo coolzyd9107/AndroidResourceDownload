@@ -143,6 +143,22 @@ class DownloadsViewModel @Inject constructor(
         }
     }
 
+    fun delete(taskId: String, deleteLocalFile: Boolean) = withOwner { owner ->
+        if (!queueController.deleteTerminal(owner, taskId, deleteLocalFile)) {
+            messageChannel.send("任务状态已变化，无法删除")
+        }
+    }
+
+    fun cancelAll() = withOwner { owner ->
+        val count = queueController.cancelAll(owner)
+        messageChannel.send(if (count > 0) "已取消 $count 个任务" else "没有可取消的任务")
+    }
+
+    fun clearTerminal(deleteLocalFiles: Boolean) = withOwner { owner ->
+        val count = queueController.clearTerminal(owner, deleteLocalFiles)
+        messageChannel.send(if (count > 0) "已清除 $count 个已结束任务" else "没有可清除的任务")
+    }
+
     fun open(task: DownloadTask) {
         if (!fileOpener.open(task)) {
             viewModelScope.launch { messageChannel.send("没有可打开此文件的应用，或文件已被移除") }

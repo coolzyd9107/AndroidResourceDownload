@@ -268,4 +268,32 @@ abstract class DownloadTaskDao {
         """,
     )
     abstract suspend fun hasRunnable(ownerId: String): Boolean
+
+    @Query(
+        """
+        UPDATE download_tasks
+        SET status = 'CANCELLED', error_message = NULL, updated_at = :now
+        WHERE owner_id = :ownerId
+          AND status IN ('PENDING', 'RUNNING', 'PAUSED')
+        """,
+    )
+    abstract suspend fun cancelAllPending(ownerId: String, now: Long): Int
+
+    @Query(
+        """
+        DELETE FROM download_tasks
+        WHERE owner_id = :ownerId
+          AND status IN ('SUCCESS', 'FAILED', 'CANCELLED')
+        """,
+    )
+    abstract suspend fun deleteTerminalAll(ownerId: String): Int
+
+    @Query(
+        """
+        SELECT * FROM download_tasks
+        WHERE owner_id = :ownerId
+          AND status IN ('SUCCESS', 'FAILED', 'CANCELLED')
+        """,
+    )
+    abstract suspend fun tasksForOwnerTerminal(ownerId: String): List<DownloadTaskEntity>
 }

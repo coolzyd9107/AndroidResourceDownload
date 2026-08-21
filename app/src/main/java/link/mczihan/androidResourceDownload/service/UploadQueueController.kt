@@ -69,6 +69,14 @@ class UploadQueueController @Inject constructor(
         return repository.deleteTerminal(ownerId, taskId)
     }
 
+    suspend fun cancelAll(ownerId: String): Int {
+        executionRegistry.cancelOwnerAndJoin(ownerId)
+        return repository.cancelAll(ownerId)
+    }
+
+    suspend fun clearTerminal(ownerId: String): Int =
+        repository.clearTerminal(ownerId)
+
     suspend fun stop(ownerId: String) {
         block(ownerId)
         executionRegistry.cancelOwnerAndJoin(ownerId)

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Pause
@@ -39,6 +40,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
@@ -49,6 +54,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
@@ -81,8 +87,16 @@ fun DownloadsScreen(
     onStatusChange: (taskId: String, status: DownloadStatus) -> Unit,
     onOpen: (DownloadTask) -> Unit,
     onDelete: (taskId: String) -> Unit,
+    onDeleteWithOption: (taskId: String, deleteLocalFile: Boolean) -> Unit = { _, _ -> },
+    onCancelAll: () -> Unit = {},
+    onClearTerminal: (deleteLocalFiles: Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    var deleteTaskId by remember { mutableStateOf<String?>(null) }
+    var deleteLocalFile by remember { mutableStateOf(true) }
+    var showClearDialog by remember { mutableStateOf(false) }
+    var clearLocalFiles by remember { mutableStateOf(true) }
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val contentSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
@@ -112,6 +126,31 @@ fun DownloadsScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
+                actions = {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多操作")
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("全部取消") },
+                            onClick = {
+                                showMenu = false
+                                onCancelAll()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("全部清除") },
+                            onClick = {
+                                showMenu = false
+                                clearLocalFiles = true
+                                showClearDialog = true
+                            },
+                        )
+                    }
+                },
             )
         },
     ) { innerPadding ->
@@ -151,7 +190,10 @@ fun DownloadsScreen(
                             currentSpeed = currentSpeeds[task.id] ?: 0L,
                             onStatusChange = { status -> onStatusChange(task.id, status) },
                             onOpen = { onOpen(task) },
-                            onDelete = { onDelete(task.id) },
+                            onDelete = {
+                                deleteTaskId = task.id
+                                deleteLocalFile = true
+                            },
                             enabled = isTargetContent,
                             modifier = Modifier
                                 .animateItem(
@@ -165,6 +207,77 @@ fun DownloadsScreen(
                 }
             }
         }
+    }
+
+    if (deleteTaskId != null) {
+        AlertDialog(
+            onDismissRequest = { deleteTaskId = null },
+            title = { Text("删除任务") },
+            text = {
+                Column {
+                    Text("确定要删除此下载任务吗？")
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = deleteLocalFile,
+                            onCheckedChange = { deleteLocalFile = it },
+                        )
+                        Text("同时删除本地文件")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val id = deleteTaskId
+                    deleteTaskId = null
+                    if (id != null) onDeleteWithOption(id, deleteLocalFile)
+                }) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTaskId = null }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("全部清除") },
+            text = {
+                Column {
+                    Text("确定要清除所有已结束的下载任务吗？")
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = clearLocalFiles,
+                            onCheckedChange = { clearLocalFiles = it },
+                        )
+                        Text("同时删除本地文件")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearDialog = false
+                    onClearTerminal(clearLocalFiles)
+                }) {
+                    Text("清除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 

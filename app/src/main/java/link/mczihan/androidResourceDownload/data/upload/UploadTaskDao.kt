@@ -320,4 +320,32 @@ abstract class UploadTaskDao {
 
     @Query("SELECT COUNT(*) FROM upload_tasks WHERE permission_uri = :permissionUri")
     abstract suspend fun countPermissionReferences(permissionUri: String): Int
+
+    @Query(
+        """
+        UPDATE upload_tasks
+        SET status = 'CANCELLED', committing = 0, error_message = NULL, updated_at = :now
+        WHERE owner_id = :ownerId AND is_directory = 0
+          AND committing = 0 AND status IN ('PENDING', 'RUNNING')
+        """,
+    )
+    abstract suspend fun cancelAllPending(ownerId: String, now: Long): Int
+
+    @Query(
+        """
+        DELETE FROM upload_tasks
+        WHERE owner_id = :ownerId
+          AND status IN ('FAILED', 'CANCELLED')
+        """,
+    )
+    abstract suspend fun deleteTerminalAll(ownerId: String): Int
+
+    @Query(
+        """
+        SELECT * FROM upload_tasks
+        WHERE owner_id = :ownerId
+          AND status IN ('FAILED', 'CANCELLED')
+        """,
+    )
+    abstract suspend fun tasksForOwnerTerminal(ownerId: String): List<UploadTaskEntity>
 }

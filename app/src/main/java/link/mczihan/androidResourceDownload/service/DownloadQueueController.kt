@@ -75,6 +75,19 @@ class DownloadQueueController @Inject constructor(
         return repository.deleteTerminal(ownerId, taskId)
     }
 
+    suspend fun deleteTerminal(ownerId: String, taskId: String, deleteLocalFile: Boolean): Boolean {
+        executionRegistry.cancelTaskAndJoin(taskId)
+        return repository.deleteTerminal(ownerId, taskId, deleteLocalFile)
+    }
+
+    suspend fun cancelAll(ownerId: String): Int {
+        executionRegistry.cancelOwnerAndJoin(ownerId)
+        return repository.cancelAll(ownerId)
+    }
+
+    suspend fun clearTerminal(ownerId: String, deleteLocalFiles: Boolean): Int =
+        repository.clearTerminal(ownerId, deleteLocalFiles)
+
     suspend fun stop(ownerId: String) {
         block(ownerId)
         repository.pauseRunning(ownerId)

@@ -34,9 +34,12 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
@@ -80,8 +83,11 @@ fun UploadsScreen(
     onRetry: (taskId: String) -> Unit,
     onCancel: (taskId: String) -> Unit,
     onDelete: (taskId: String) -> Unit,
+    onCancelAll: () -> Unit = {},
+    onClearTerminal: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    var showMenu by remember { mutableStateOf(false) }
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val contentSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
@@ -109,6 +115,30 @@ fun UploadsScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
+                actions = {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多操作")
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("全部取消") },
+                            onClick = {
+                                showMenu = false
+                                onCancelAll()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("全部清除") },
+                            onClick = {
+                                showMenu = false
+                                onClearTerminal()
+                            },
+                        )
+                    }
+                },
             )
         },
     ) { innerPadding ->
