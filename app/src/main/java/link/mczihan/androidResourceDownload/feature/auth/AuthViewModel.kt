@@ -22,6 +22,7 @@ import link.mczihan.androidResourceDownload.data.settings.PrivacyConsentReposito
 import link.mczihan.androidResourceDownload.domain.model.AuthSession
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavCredentialProvider
 import link.mczihan.androidResourceDownload.service.DownloadQueueController
+import link.mczihan.androidResourceDownload.service.UploadQueueController
 
 sealed interface AuthUiState {
     data object Restoring : AuthUiState
@@ -41,6 +42,7 @@ class AuthViewModel @Inject constructor(
     private val credentialProvider: WebDavCredentialProvider,
     private val oauthCallbackBus: OAuthCallbackBus,
     private val downloadQueueController: DownloadQueueController,
+    private val uploadQueueController: UploadQueueController,
     private val qqNicknameRepository: QqNicknameRepository,
     private val privacyConsentRepository: PrivacyConsentRepository,
 ) : ViewModel() {
@@ -169,17 +171,22 @@ class AuthViewModel @Inject constructor(
     fun logout() {
         val session = (_state.value as? AuthUiState.Authenticated)?.session ?: return
         val ownerId = session.user.id
-        ownerId?.let(downloadQueueController::block)
+        downloadQueueController.block(ownerId)
+        uploadQueueController.block(ownerId)
         _state.value = AuthUiState.LoggingOut
         viewModelScope.launch {
-            credentialProvider.clear()
-            qqNicknameRepository.clear()
-            pendingOAuthStore.clear()
             val stopJob = launch {
                 runCatching { downloadQueueController.stop(ownerId) }
             }
-            runCatching { repository.logout() }
+            val stopUploadJob = launch {
+                runCatching { uploadQueueController.stop(ownerId) }
+            }
             stopJob.join()
+            stopUploadJob.join()
+            credentialProvider.clear()
+            qqNicknameRepository.clear()
+            pendingOAuthStore.clear()
+            runCatching { repository.logout() }
             _state.value = AuthUiState.Anonymous
         }
     }

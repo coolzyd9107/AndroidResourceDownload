@@ -24,15 +24,28 @@ interface FileRepository {
         path: WebDavPath,
         upload: WebDavUpload,
         overwrite: Boolean = false,
-        onCommitting: () -> Unit = {},
+        stagingKey: String? = null,
+        onCommitting: suspend () -> Unit = {},
+        onCommitted: suspend () -> Unit = {},
+        onCommitFailed: suspend (Exception) -> Unit = {},
     ) {
         throw UnsupportedOperationException("Upload is not supported")
     }
+
+    suspend fun recoverUpload(
+        path: WebDavPath,
+        stagingKey: String,
+        wasCommitting: Boolean,
+    ): UploadRecoveryResult = UploadRecoveryResult.RETRY
 
     suspend fun isCollection(path: WebDavPath): Boolean? = null
 
     suspend fun createDirectory(path: WebDavPath) {
         throw UnsupportedOperationException("Directory creation is not supported")
+    }
+
+    suspend fun ensureDirectory(path: WebDavPath) {
+        createDirectory(path)
     }
 
     suspend fun move(
@@ -63,3 +76,11 @@ interface FileRepository {
         throw UnsupportedOperationException("Delete is not supported")
     }
 }
+
+enum class UploadRecoveryResult {
+    COMMITTED,
+    RETRY,
+}
+
+class UploadCommitUncertainException(cause: Exception) :
+    Exception("The remote upload commit succeeded but local confirmation failed", cause)

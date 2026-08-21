@@ -1,9 +1,7 @@
 package link.mczihan.androidResourceDownload.feature.files
 
 import androidx.activity.BackEventCompat
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.PredictiveBackHandler
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -61,6 +59,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -138,6 +138,8 @@ fun FilesScreen(
     onProfile: () -> Unit,
     onDownload: (FileNode) -> Unit,
     onMessage: (String) -> Unit,
+    onUploadFile: (WebDavPath) -> Unit = {},
+    onUploadFolder: (WebDavPath) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val viewModel = if (BuildConfig.DEMO_MODE) null else hiltViewModel<FilesViewModel>()
@@ -151,6 +153,7 @@ fun FilesScreen(
     var renameTarget by remember { mutableStateOf<FileNode?>(null) }
     var deleteTarget by remember { mutableStateOf<FileNode?>(null) }
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
+    var showUploadMenu by remember { mutableStateOf(false) }
     var demoDestinationPath by remember { mutableStateOf(WebDavPath.root()) }
     var demoPreviewState by remember { mutableStateOf<FilePreviewUiState>(FilePreviewUiState.Idle) }
     val mutationState = viewModel?.mutationState?.collectAsStateWithLifecycle()?.value
@@ -162,20 +165,13 @@ fun FilesScreen(
     val previewState = viewModel?.previewState?.collectAsStateWithLifecycle()?.value
         ?: demoPreviewState
     val isAdmin = role == Role.ADMIN
-    val uploadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        when {
-            uri == null -> Unit
-            !isAdmin -> Unit
-            viewModel != null -> viewModel.prepareUpload(uri)
-            else -> onMessage("演示模式不执行云端文件操作")
-        }
-    }
     LaunchedEffect(isAdmin) {
         if (!isAdmin) {
             transferRequest = null
             renameTarget = null
             deleteTarget = null
             showCreateDirectoryDialog = false
+            showUploadMenu = false
             viewModel?.dismissDestinationPicker()
         }
     }
@@ -405,13 +401,46 @@ fun FilesScreen(
                                 },
                                 onClick = { showCreateDirectoryDialog = true },
                             )
-                            ExtendedFloatingActionButton(
-                                text = { Text("上传") },
-                                icon = {
-                                    Icon(Icons.Default.UploadFile, contentDescription = "上传文件")
-                                },
-                                onClick = { uploadLauncher.launch(arrayOf("*/*")) },
-                            )
+                            Box(contentAlignment = Alignment.BottomEnd) {
+                                ExtendedFloatingActionButton(
+                                    text = { Text("上传") },
+                                    icon = {
+                                        Icon(Icons.Default.UploadFile, contentDescription = "上传")
+                                    },
+                                    onClick = { showUploadMenu = true },
+                                )
+                                DropdownMenu(
+                                    expanded = showUploadMenu,
+                                    onDismissRequest = { showUploadMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("上传文件") },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.UploadFile,
+                                                contentDescription = "上传文件",
+                                            )
+                                        },
+                                        onClick = {
+                                            showUploadMenu = false
+                                            onUploadFile(activePath)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("上传文件夹") },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Folder,
+                                                contentDescription = "上传文件夹",
+                                            )
+                                        },
+                                        onClick = {
+                                            showUploadMenu = false
+                                            onUploadFolder(activePath)
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 },
@@ -736,25 +765,7 @@ fun FilesScreen(
 
     when (val mutation = mutationState.takeIf { isAdmin } ?: FileMutationState.Idle) {
         FileMutationState.Idle -> Unit
-        FileMutationState.PreparingUpload -> PreparingUploadDialog(
-            onCancel = viewModel?.let { it::dismissMutation } ?: {},
-        )
-        is FileMutationState.UploadReady -> UploadConfirmationDialog(
-            documentName = mutation.document.displayName,
-            directory = mutation.directory,
-            onDismiss = viewModel?.let { it::dismissMutation } ?: {},
-            onConfirm = { viewModel?.upload(it) },
-        )
-        is FileMutationState.Running -> MutationRunningDialog(
-            state = mutation,
-            onCancel = if (
-                mutation.operation is FileOperation.Upload && !mutation.committing
-            ) {
-                viewModel?.let { it::cancelMutation }
-            } else {
-                null
-            },
-        )
+        is FileMutationState.Running -> MutationRunningDialog(state = mutation)
         is FileMutationState.AwaitingOverwrite -> OverwriteConfirmationDialog(
             operation = mutation.operation,
             onDismiss = viewModel?.let { it::dismissMutation } ?: {},
@@ -1439,41 +1450,6 @@ private fun ImagePreviewPane(
 }
 
 @Composable
-private fun UploadConfirmationDialog(
-    documentName: String,
-    directory: WebDavPath,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var remoteName by remember(documentName) { mutableStateOf(documentName) }
-    val valid = runCatching { directory.child(remoteName.trim()) }.isSuccess
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("上传到云端") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("目标目录：$directory")
-                OutlinedTextField(
-                    value = remoteName,
-                    onValueChange = { remoteName = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("云端文件名") },
-                    singleLine = true,
-                    isError = remoteName.isNotBlank() && !valid,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = valid,
-                onClick = { onConfirm(remoteName.trim()) },
-            ) { Text("上传") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
-
-@Composable
 private fun DestinationDirectoryDialog(
     request: TransferRequest,
     state: DirectoryPickerState,
@@ -1629,16 +1605,6 @@ private fun DestinationDirectoryDialog(
 }
 
 @Composable
-private fun PreparingUploadDialog(onCancel: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("正在读取文件") },
-        text = { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) },
-        confirmButton = { TextButton(onClick = onCancel) { Text("取消") } },
-    )
-}
-
-@Composable
 private fun CreateDirectoryDialog(
     directory: WebDavPath,
     onDismiss: () -> Unit,
@@ -1704,8 +1670,8 @@ private fun RenameResourceDialog(
     val validationMessage = when {
         name.isBlank() -> null
         name.length > MAX_RESOURCE_NAME_LENGTH ->
-            "$resourceLabel 不能超过 $MAX_RESOURCE_NAME_LENGTH 个字符"
-        runCatching { parent.child(name) }.isFailure -> "$resourceLabel 包含无效字符"
+            "${resourceLabel}不能超过 $MAX_RESOURCE_NAME_LENGTH 个字符"
+        runCatching { parent.child(name) }.isFailure -> "${resourceLabel}包含无效字符"
         else -> null
     }
     val valid = name.isNotBlank() &&
@@ -1775,30 +1741,17 @@ private fun DeleteConfirmationDialog(
 @Composable
 private fun MutationRunningDialog(
     state: FileMutationState.Running,
-    onCancel: (() -> Unit)?,
 ) {
-    val total = state.totalBytes
     AlertDialog(
         onDismissRequest = {},
-        title = { Text(if (state.committing) "正在提交云端文件" else state.operation.actionLabel()) },
+        title = { Text(state.operation.actionLabel()) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(state.operation.targetDescription())
-                if (state.operation is FileOperation.Upload && total != null && total > 0L) {
-                    val progress = (state.uploadedBytes.toFloat() / total).coerceIn(0f, 1f)
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text("${formatFileSize(state.uploadedBytes)} / ${formatFileSize(total)}")
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         },
-        confirmButton = {
-            if (onCancel != null) TextButton(onClick = onCancel) { Text("取消") }
-        },
+        confirmButton = {},
     )
 }
 
@@ -1849,7 +1802,6 @@ private fun WebDavPath.isDescendantOf(parent: WebDavPath): Boolean =
         decodedSegments.take(parent.decodedSegments.size) == parent.decodedSegments
 
 private fun FileOperation.actionLabel(): String = when (this) {
-    is FileOperation.Upload -> "正在上传"
     is FileOperation.CreateDirectory -> "正在新建文件夹"
     is FileOperation.Move -> "正在移动"
     is FileOperation.Rename -> "正在重命名"
@@ -1858,7 +1810,6 @@ private fun FileOperation.actionLabel(): String = when (this) {
 }
 
 private fun FileOperation.targetDescription(): String = when (this) {
-    is FileOperation.Upload -> destination.toString()
     is FileOperation.CreateDirectory -> path.toString()
     is FileOperation.Move -> destination.toString()
     is FileOperation.Rename -> destination.toString()

@@ -211,11 +211,13 @@
 ## 4.5 管理员上传流程
 
 1. 管理员进入目标目录
-2. 点击上传按钮
-3. 选择本地文件
-4. App 显示上传进度
-5. 上传完成后刷新目录
-6. 上传失败时提示错误并支持重试
+2. 选择上传一个或多个文件，或选择本地文件夹
+3. App 为 SAF URI 保留只读授权，并将文件任务写入 Room 队列
+4. 若选择文件夹，先按安全相对路径展开目录树并创建文件夹根目录、子目录和空目录
+5. 上传前台服务最多并行传输三个文件；目录创建不计入文件并发数，超出限制的文件等待槽位
+6. 上传页显示各任务进度、实时速度、等待、提交、失败和完成状态
+7. 文件先上传到同目录唯一临时名，再以禁止覆盖的 `MOVE` 提交
+8. 上传失败或取消后可从头重试；完成后可刷新云端目录查看原始结构
 
 ---
 
@@ -481,10 +483,13 @@ enum class ThemeMode {
 
 ### 存储位置
 
-主题模式保存在 DataStore：
+主题模式、自动取色和备用主题色保存在 DataStore：
 
 ```text
 settings.theme_mode = SYSTEM | LIGHT | DARK
+settings.dynamic_color_enabled = true | false
+settings.seed_color_argb = opaque ARGB Int
+settings.theme_scheme_variant = TONAL_SPOT | FIDELITY | MONOCHROME | NEUTRAL | VIBRANT | EXPRESSIVE | CONTENT | RAINBOW
 ```
 
 ---
@@ -497,6 +502,8 @@ when (themeMode) {
     ThemeMode.LIGHT -> 强制浅色
     ThemeMode.DARK -> 强制深色
 }
+
+Android 12 及以上且 `dynamic_color_enabled=true` 时使用系统莫奈配色；关闭后根据 `seed_color_argb` 和 `theme_scheme_variant` 通过 Material Color Utilities HCT 算法生成完整浅色/深色角色。设置页提供预设色、恢复默认和自定义种子色，并使用官方英文名提供 `Tonal Spot`、`Fidelity`、`Monochrome`、`Neutral`、`Vibrant`、`Expressive`、`Content`、`Rainbow` 八种方案。Android 11 及以下直接使用该种子色方案。
 ```
 
 ---
@@ -1177,6 +1184,8 @@ Android 8.1 安装 APK 需要：
 - 跟随系统
 - 浅色模式
 - 深色模式
+- 莫奈自动取色
+- 主题色预设 / 自定义 / 官方配色方案
 ```
 
 ---
@@ -1185,8 +1194,11 @@ Android 8.1 安装 APK 需要：
 
 ```kotlin
 data object ThemeRepository {
-    val themeMode: Flow<ThemeMode>
+    val themeSettings: Flow<ThemeSettings>
     suspend fun setThemeMode(mode: ThemeMode)
+    suspend fun setDynamicColorEnabled(enabled: Boolean)
+    suspend fun setSeedColor(argb: Int)
+    suspend fun setSchemeVariant(variant: ThemeSchemeVariant)
 }
 ```
 
@@ -1196,6 +1208,9 @@ data object ThemeRepository {
 
 ```text
 theme_mode: SYSTEM / LIGHT / DARK
+dynamic_color_enabled: true / false
+seed_color_argb: opaque ARGB Int
+theme_scheme_variant: TONAL_SPOT / FIDELITY / MONOCHROME / NEUTRAL / VIBRANT / EXPRESSIVE / CONTENT / RAINBOW
 ```
 
 ---
@@ -1206,6 +1221,8 @@ theme_mode: SYSTEM / LIGHT / DARK
 @Composable
 fun AppTheme(
     themeMode: ThemeMode,
+    dynamicColorEnabled: Boolean,
+    seedColorArgb: Int,
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()
@@ -1216,7 +1233,11 @@ fun AppTheme(
     }
 
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
+        colorScheme = if (dynamicColorEnabled && SDK_INT >= 31) {
+            systemDynamicColorScheme
+        } else {
+            hctColorScheme(seedColorArgb, darkTheme)
+        },
         typography = AppTypography,
         shapes = AppShapes,
         content = content
@@ -1233,6 +1254,8 @@ fun AppTheme(
 - 深色模式下文字可读
 - 弹窗、列表、按钮、输入框无颜色异常
 - 状态栏图标颜色正确
+- 自动取色开关和自定义主题色在重启后保持
+- 自定义浅色与深色方案的文本和控件对比度合格
 
 ---
 

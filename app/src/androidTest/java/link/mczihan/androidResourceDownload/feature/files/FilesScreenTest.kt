@@ -4,9 +4,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -45,7 +45,7 @@ class FilesScreenTest {
     fun userDoesNotSeeCloudWriteActions() {
         setFilesScreen(Role.USER)
 
-        composeRule.onNode(hasContentDescription("上传文件")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("上传")).assertDoesNotExist()
         composeRule.onNode(hasContentDescription("新建文件夹")).assertDoesNotExist()
         composeRule.onNode(hasContentDescription("管理 应用发布")).assertDoesNotExist()
     }
@@ -54,7 +54,10 @@ class FilesScreenTest {
     fun adminSeesUploadRenameMoveCopyAndDeleteActions() {
         setFilesScreen(Role.ADMIN)
 
+        composeRule.onNode(hasContentDescription("上传")).assertExists().performClick()
         composeRule.onNode(hasContentDescription("上传文件")).assertExists()
+        composeRule.onNode(hasContentDescription("上传文件夹")).assertExists()
+        composeRule.onNode(hasContentDescription("上传文件")).performClick()
         composeRule.onNode(hasContentDescription("新建文件夹")).assertExists()
         composeRule.onNode(hasContentDescription("管理 应用发布")).performClick()
         composeRule.onNodeWithText("重命名").assertIsDisplayed()
@@ -95,11 +98,15 @@ class FilesScreenTest {
         composeRule.onNodeWithText("重命名").performClick()
 
         composeRule.onNodeWithText("重命名文件夹").assertIsDisplayed()
-        composeRule.onNode(hasSetTextAction()).assertTextEquals("应用发布")
+        composeRule.onNode(hasSetTextAction() and hasText("应用发布")).assertExists()
         composeRule.onNodeWithText("重命名").assertIsNotEnabled()
 
         composeRule.onNode(hasSetTextAction()).performTextReplacement("../新版发布")
-        composeRule.onNodeWithText("文件夹名称包含无效字符").assertIsDisplayed()
+        composeRule.onNode(hasSetTextAction() and hasText("../新版发布")).assertExists()
+        composeRule.onNodeWithText(
+            "文件夹名称包含无效字符",
+            useUnmergedTree = true,
+        ).assertExists()
         composeRule.onNodeWithText("重命名").assertIsNotEnabled()
 
         composeRule.onNode(hasSetTextAction()).performTextReplacement("新版发布")
@@ -115,7 +122,7 @@ class FilesScreenTest {
         composeRule.onNodeWithText("重命名").performClick()
 
         composeRule.onNodeWithText("重命名文件").assertIsDisplayed()
-        composeRule.onNode(hasSetTextAction()).assertTextEquals("release-notes.txt")
+        composeRule.onNode(hasSetTextAction() and hasText("release-notes.txt")).assertExists()
     }
 
     @Test
@@ -126,7 +133,7 @@ class FilesScreenTest {
         composeRule.onNodeWithText("release-notes.txt").performClick()
         composeRule.onNodeWithText("预览").assertIsDisplayed().performClick()
 
-        composeRule.onNodeWithText("Android Resource Download 2.2.2", substring = true)
+        composeRule.onNodeWithText("Android Resource Download 2.3.0", substring = true)
             .assertIsDisplayed()
         composeRule.onNode(hasContentDescription("编辑文本")).assertDoesNotExist()
     }

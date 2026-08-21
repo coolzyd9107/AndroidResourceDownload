@@ -73,26 +73,74 @@ class WebDavFileRepository @Inject constructor(
         path: WebDavPath,
         upload: WebDavUpload,
         overwrite: Boolean,
-        onCommitting: () -> Unit,
+        stagingKey: String?,
+        onCommitting: suspend () -> Unit,
+        onCommitted: suspend () -> Unit,
+        onCommitFailed: suspend (Exception) -> Unit,
     ) {
         requireMutablePath(path)
         val parent = WebDavPath.fromDecodedSegments(path.decodedSegments.dropLast(1))
-        val temporary = parent.child(".ard-upload-${UUID.randomUUID()}.part")
+        val temporary = uploadTemporaryPath(parent, stagingKey)
         activeUploads += temporary
+        var committing = false
+        var commitFailureRecorded = false
         try {
-            webDavClient.put(temporary, upload, overwrite = false)
+            webDavClient.put(temporary, upload, overwrite = stagingKey != null)
             val commitOverwrite = resolvedOverwrite(path, overwrite)
             onCommitting()
-            webDavClient.move(temporary, path, commitOverwrite)
+            committing = true
+            withContext(NonCancellable) {
+                try {
+                    webDavClient.move(temporary, path, commitOverwrite)
+                } catch (error: Exception) {
+                    if (error is WebDavException.Network) {
+                        throw UploadCommitUncertainException(error)
+                    }
+                    onCommitFailed(error)
+                    commitFailureRecorded = true
+                    throw error
+                }
+                try {
+                    onCommitted()
+                } catch (error: Exception) {
+                    throw UploadCommitUncertainException(error)
+                }
+            }
         } catch (error: CancellationException) {
-            withContext(NonCancellable) { runCatching { webDavClient.delete(temporary) } }
+            if (!committing || commitFailureRecorded) {
+                withContext(NonCancellable) { runCatching { webDavClient.delete(temporary) } }
+            }
             throw error
         } catch (error: Exception) {
-            withContext(NonCancellable) { runCatching { webDavClient.delete(temporary) } }
+            if (!committing || commitFailureRecorded) {
+                withContext(NonCancellable) { runCatching { webDavClient.delete(temporary) } }
+            }
             throw error
         } finally {
             activeUploads -= temporary
         }
+    }
+
+    override suspend fun recoverUpload(
+        path: WebDavPath,
+        stagingKey: String,
+        wasCommitting: Boolean,
+    ): UploadRecoveryResult {
+        requireMutablePath(path)
+        val parent = WebDavPath.fromDecodedSegments(path.decodedSegments.dropLast(1))
+        val temporary = uploadTemporaryPath(parent, stagingKey)
+        val temporaryResource = webDavClient.propFindResource(temporary)
+        val destinationResource = if (wasCommitting) webDavClient.propFindResource(path) else null
+        if (wasCommitting &&
+            destinationResource?.requireKnownResourceType()?.isCollection == false &&
+            temporaryResource == null
+        ) {
+            return UploadRecoveryResult.COMMITTED
+        }
+        if (temporaryResource != null) {
+            webDavClient.delete(temporary)
+        }
+        return UploadRecoveryResult.RETRY
     }
 
     override suspend fun isCollection(path: WebDavPath): Boolean? =
@@ -101,6 +149,21 @@ class WebDavFileRepository @Inject constructor(
     override suspend fun createDirectory(path: WebDavPath) {
         requireMutablePath(path)
         webDavClient.makeCollection(path)
+    }
+
+    override suspend fun ensureDirectory(path: WebDavPath) {
+        if (path.isRoot) return
+        requireMutablePath(path)
+        try {
+            webDavClient.makeCollection(path)
+        } catch (error: WebDavException) {
+            if (error !is WebDavException.PreconditionFailed && error !is WebDavException.Conflict) {
+                throw error
+            }
+            if (webDavClient.propFindResource(path)?.requireKnownResourceType()?.isCollection != true) {
+                throw error
+            }
+        }
     }
 
     override suspend fun move(
@@ -153,6 +216,12 @@ class WebDavFileRepository @Inject constructor(
 
     private fun requireMutablePath(path: WebDavPath) {
         require(!path.isRoot) { "The WebDAV root cannot be modified" }
+    }
+
+    private fun uploadTemporaryPath(parent: WebDavPath, stagingKey: String?): WebDavPath {
+        val normalizedKey = stagingKey?.let { UUID.fromString(it).toString() }
+            ?: UUID.randomUUID().toString()
+        return parent.child(".ard-upload-$normalizedKey.part")
     }
 
     private fun validateTransfer(source: WebDavPath, destination: WebDavPath) {

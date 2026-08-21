@@ -1,6 +1,5 @@
 package link.mczihan.androidResourceDownload.feature.files
 
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,8 +16,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import link.mczihan.androidResourceDownload.data.file.FileRepository
 import link.mczihan.androidResourceDownload.data.file.TextEncodingException
-import link.mczihan.androidResourceDownload.data.file.UploadSourceResolver
-import link.mczihan.androidResourceDownload.data.file.UploadDocument
 import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.model.FilePreviewContent
 import link.mczihan.androidResourceDownload.domain.model.FilePreviewFormat
@@ -60,7 +57,6 @@ sealed interface FilePreviewUiState {
 }
 
 sealed interface FileOperation {
-    data class Upload(val document: UploadDocument, val destination: WebDavPath) : FileOperation
     data class CreateDirectory(val path: WebDavPath) : FileOperation
     data class Move(
         val source: WebDavPath,
@@ -89,14 +85,7 @@ sealed interface FileOperation {
 
 sealed interface FileMutationState {
     data object Idle : FileMutationState
-    data object PreparingUpload : FileMutationState
-    data class UploadReady(val document: UploadDocument, val directory: WebDavPath) : FileMutationState
-    data class Running(
-        val operation: FileOperation,
-        val uploadedBytes: Long = 0L,
-        val totalBytes: Long? = null,
-        val committing: Boolean = false,
-    ) : FileMutationState
+    data class Running(val operation: FileOperation) : FileMutationState
     data class AwaitingOverwrite(val operation: FileOperation) : FileMutationState
     data class Failed(val operation: FileOperation?, val message: String) : FileMutationState
 }
@@ -104,9 +93,6 @@ sealed interface FileMutationState {
 @HiltViewModel
 class FilesViewModel @Inject constructor(
     private val repository: FileRepository,
-    private val uploadSource: UploadSourceResolver = UploadSourceResolver {
-        throw UnsupportedOperationException("Upload source is unavailable")
-    },
 ) : ViewModel() {
     private val _state = MutableStateFlow<FilesUiState>(FilesUiState.Loading(WebDavPath.root()))
     val state: StateFlow<FilesUiState> = _state.asStateFlow()
@@ -257,34 +243,6 @@ class FilesViewModel @Inject constructor(
         _previewState.value = FilePreviewUiState.Idle
     }
 
-    fun prepareUpload(uri: Uri) {
-        if (_mutationState.value != FileMutationState.Idle) return
-        mutationJob?.cancel()
-        val version = ++mutationVersion
-        val directory = _state.value.path
-        _mutationState.value = FileMutationState.PreparingUpload
-        mutationJob = viewModelScope.launch {
-            val nextState = try {
-                FileMutationState.UploadReady(uploadSource.resolve(uri), directory)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                FileMutationState.Failed(null, error.userMessage())
-            }
-            updateMutation(version, nextState)
-        }
-    }
-
-    fun upload(remoteName: String) {
-        val ready = _mutationState.value as? FileMutationState.UploadReady ?: return
-        val destination = runCatching { ready.directory.child(remoteName.trim()) }
-            .getOrElse {
-                _mutationState.value = FileMutationState.Failed(null, "文件名无效")
-                return
-            }
-        runOperation(FileOperation.Upload(ready.document, destination), overwrite = false)
-    }
-
     fun createDirectory(name: String) {
         if (_mutationState.value != FileMutationState.Idle) return
         val normalizedName = name.trim()
@@ -410,12 +368,6 @@ class FilesViewModel @Inject constructor(
         }
     }
 
-    fun cancelMutation() {
-        val running = _mutationState.value as? FileMutationState.Running ?: return
-        if (running.operation !is FileOperation.Upload || running.committing) return
-        mutationJob?.cancel()
-    }
-
     private fun transfer(
         source: WebDavPath,
         sourceIsDirectory: Boolean,
@@ -442,44 +394,9 @@ class FilesViewModel @Inject constructor(
         mutationJob?.cancel()
         val version = ++mutationVersion
         mutationJob = viewModelScope.launch {
-            val totalBytes = (operation as? FileOperation.Upload)?.document?.contentLength
-            updateMutation(version, FileMutationState.Running(operation, totalBytes = totalBytes))
+            updateMutation(version, FileMutationState.Running(operation))
             try {
                 when (operation) {
-                    is FileOperation.Upload -> {
-                        var lastUpdateAt = 0L
-                        repository.upload(
-                            operation.destination,
-                            operation.document.toWebDavUpload { uploadedBytes ->
-                                val now = System.currentTimeMillis()
-                                if (now - lastUpdateAt >= PROGRESS_UPDATE_INTERVAL_MILLIS ||
-                                    uploadedBytes == totalBytes
-                                ) {
-                                    lastUpdateAt = now
-                                    updateMutation(
-                                        version,
-                                        FileMutationState.Running(
-                                            operation,
-                                            uploadedBytes,
-                                            totalBytes,
-                                        ),
-                                    )
-                                }
-                            },
-                            overwrite,
-                            onCommitting = {
-                                updateMutation(
-                                    version,
-                                    FileMutationState.Running(
-                                        operation = operation,
-                                        uploadedBytes = totalBytes ?: 0L,
-                                        totalBytes = totalBytes,
-                                        committing = true,
-                                    ),
-                                )
-                            },
-                        )
-                    }
                     is FileOperation.CreateDirectory -> repository.createDirectory(operation.path)
                     is FileOperation.Move -> repository.move(
                         operation.source,
@@ -604,7 +521,6 @@ class FilesViewModel @Inject constructor(
     }
 
     private fun FileOperation.successMessage(): String = when (this) {
-        is FileOperation.Upload -> "已上传到 $destination"
         is FileOperation.CreateDirectory -> "已创建文件夹 $path"
         is FileOperation.Move -> "已移动到 $destination"
         is FileOperation.Rename -> "已重命名为 ${destination.name}"
@@ -613,7 +529,6 @@ class FilesViewModel @Inject constructor(
     }
 
     private fun FileOperation.destinationOrNull(): WebDavPath? = when (this) {
-        is FileOperation.Upload -> destination
         is FileOperation.CreateDirectory -> path
         is FileOperation.Move -> destination
         is FileOperation.Rename -> destination
@@ -662,6 +577,5 @@ class FilesViewModel @Inject constructor(
     private companion object {
         const val MAX_EDITED_TEXT_CHARACTERS = 100_000
         const val TEXT_SAVE_TIMEOUT_MILLIS = 60_000L
-        const val PROGRESS_UPDATE_INTERVAL_MILLIS = 100L
     }
 }

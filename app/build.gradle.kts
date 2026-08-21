@@ -40,8 +40,8 @@ android {
         applicationId = "link.mczihan.androidResourceDownload"
         minSdk = 27
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.2.2"
+        versionCode = 6
+        versionName = "2.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -134,6 +134,7 @@ dependencies {
 
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.documentfile)
+    implementation(libs.material.color.utilities)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

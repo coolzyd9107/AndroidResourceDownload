@@ -1,0 +1,211 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "bddb83b2d8e108c3ed2d3808f3a02362",
+    "entities": [
+      {
+        "tableName": "upload_tasks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `owner_id` TEXT NOT NULL, `batch_id` TEXT NOT NULL, `file_name` TEXT NOT NULL, `relative_path` TEXT NOT NULL, `destination_root` TEXT NOT NULL, `remote_path` TEXT NOT NULL, `source_uri` TEXT, `permission_uri` TEXT, `is_directory` INTEGER NOT NULL, `is_tree_upload` INTEGER NOT NULL, `mime_type` TEXT, `total_bytes` INTEGER, `uploaded_bytes` INTEGER NOT NULL, `status` TEXT NOT NULL, `committing` INTEGER NOT NULL, `error_message` TEXT, `queue_order` INTEGER NOT NULL, `path_depth` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerId",
+            "columnName": "owner_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batchId",
+            "columnName": "batch_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileName",
+            "columnName": "file_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "destinationRoot",
+            "columnName": "destination_root",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remotePath",
+            "columnName": "remote_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUri",
+            "columnName": "source_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "permissionUri",
+            "columnName": "permission_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isDirectory",
+            "columnName": "is_directory",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isTreeUpload",
+            "columnName": "is_tree_upload",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mime_type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "totalBytes",
+            "columnName": "total_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "uploadedBytes",
+            "columnName": "uploaded_bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "committing",
+            "columnName": "committing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "error_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "queueOrder",
+            "columnName": "queue_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pathDepth",
+            "columnName": "path_depth",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_upload_tasks_owner_id_status",
+            "unique": false,
+            "columnNames": [
+              "owner_id",
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_upload_tasks_owner_id_status` ON `${TABLE_NAME}` (`owner_id`, `status`)"
+          },
+          {
+            "name": "index_upload_tasks_owner_id_remote_path",
+            "unique": false,
+            "columnNames": [
+              "owner_id",
+              "remote_path"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_upload_tasks_owner_id_remote_path` ON `${TABLE_NAME}` (`owner_id`, `remote_path`)"
+          },
+          {
+            "name": "index_upload_tasks_owner_id_batch_id",
+            "unique": false,
+            "columnNames": [
+              "owner_id",
+              "batch_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_upload_tasks_owner_id_batch_id` ON `${TABLE_NAME}` (`owner_id`, `batch_id`)"
+          },
+          {
+            "name": "index_upload_tasks_permission_uri",
+            "unique": false,
+            "columnNames": [
+              "permission_uri"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_upload_tasks_permission_uri` ON `${TABLE_NAME}` (`permission_uri`)"
+          }
+        ]
+      },
+      {
+        "tableName": "upload_permissions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`uri` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`uri`))",
+        "fields": [
+          {
+            "fieldPath": "uri",
+            "columnName": "uri",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "uri"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'bddb83b2d8e108c3ed2d3808f3a02362')"
+    ]
+  }
+}

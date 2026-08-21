@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -58,6 +60,9 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.core.theme.AndroidResourceDownloadTheme
+import link.mczihan.androidResourceDownload.core.theme.ThemeMode
+import link.mczihan.androidResourceDownload.core.theme.ThemeSettings
+import link.mczihan.androidResourceDownload.core.theme.ThemeSchemeVariant
 import link.mczihan.androidResourceDownload.data.mock.initialMockDownloads
 import link.mczihan.androidResourceDownload.data.mock.mockTaskForFile
 import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
@@ -66,6 +71,7 @@ import link.mczihan.androidResourceDownload.domain.model.FileNode
 import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
+import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
 import link.mczihan.androidResourceDownload.feature.auth.EmailVerificationScreen
 import link.mczihan.androidResourceDownload.feature.auth.AuthUiState
 import link.mczihan.androidResourceDownload.feature.auth.AuthViewModel
@@ -78,6 +84,8 @@ import link.mczihan.androidResourceDownload.feature.profile.ProfileViewModel
 import link.mczihan.androidResourceDownload.feature.settings.SettingsScreen
 import link.mczihan.androidResourceDownload.feature.settings.SettingsViewModel
 import link.mczihan.androidResourceDownload.feature.settings.ThemeViewModel
+import link.mczihan.androidResourceDownload.feature.uploads.UploadsScreen
+import link.mczihan.androidResourceDownload.feature.uploads.UploadsViewModel
 
 private object RootRoute {
     const val Login = "login"
@@ -89,8 +97,10 @@ private object RootRoute {
 private enum class ShellRoute(
     val route: String,
     val label: String,
+    val adminOnly: Boolean = false,
 ) {
     Files("files", "文件"),
+    Uploads("uploads", "上传", adminOnly = true),
     Downloads("downloads", "下载"),
     Settings("settings", "设置"),
 }
@@ -101,12 +111,17 @@ fun AndroidResourceDownloadRoot(
     themeViewModel: ThemeViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel(),
 ) {
-    val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
+    val themeSettings by themeViewModel.themeSettings.collectAsStateWithLifecycle()
     val authState by authViewModel.state.collectAsStateWithLifecycle()
     val privacyConsentAccepted by authViewModel.privacyConsentAccepted.collectAsStateWithLifecycle()
     var sessionUser by remember { mutableStateOf<User?>(null) }
 
-    AndroidResourceDownloadTheme(themeMode = themeMode) {
+    AndroidResourceDownloadTheme(
+        themeMode = themeSettings.themeMode,
+        dynamicColorEnabled = themeSettings.dynamicColorEnabled,
+        seedColorArgb = themeSettings.seedColorArgb,
+        schemeVariant = themeSettings.schemeVariant,
+    ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
@@ -235,8 +250,12 @@ fun AndroidResourceDownloadRoot(
                     } else {
                         MainShell(
                             user = user,
-                            themeMode = themeMode,
+                            themeSettings = themeSettings,
                             onThemeModeChange = themeViewModel::setThemeMode,
+                            onDynamicColorEnabledChange = themeViewModel::setDynamicColorEnabled,
+                            onSeedColorChange = themeViewModel::setSeedColor,
+                            onSchemeVariantChange = themeViewModel::setSchemeVariant,
+                            onResetSeedColor = themeViewModel::resetSeedColor,
                             onProfile = { navController.navigate(RootRoute.Profile) },
                             onLogout = {
                                 if (BuildConfig.DEMO_MODE) {
@@ -301,8 +320,12 @@ fun AndroidResourceDownloadRoot(
 @Composable
 private fun MainShell(
     user: User,
-    themeMode: link.mczihan.androidResourceDownload.core.theme.ThemeMode,
-    onThemeModeChange: (link.mczihan.androidResourceDownload.core.theme.ThemeMode) -> Unit,
+    themeSettings: ThemeSettings,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onDynamicColorEnabledChange: (Boolean) -> Unit,
+    onSeedColorChange: (Int) -> Unit,
+    onSchemeVariantChange: (ThemeSchemeVariant) -> Unit,
+    onResetSeedColor: () -> Unit,
     onProfile: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -321,6 +344,24 @@ private fun MainShell(
         ?.collectAsStateWithLifecycle()
         ?.value
         .orEmpty()
+    val uploadsViewModel = if (BuildConfig.DEMO_MODE || user.role != Role.ADMIN) {
+        null
+    } else {
+        hiltViewModel<UploadsViewModel>()
+    }
+    val uploadTasks = uploadsViewModel?.tasks?.collectAsStateWithLifecycle()?.value.orEmpty()
+    val uploadSpeeds = uploadsViewModel?.currentSpeeds
+        ?.collectAsStateWithLifecycle()
+        ?.value
+        .orEmpty()
+    val preparingUploads = uploadsViewModel?.preparingSelections
+        ?.collectAsStateWithLifecycle()
+        ?.value
+        ?: 0
+    var pendingFileUploadDestination by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingFileUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingFolderUploadDestination by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingFolderUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingPermissionDownload by remember { mutableStateOf<FileNode?>(null) }
     var pendingPermissionRetryId by remember { mutableStateOf<String?>(null) }
     var pendingPermissionStartQueue by remember { mutableStateOf(false) }
@@ -332,6 +373,44 @@ private fun MainShell(
 
     fun showMessage(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
+    fun openShellRoute(route: ShellRoute) {
+        navController.navigate(route.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    val uploadFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        val destination = pendingFileUploadDestination?.let { path ->
+            runCatching { WebDavPath.parseDecoded(path) }.getOrNull()
+        }
+        val owner = pendingFileUploadOwner
+        pendingFileUploadDestination = null
+        pendingFileUploadOwner = null
+        if (uris.isNotEmpty() && destination != null && owner == user.id && user.role == Role.ADMIN) {
+            uploadsViewModel?.enqueueFiles(uris, destination)
+            openShellRoute(ShellRoute.Uploads)
+        }
+    }
+
+    val uploadFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        val destination = pendingFolderUploadDestination?.let { path ->
+            runCatching { WebDavPath.parseDecoded(path) }.getOrNull()
+        }
+        val owner = pendingFolderUploadOwner
+        pendingFolderUploadDestination = null
+        pendingFolderUploadOwner = null
+        if (uri != null && destination != null && owner == user.id && user.role == Role.ADMIN) {
+            uploadsViewModel?.enqueueTree(uri, destination)
+            openShellRoute(ShellRoute.Uploads)
+        }
     }
 
     val storagePermissionLauncher = rememberLauncherForActivityResult(
@@ -382,8 +461,14 @@ private fun MainShell(
     LaunchedEffect(downloadsViewModel, user.id) {
         downloadsViewModel?.bindOwner(user.id)
     }
+    LaunchedEffect(uploadsViewModel, user.id) {
+        uploadsViewModel?.bindOwner(user.id)
+    }
     LaunchedEffect(downloadsViewModel) {
         downloadsViewModel?.messages?.collect(::showMessage)
+    }
+    LaunchedEffect(uploadsViewModel) {
+        uploadsViewModel?.messages?.collect(::showMessage)
     }
 
     Scaffold(
@@ -393,7 +478,9 @@ private fun MainShell(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 0.dp,
             ) {
-                ShellRoute.values().forEach { destination ->
+                ShellRoute.values()
+                    .filter { destination -> !destination.adminOnly || user.role == Role.ADMIN }
+                    .forEach { destination ->
                     val selected = currentRoute == destination.route
                     val iconScale by animateFloatAsState(
                         targetValue = if (selected) 1.16f else 1f,
@@ -403,18 +490,13 @@ private fun MainShell(
                     NavigationBarItem(
                         selected = selected,
                         onClick = {
-                            navController.navigate(destination.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                            openShellRoute(destination)
                         },
                         icon = {
                             Icon(
                                 imageVector = when (destination) {
                                     ShellRoute.Files -> Icons.Default.Folder
+                                    ShellRoute.Uploads -> Icons.Default.Upload
                                     ShellRoute.Downloads -> Icons.Default.Download
                                     ShellRoute.Settings -> Icons.Default.Settings
                                 },
@@ -484,7 +566,52 @@ private fun MainShell(
                         }
                     },
                     onMessage = ::showMessage,
+                    onUploadFile = { destination ->
+                        if (BuildConfig.DEMO_MODE) {
+                            showMessage("演示模式不执行云端文件操作")
+                        } else {
+                            pendingFileUploadDestination = destination.toString()
+                            pendingFileUploadOwner = user.id
+                            uploadFileLauncher.launch(arrayOf("*/*"))
+                        }
+                    },
+                    onUploadFolder = { destination ->
+                        if (BuildConfig.DEMO_MODE) {
+                            showMessage("演示模式不执行云端文件操作")
+                        } else {
+                            pendingFolderUploadDestination = destination.toString()
+                            pendingFolderUploadOwner = user.id
+                            uploadFolderLauncher.launch(null)
+                        }
+                    },
                 )
+            }
+            composable(
+                route = ShellRoute.Uploads.route,
+                enterTransition = {
+                    fadeIn(tabEffectsSpec) + scaleIn(tabSpatialSpec, initialScale = 0.96f)
+                },
+                exitTransition = {
+                    fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
+                },
+            ) {
+                if (user.role != Role.ADMIN) {
+                    LaunchedEffect(Unit) { openShellRoute(ShellRoute.Files) }
+                } else {
+                    LifecycleResumeEffect(uploadsViewModel) {
+                        uploadsViewModel?.startSpeedTracking()
+                        uploadsViewModel?.startPending()
+                        onPauseOrDispose { uploadsViewModel?.stopSpeedTracking() }
+                    }
+                    UploadsScreen(
+                        tasks = uploadTasks,
+                        currentSpeeds = uploadSpeeds,
+                        preparingSelections = preparingUploads,
+                        onRetry = { taskId -> uploadsViewModel?.retry(taskId) },
+                        onCancel = { taskId -> uploadsViewModel?.cancel(taskId) },
+                        onDelete = { taskId -> uploadsViewModel?.delete(taskId) },
+                    )
+                }
             }
             composable(
                 route = ShellRoute.Downloads.route,
@@ -581,8 +708,15 @@ private fun MainShell(
                     onPauseOrDispose { }
                 }
                 SettingsScreen(
-                    themeMode = themeMode,
+                    themeMode = themeSettings.themeMode,
                     onThemeModeChange = onThemeModeChange,
+                    dynamicColorEnabled = themeSettings.dynamicColorEnabled,
+                    themeSeedColorArgb = themeSettings.seedColorArgb,
+                    themeSchemeVariant = themeSettings.schemeVariant,
+                    onDynamicColorEnabledChange = onDynamicColorEnabledChange,
+                    onThemeSeedColorChange = onSeedColorChange,
+                    onThemeSchemeVariantChange = onSchemeVariantChange,
+                    onResetThemeColor = onResetSeedColor,
                     noticeState = noticeState,
                     onRetryNotice = settingsViewModel::refreshNotice,
                     updateState = updateState,

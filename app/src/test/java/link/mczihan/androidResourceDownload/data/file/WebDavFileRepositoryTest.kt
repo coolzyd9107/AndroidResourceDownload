@@ -12,7 +12,9 @@ import link.mczihan.androidResourceDownload.domain.webdav.WebDavPermission
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavUpload
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,6 +27,8 @@ class WebDavFileRepositoryTest {
             server.enqueue(MockResponse().setResponseCode(201))
             server.enqueue(MockResponse().setResponseCode(201))
             val repository = repository(server)
+            var committed = false
+            val stagingKey = "11111111-1111-1111-1111-111111111111"
 
             runBlocking {
                 repository.upload(
@@ -33,16 +37,19 @@ class WebDavFileRepositoryTest {
                         contentLength = 5L,
                         openStream = { ByteArrayInputStream("hello".toByteArray()) },
                     ),
+                    stagingKey = stagingKey,
+                    onCommitted = { committed = true },
                 )
             }
 
             val upload = server.takeRequest()
             val commit = server.takeRequest()
             assertEquals("PUT", upload.method)
-            assertTrue(upload.path.orEmpty().startsWith("/root/folder/.ard-upload-"))
+            assertEquals("/root/folder/.ard-upload-$stagingKey.part", upload.path)
             assertEquals("MOVE", commit.method)
             assertEquals(server.url("/root/folder/file.txt").toString(), commit.getHeader("Destination"))
             assertEquals("F", commit.getHeader("Overwrite"))
+            assertTrue(committed)
         } finally {
             server.shutdown()
         }
@@ -73,6 +80,98 @@ class WebDavFileRepositoryTest {
             val cleanup = server.takeRequest()
             assertEquals("DELETE", cleanup.method)
             assertEquals(upload.path, cleanup.path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun moveFailureIsRecordedBeforeTemporaryCleanup() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setResponseCode(412))
+            server.enqueue(MockResponse().setResponseCode(204))
+            val repository = repository(server)
+            var requestsWhenFailureRecorded = -1
+
+            val error = runCatching {
+                runBlocking {
+                    repository.upload(
+                        path = WebDavPath.parseDecoded("/file.txt"),
+                        upload = WebDavUpload(
+                            openStream = { ByteArrayInputStream(byteArrayOf(1)) },
+                        ),
+                        stagingKey = "44444444-4444-4444-4444-444444444444",
+                        onCommitFailed = { requestsWhenFailureRecorded = server.requestCount },
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(error is WebDavException.PreconditionFailed)
+            assertEquals(2, requestsWhenFailureRecorded)
+            assertEquals(3, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun localCommitFailureLeavesTaskForRemoteReconciliation() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setResponseCode(201))
+            val repository = repository(server)
+
+            val error = runCatching {
+                runBlocking {
+                    repository.upload(
+                        path = WebDavPath.parseDecoded("/file.txt"),
+                        upload = WebDavUpload(
+                            openStream = { ByteArrayInputStream(byteArrayOf(1)) },
+                        ),
+                        stagingKey = "55555555-5555-5555-5555-555555555555",
+                        onCommitted = { error("database unavailable") },
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(error is UploadCommitUncertainException)
+            assertEquals(2, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun moveTransportFailureRemainsUncertainForReconciliation() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+            val repository = repository(server)
+            var definitiveFailureRecorded = false
+
+            val error = runCatching {
+                runBlocking {
+                    repository.upload(
+                        path = WebDavPath.parseDecoded("/file.txt"),
+                        upload = WebDavUpload(
+                            openStream = { ByteArrayInputStream(byteArrayOf(1)) },
+                        ),
+                        stagingKey = "66666666-6666-6666-6666-666666666666",
+                        onCommitFailed = { definitiveFailureRecorded = true },
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(error is UploadCommitUncertainException)
+            assertFalse(definitiveFailureRecorded)
+            assertEquals(2, server.requestCount)
         } finally {
             server.shutdown()
         }
@@ -251,6 +350,96 @@ class WebDavFileRepositoryTest {
             val request = server.takeRequest()
             assertEquals("MKCOL", request.method)
             assertEquals("/root/%E8%B5%84%E6%96%99/%E6%96%B0%E7%9B%AE%E5%BD%95/", request.path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun ensureDirectoryAcceptsAnExistingCollection() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(405))
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(207)
+                    .setBody(propFindResponse("/root/existing/", collection = true)),
+            )
+            val repository = repository(server)
+
+            runBlocking {
+                repository.ensureDirectory(WebDavPath.parseDecoded("/existing"))
+            }
+
+            assertEquals("MKCOL", server.takeRequest().method)
+            assertEquals("PROPFIND", server.takeRequest().method)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun recoveryRecognizesCommittedMoveWhenTemporaryIsGone() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(207)
+                    .setBody(propFindResponse("/root/final.txt", collection = false)),
+            )
+            val repository = repository(server)
+
+            val result = runBlocking {
+                repository.recoverUpload(
+                    path = WebDavPath.parseDecoded("/final.txt"),
+                    stagingKey = "22222222-2222-2222-2222-222222222222",
+                    wasCommitting = true,
+                )
+            }
+
+            assertEquals(UploadRecoveryResult.COMMITTED, result)
+            assertEquals(3, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun recoveryDeletesInterruptedTaskTemporaryBeforeRetry() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val stagingKey = "33333333-3333-3333-3333-333333333333"
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(207)
+                    .setBody(
+                        propFindResponse(
+                            "/root/.ard-upload-$stagingKey.part",
+                            collection = false,
+                        ),
+                    ),
+            )
+            server.enqueue(MockResponse().setResponseCode(204))
+            val repository = repository(server)
+
+            val result = runBlocking {
+                repository.recoverUpload(
+                    path = WebDavPath.parseDecoded("/final.txt"),
+                    stagingKey = stagingKey,
+                    wasCommitting = false,
+                )
+            }
+
+            assertEquals(UploadRecoveryResult.RETRY, result)
+            assertEquals("PROPFIND", server.takeRequest().method)
+            val cleanup = server.takeRequest()
+            assertEquals("DELETE", cleanup.method)
+            assertEquals("/root/.ard-upload-$stagingKey.part", cleanup.path)
         } finally {
             server.shutdown()
         }

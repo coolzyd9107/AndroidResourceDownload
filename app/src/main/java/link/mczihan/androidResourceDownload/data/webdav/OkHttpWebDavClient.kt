@@ -60,6 +60,7 @@ class OkHttpWebDavClient(
         .followSslRedirects(false)
         .build()
     private val mutationHttpClient = httpClient.newBuilder()
+        .retryOnConnectionFailure(false)
         .readTimeout(MUTATION_TIMEOUT_MINUTES, TimeUnit.MINUTES)
         .writeTimeout(MUTATION_TIMEOUT_MINUTES, TimeUnit.MINUTES)
         .build()

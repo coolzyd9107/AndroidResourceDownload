@@ -6,7 +6,7 @@
 
 **Phase 3 read-only browsing / v1.1 direct WebDAV integration in progress（阶段三只读浏览 / v1.1 直连 WebDAV 接入中）。**
 
-首版 Mock UI 已保留为显式 Demo 模式。真实模式已接入 GitHub OAuth/邮箱认证、加密会话恢复、内存 WebDAV 凭据、目录浏览、受支持文本与图片的内存预览、下载队列、仓库版本检查，以及管理员专属的云端上传、重命名、移动、复制和删除操作。
+首版 Mock UI 已保留为显式 Demo 模式。真实模式已接入 GitHub OAuth/邮箱认证、加密会话恢复、内存 WebDAV 凭据、目录浏览、受支持文本与图片的内存预览、下载队列、仓库版本检查、可开关的莫奈自动取色与自定义 HCT 主题，以及管理员专属的三并发上传队列、递归文件夹上传、重命名、移动、复制和删除操作。
 
 ## 目标技术栈
 
@@ -18,7 +18,7 @@
 - OkHttp + Retrofit
 - Hilt
 - DataStore，以及 Android Keystore 支持的敏感信息存储
-- 前台服务与系统通知，用于后续下载任务
+- 前台服务与系统通知，用于下载和上传任务
 
 具体依赖版本由项目 Gradle 配置统一管理；本文不预先声明未经验证的版本。
 
