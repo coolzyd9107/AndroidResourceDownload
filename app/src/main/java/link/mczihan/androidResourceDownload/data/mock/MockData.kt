@@ -33,7 +33,7 @@ fun mockFilesForPath(path: String, now: Long = System.currentTimeMillis()): List
 fun mockPreviewForFile(file: FileNode): FilePreviewContent? = when (file.path) {
     "/应用发布/release-notes.txt" -> FilePreviewContent.Text(
         text = """
-            Android Resource Download 2.1.0
+            Android Resource Download 2.2.1
 
             - 新增云端文件管理能力
             - 优化下载任务恢复

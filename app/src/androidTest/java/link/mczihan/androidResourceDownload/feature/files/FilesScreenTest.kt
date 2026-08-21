@@ -92,7 +92,7 @@ class FilesScreenTest {
         composeRule.onNodeWithText("release-notes.txt").performClick()
         composeRule.onNodeWithText("预览").assertIsDisplayed().performClick()
 
-        composeRule.onNodeWithText("Android Resource Download 2.1.0", substring = true)
+        composeRule.onNodeWithText("Android Resource Download 2.2.1", substring = true)
             .assertIsDisplayed()
         composeRule.onNode(hasContentDescription("编辑文本")).assertDoesNotExist()
     }
