@@ -140,6 +140,16 @@ class UploadsViewModel @Inject constructor(
         }
     }
 
+    fun cancelAll() = withOwner { owner ->
+        val count = queueController.cancelAll(owner)
+        messageChannel.send(if (count > 0) "已取消 $count 个任务" else "没有可取消的任务")
+    }
+
+    fun clearTerminal() = withOwner { owner ->
+        val count = queueController.clearTerminal(owner)
+        messageChannel.send(if (count > 0) "已清除 $count 个已结束任务" else "没有可清除的任务")
+    }
+
     fun startPending() = withOwner { owner ->
         if (!queueController.startIfNeeded(owner)) {
             messageChannel.send("无法启动上传队列")

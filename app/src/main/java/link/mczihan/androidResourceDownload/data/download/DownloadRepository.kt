@@ -139,6 +139,45 @@ class DownloadRepository @Inject constructor(
         }
     }
 
+    suspend fun deleteTerminal(ownerId: String, taskId: String, deleteLocalFile: Boolean): Boolean = enqueueMutex.withLock {
+        withContext(NonCancellable) {
+            val task = dao.findById(ownerId, taskId)?.toDomain() ?: return@withContext false
+            if (task.status !in listOf(DownloadStatus.SUCCESS, DownloadStatus.FAILED, DownloadStatus.CANCELLED)) {
+                return@withContext false
+            }
+            if (deleteLocalFile) {
+                if (task.status == DownloadStatus.SUCCESS) {
+                    if (!publicDownloadStore.delete(task.publicUri)) return@withContext false
+                } else if (task.publicUri != null) {
+                    publicDownloadStore.delete(task.publicUri)
+                }
+                fileStore.deleteAll(task)
+            }
+            dao.deleteTerminal(ownerId, taskId) == 1
+        }
+    }
+
+    suspend fun cancelAll(ownerId: String): Int =
+        dao.cancelAllPending(ownerId, System.currentTimeMillis())
+
+    suspend fun clearTerminal(ownerId: String, deleteLocalFiles: Boolean): Int = enqueueMutex.withLock {
+        withContext(NonCancellable) {
+            val terminal = dao.tasksForOwnerTerminal(ownerId)
+            if (deleteLocalFiles) {
+                terminal.forEach { task ->
+                    val domain = task.toDomain()
+                    if (domain.status == DownloadStatus.SUCCESS) {
+                        publicDownloadStore.delete(domain.publicUri)
+                    } else if (domain.publicUri != null) {
+                        publicDownloadStore.delete(domain.publicUri)
+                    }
+                    fileStore.deleteAll(domain)
+                }
+            }
+            dao.deleteTerminalAll(ownerId)
+        }
+    }
+
     suspend fun updatePreparation(taskId: String, preparation: DownloadPreparation): Boolean =
         dao.updatePreparation(
             taskId = taskId,

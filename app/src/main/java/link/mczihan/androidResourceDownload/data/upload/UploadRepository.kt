@@ -10,6 +10,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import link.mczihan.androidResourceDownload.data.file.FileRepository
 import link.mczihan.androidResourceDownload.domain.model.UploadTask
 import link.mczihan.androidResourceDownload.domain.model.UploadStatus
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
@@ -27,6 +28,7 @@ class UploadRepository @Inject constructor(
     private val dao: UploadTaskDao,
     private val scanner: UploadSelectionScanner,
     private val permissionManager: UploadUriPermissionManager,
+    private val fileRepository: FileRepository,
 ) {
     private val mutationMutex = Mutex()
 
@@ -68,16 +70,10 @@ class UploadRepository @Inject constructor(
             val activePaths = dao.activeRemotePaths(ownerId).toHashSet()
             val batchId = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
-            if (scanTree) {
-                val duplicateCount = entries.count { entry ->
-                    uploadDestinationPath(destination, entry.relativeSegments).toString() in activePaths
-                }
-                if (duplicateCount > 0) {
-                    throw UploadSelectionException("文件夹中有目标已在上传队列中，请等待后重试")
-                }
-            }
+            // Auto-rename if target already exists (queue or remote server)
+            val renamedEntries = resolveUniqueEntries(entries, destination, activePaths, scanTree)
             var skipped = 0
-            val entities = entries.mapIndexedNotNull { index, entry ->
+            val entities = renamedEntries.mapIndexedNotNull { index, entry ->
                 val remotePath = uploadDestinationPath(destination, entry.relativeSegments)
                 if (!activePaths.add(remotePath.toString())) {
                     skipped++
@@ -169,6 +165,19 @@ class UploadRepository @Inject constructor(
         }
     }
 
+    suspend fun cancelAll(ownerId: String): Int =
+        dao.cancelAllPending(ownerId, System.currentTimeMillis())
+
+    suspend fun clearTerminal(ownerId: String): Int = mutationMutex.withLock {
+        withContext(NonCancellable) {
+            val terminal = dao.tasksForOwnerTerminal(ownerId)
+            val permissions = terminal.mapNotNull { it.permissionUri }.toSet()
+            val deleted = dao.deleteTerminalAll(ownerId)
+            permissions.forEach { releasePermissionIfUnused(it) }
+            deleted
+        }
+    }
+
     suspend fun updatePreparation(taskId: String, totalBytes: Long?): Boolean =
         dao.updatePreparation(taskId, totalBytes, System.currentTimeMillis()) == 1
 
@@ -230,6 +239,44 @@ class UploadRepository @Inject constructor(
             if (permissionManager.releaseRead(Uri.parse(permissionUri))) {
                 dao.deletePermissionReservation(permissionUri)
             }
+        }
+    }
+
+    private suspend fun resolveUniqueEntries(
+        entries: List<UploadSourceEntry>,
+        destination: WebDavPath,
+        activePaths: HashSet<String>,
+        scanTree: Boolean,
+    ): List<UploadSourceEntry> {
+        if (entries.isEmpty()) return entries
+        val originalName = entries.first().relativeSegments.first()
+        var currentName = originalName
+        var counter = 1
+        while (counter < 1000) {
+            val targetPath = runCatching { destination.child(currentName) }.getOrNull() ?: break
+            val existsInQueue = targetPath.toString() in activePaths
+            val existsOnRemote = fileRepository.resourceExists(targetPath)
+            if (!existsInQueue && !existsOnRemote) break
+            currentName = if (scanTree) {
+                "$originalName($counter)"
+            } else {
+                appendSuffixToFileName(originalName, "($counter)")
+            }
+            counter++
+        }
+        if (currentName == originalName) return entries
+        return entries.map { entry ->
+            val newSegments = listOf(currentName) + entry.relativeSegments.drop(1)
+            entry.copy(relativeSegments = newSegments)
+        }
+    }
+
+    private fun appendSuffixToFileName(fileName: String, suffix: String): String {
+        val dotIndex = fileName.lastIndexOf('.')
+        return if (dotIndex > 0) {
+            fileName.substring(0, dotIndex) + suffix + fileName.substring(dotIndex)
+        } else {
+            fileName + suffix
         }
     }
 }

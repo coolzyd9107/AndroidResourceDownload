@@ -146,6 +146,14 @@ class WebDavFileRepository @Inject constructor(
     override suspend fun isCollection(path: WebDavPath): Boolean? =
         webDavClient.propFindResource(path)?.requireKnownResourceType()?.isCollection
 
+    override suspend fun resourceExists(path: WebDavPath): Boolean = try {
+        webDavClient.propFindResource(path) != null
+    } catch (_: WebDavException.NotFound) {
+        false
+    } catch (_: Exception) {
+        false
+    }
+
     override suspend fun createDirectory(path: WebDavPath) {
         requireMutablePath(path)
         webDavClient.makeCollection(path)

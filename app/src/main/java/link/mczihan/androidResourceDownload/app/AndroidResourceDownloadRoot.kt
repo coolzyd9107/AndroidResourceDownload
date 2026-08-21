@@ -610,6 +610,8 @@ private fun MainShell(
                         onRetry = { taskId -> uploadsViewModel?.retry(taskId) },
                         onCancel = { taskId -> uploadsViewModel?.cancel(taskId) },
                         onDelete = { taskId -> uploadsViewModel?.delete(taskId) },
+                        onCancelAll = { uploadsViewModel?.cancelAll() },
+                        onClearTerminal = { uploadsViewModel?.clearTerminal() },
                     )
                 }
             }
@@ -687,6 +689,21 @@ private fun MainShell(
                             }
                         } else {
                             downloadsViewModel?.delete(taskId)
+                        }
+                    },
+                    onDeleteWithOption = { taskId, deleteLocalFile ->
+                        if (!BuildConfig.DEMO_MODE) {
+                            downloadsViewModel?.delete(taskId, deleteLocalFile)
+                        }
+                    },
+                    onCancelAll = {
+                        if (!BuildConfig.DEMO_MODE) {
+                            downloadsViewModel?.cancelAll()
+                        }
+                    },
+                    onClearTerminal = { deleteLocalFiles ->
+                        if (!BuildConfig.DEMO_MODE) {
+                            downloadsViewModel?.clearTerminal(deleteLocalFiles)
                         }
                     },
                 )
