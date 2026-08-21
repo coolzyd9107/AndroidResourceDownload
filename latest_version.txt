@@ -1,2 +1,2 @@
 latest_version=2.1.0
-update_url=https://github.com/zhuzhuzihan/AndroidResourceDownload/releases/latest
+update_url=https://github.com/zhuzhuzihan/AndroidResourceDownload/releases/download/v2.1.0/app-release.apk
