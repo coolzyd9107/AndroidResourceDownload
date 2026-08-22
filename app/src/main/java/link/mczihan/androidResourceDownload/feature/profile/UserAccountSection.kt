@@ -4,9 +4,12 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,11 +19,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -33,12 +36,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.ImageLoader
@@ -52,10 +56,11 @@ import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
 import okhttp3.OkHttpClient
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun UserAccountSection(
     user: User,
+    onLogout: () -> Unit,
     qqNickname: String? = null,
     allowQqLookup: Boolean = true,
     modifier: Modifier = Modifier,
@@ -99,7 +104,8 @@ fun UserAccountSection(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = Color.Transparent,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
@@ -158,29 +164,60 @@ fun UserAccountSection(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Surface(
-                        shape = CircleShape,
-                        color = if (user.role == Role.ADMIN) {
-                            MaterialTheme.colorScheme.tertiaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        },
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(
-                            text = if (user.role == Role.ADMIN) "管理员" else "普通用户",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        Surface(
+                            shape = CircleShape,
                             color = if (user.role == Role.ADMIN) {
-                                MaterialTheme.colorScheme.onTertiaryContainer
+                                MaterialTheme.colorScheme.tertiaryContainer
                             } else {
-                                MaterialTheme.colorScheme.onSecondaryContainer
+                                MaterialTheme.colorScheme.secondaryContainer
                             },
-                            style = MaterialTheme.typography.labelLargeEmphasized,
-                        )
+                        ) {
+                            Text(
+                                text = if (user.role == Role.ADMIN) "管理员" else "普通用户",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                color = if (user.role == Role.ADMIN) {
+                                    MaterialTheme.colorScheme.onTertiaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                },
+                                style = MaterialTheme.typography.labelLargeEmphasized,
+                            )
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable(
+                                    role = SemanticsRole.Button,
+                                    onClick = onLogout,
+                                ),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = "退出登录",
+                                    style = MaterialTheme.typography.labelLargeEmphasized,
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             AccountDetail(
                 icon = Icons.Default.Email,
                 label = "邮箱",

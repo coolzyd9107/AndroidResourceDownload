@@ -297,11 +297,34 @@ class SettingsScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("账户").assertExists()
+        composeRule.onNodeWithText("账户").assertDoesNotExist()
         composeRule.onNodeWithText("测试用户").assertExists()
         composeRule.onNodeWithText("user@example.com").assertExists()
         composeRule.onNodeWithText("GitHub").assertExists()
+        composeRule.onNodeWithText("退出登录").assertExists()
         composeRule.onNodeWithText("个人中心").assertDoesNotExist()
+    }
+
+    @Test
+    fun compactLogoutButtonKeepsConfirmationStep() {
+        var loggedOut = false
+        composeRule.setContent {
+            MaterialTheme {
+                SettingsScreen(
+                    user = testUser,
+                    themeMode = ThemeMode.SYSTEM,
+                    onThemeModeChange = {},
+                    onLogout = { loggedOut = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("退出登录").performClick()
+        composeRule.onNodeWithText("退出登录？").assertExists()
+        composeRule.runOnIdle { assertEquals(false, loggedOut) }
+
+        composeRule.onNodeWithText("退出").performClick()
+        composeRule.runOnIdle { assertTrue(loggedOut) }
     }
 
     private val testUser = User(

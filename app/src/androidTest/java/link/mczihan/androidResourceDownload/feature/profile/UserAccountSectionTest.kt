@@ -35,6 +35,7 @@ class UserAccountSectionTest {
             MaterialTheme {
                 UserAccountSection(
                     user = user,
+                    onLogout = {},
                     allowQqLookup = false,
                 )
             }

@@ -32,7 +32,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Campaign
@@ -156,16 +155,12 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Text(
-                text = "账户",
-                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 8.dp),
-                style = MaterialTheme.typography.titleMediumEmphasized,
-                color = MaterialTheme.colorScheme.primary,
-            )
             UserAccountSection(
                 user = user,
+                onLogout = { showLogout = true },
                 qqNickname = qqNickname,
                 allowQqLookup = allowQqLookup,
+                modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp),
             )
             Text(
                 text = "外观",
@@ -320,13 +315,6 @@ fun SettingsScreen(
                 supportingContent = { Text("版本与开源信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
                 modifier = Modifier.clickable { showAbout = true },
-            )
-            ListItem(
-                headlineContent = { Text("退出登录") },
-                leadingContent = {
-                    SettingsIcon(Icons.AutoMirrored.Filled.Logout, isError = true)
-                },
-                modifier = Modifier.clickable { showLogout = true },
             )
         }
     }
@@ -835,26 +823,17 @@ private fun ThemeToneSlider(
 @Composable
 private fun SettingsIcon(
     imageVector: ImageVector,
-    isError: Boolean = false,
 ) {
     Surface(
         modifier = Modifier.size(40.dp),
         shape = MaterialTheme.shapes.medium,
-        color = if (isError) {
-            MaterialTheme.colorScheme.errorContainer
-        } else {
-            MaterialTheme.colorScheme.secondaryContainer
-        },
+        color = MaterialTheme.colorScheme.secondaryContainer,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = imageVector,
                 contentDescription = null,
-                tint = if (isError) {
-                    MaterialTheme.colorScheme.onErrorContainer
-                } else {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                },
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
     }
