@@ -306,7 +306,7 @@ class OkHttpWebDavClient(
                 .header("Authorization", lease.basicAuthorization())
                 .header("Destination", destinationUrl.toString())
                 .header("Overwrite", if (overwrite) "T" else "F")
-                .header("Depth", "infinity")
+                .apply { if (sourceIsCollection) header("Depth", "infinity") }
                 .apply { if (strongEtag != null) header("If-Match", strongEtag) }
                 .method("COPY", null)
                 .build()

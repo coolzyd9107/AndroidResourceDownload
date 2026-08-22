@@ -96,6 +96,12 @@ class FilesViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow<FilesUiState>(FilesUiState.Loading(WebDavPath.root()))
     val state: StateFlow<FilesUiState> = _state.asStateFlow()
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+    private val _multiSelectMode = MutableStateFlow(false)
+    val multiSelectMode: StateFlow<Boolean> = _multiSelectMode.asStateFlow()
+    private val _selectedPaths = MutableStateFlow<Set<String>>(emptySet())
+    val selectedPaths: StateFlow<Set<String>> = _selectedPaths.asStateFlow()
     private val _mutationState = MutableStateFlow<FileMutationState>(FileMutationState.Idle)
     val mutationState: StateFlow<FileMutationState> = _mutationState.asStateFlow()
     private val _directoryPickerState = MutableStateFlow<DirectoryPickerState>(DirectoryPickerState.Idle)
@@ -117,10 +123,14 @@ class FilesViewModel @Inject constructor(
         load(WebDavPath.root())
     }
 
-    private fun load(path: WebDavPath) {
+    private fun load(path: WebDavPath, isRefresh: Boolean = false) {
         val version = ++loadVersion
         loadJob?.cancel()
-        _state.value = FilesUiState.Loading(path)
+        if (!isRefresh) {
+            _state.value = FilesUiState.Loading(path)
+        } else {
+            _isRefreshing.value = true
+        }
         loadJob = viewModelScope.launch {
             val result = try {
                 repository.list(path).let { files ->
@@ -133,21 +143,129 @@ class FilesViewModel @Inject constructor(
             } catch (error: Exception) {
                 FilesUiState.Error(path, error.message ?: "文件列表加载失败")
             }
-            if (version == loadVersion) _state.value = result
+            if (version == loadVersion) {
+                _state.value = result
+                _isRefreshing.value = false
+            }
         }
     }
 
     fun openDirectory(path: WebDavPath) {
+        exitMultiSelect()
         load(path)
     }
 
     fun navigateUp() {
+        exitMultiSelect()
         val segments = _state.value.path.decodedSegments
         if (segments.isEmpty()) return
         load(WebDavPath.fromDecodedSegments(segments.dropLast(1)))
     }
 
     fun retry() = load(_state.value.path)
+
+    fun refresh() = load(_state.value.path, isRefresh = true)
+
+    fun enterMultiSelect() {
+        _multiSelectMode.value = true
+    }
+
+    fun exitMultiSelect() {
+        _multiSelectMode.value = false
+        _selectedPaths.value = emptySet()
+    }
+
+    fun toggleSelection(path: String) {
+        _selectedPaths.value = _selectedPaths.value.toMutableSet().apply {
+            if (contains(path)) remove(path) else add(path)
+        }
+    }
+
+    fun selectAll() {
+        val current = _state.value
+        if (current is FilesUiState.Success) {
+            _selectedPaths.value = current.files.map { it.path }.toSet()
+        }
+    }
+
+    fun getSelectedFiles(): List<FileNode> {
+        val current = _state.value
+        val selected = _selectedPaths.value
+        return if (current is FilesUiState.Success) {
+            current.files.filter { it.path in selected }
+        } else emptyList()
+    }
+
+    fun batchDelete(files: List<FileNode>) {
+        viewModelScope.launch {
+            var successCount = 0
+            files.forEach { file ->
+                try {
+                    repository.delete(
+                        WebDavPath.parseDecoded(file.path),
+                        file.isDirectory,
+                        file.etag,
+                    )
+                    successCount++
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // 跳过失败项，继续处理其余
+                }
+            }
+            exitMultiSelect()
+            load(_state.value.path)
+            messageChannel.send("已删除 $successCount/${files.size} 项")
+        }
+    }
+
+    fun batchMove(files: List<FileNode>, destinationDirectory: WebDavPath) {
+        batchTransfer(files, destinationDirectory, move = true)
+    }
+
+    fun batchCopy(files: List<FileNode>, destinationDirectory: WebDavPath) {
+        batchTransfer(files, destinationDirectory, move = false)
+    }
+
+    private fun batchTransfer(files: List<FileNode>, destinationDirectory: WebDavPath, move: Boolean) {
+        viewModelScope.launch {
+            var successCount = 0
+            files.forEach { file ->
+                val source = WebDavPath.parseDecoded(file.path)
+                val destination = runCatching {
+                    destinationDirectory.child(requireNotNull(source.name))
+                }.getOrNull() ?: return@forEach
+                try {
+                    if (move) {
+                        repository.move(
+                            source = source,
+                            destination = destination,
+                            overwrite = false,
+                            sourceIsCollection = file.isDirectory,
+                            sourceEtag = file.etag,
+                        )
+                    } else {
+                        repository.copy(
+                            source = source,
+                            destination = destination,
+                            overwrite = false,
+                            sourceIsCollection = file.isDirectory,
+                            sourceEtag = file.etag,
+                        )
+                    }
+                    successCount++
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // 跳过失败项
+                }
+            }
+            exitMultiSelect()
+            load(_state.value.path)
+            val action = if (move) "移动" else "复制"
+            messageChannel.send("已$action $successCount/${files.size} 项")
+        }
+    }
 
     fun preview(file: FileNode) {
         if (file.previewFormat() == null) return
