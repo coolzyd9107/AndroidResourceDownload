@@ -100,6 +100,46 @@ class FilesViewModelTest {
     }
 
     @Test
+    fun toggleSelectAllSelectsEveryItemThenClearsSelection() = runTest(dispatcher) {
+        val files = listOf(
+            FileNode("folder", "/folder", isDirectory = true),
+            FileNode("notes.txt", "/notes.txt", isDirectory = false),
+            FileNode("image.png", "/image.png", isDirectory = false),
+        )
+        val viewModel = FilesViewModel(FakeFileRepository { files })
+        advanceUntilIdle()
+        viewModel.enterMultiSelect()
+        viewModel.toggleSelection(files.first().path)
+
+        viewModel.toggleSelectAll()
+
+        assertEquals(files.map(FileNode::path).toSet(), viewModel.selectedPaths.value)
+
+        viewModel.toggleSelectAll()
+
+        assertTrue(viewModel.selectedPaths.value.isEmpty())
+        assertTrue(viewModel.multiSelectMode.value)
+    }
+
+    @Test
+    fun invertSelectionSelectsOnlyCurrentComplement() = runTest(dispatcher) {
+        val files = listOf(
+            FileNode("folder", "/folder", isDirectory = true),
+            FileNode("notes.txt", "/notes.txt", isDirectory = false),
+            FileNode("image.png", "/image.png", isDirectory = false),
+        )
+        val viewModel = FilesViewModel(FakeFileRepository { files })
+        advanceUntilIdle()
+        viewModel.enterMultiSelect()
+        viewModel.toggleSelection("/folder")
+        viewModel.toggleSelection("/image.png")
+
+        viewModel.invertSelection()
+
+        assertEquals(setOf("/notes.txt"), viewModel.selectedPaths.value)
+    }
+
+    @Test
     fun moveConflictWaitsForExplicitOverwriteThenRefreshes() = runTest(dispatcher) {
         val overwriteAttempts = mutableListOf<Boolean>()
         val destinations = mutableListOf<WebDavPath>()

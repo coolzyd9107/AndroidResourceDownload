@@ -49,8 +49,10 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
@@ -62,6 +64,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -100,11 +103,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
@@ -146,6 +151,7 @@ fun FilesScreen(
     onMessage: (String) -> Unit,
     onUploadFile: (WebDavPath) -> Unit = {},
     onUploadFolder: (WebDavPath) -> Unit = {},
+    onMultiSelectModeChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val viewModel = if (BuildConfig.DEMO_MODE) null else hiltViewModel<FilesViewModel>()
@@ -175,6 +181,9 @@ fun FilesScreen(
     val multiSelectMode = viewModel?.multiSelectMode?.collectAsStateWithLifecycle()?.value ?: false
     val selectedPaths = viewModel?.selectedPaths?.collectAsStateWithLifecycle()?.value ?: emptySet()
     var batchTransferRequest by remember { mutableStateOf<BatchTransferRequest?>(null) }
+    LaunchedEffect(isAdmin, multiSelectMode) {
+        onMultiSelectModeChange(isAdmin && multiSelectMode)
+    }
     LaunchedEffect(isAdmin) {
         if (!isAdmin) {
             transferRequest = null
@@ -244,6 +253,9 @@ fun FilesScreen(
                 }
         }
     }
+    val displayedFiles = (filePaneState.content as? FilePaneContent.Files)?.value.orEmpty()
+    val allDisplayedFilesSelected = displayedFiles.isNotEmpty() &&
+        displayedFiles.all { it.path in selectedPaths }
     var folderHistory by remember { mutableStateOf<List<FilePaneState>>(emptyList()) }
     val predictiveBackProgress = remember { Animatable(0f) }
     var predictiveBackInProgress by remember { mutableStateOf(false) }
@@ -359,68 +371,6 @@ fun FilesScreen(
                                     )
                                 }
                             },
-                            actions = {
-                                IconButton(onClick = { viewModel?.selectAll() }) {
-                                    Icon(Icons.Default.SelectAll, contentDescription = "全选")
-                                }
-                                IconButton(onClick = {
-                                    val files = viewModel?.getSelectedFiles() ?: emptyList()
-                                    if (files.isNotEmpty()) {
-                                        batchTransferRequest = BatchTransferRequest(files, TransferType.MOVE)
-                                        if (viewModel == null) {
-                                            demoDestinationPath = activePath
-                                        } else {
-                                            viewModel.openDestinationPicker(activePath)
-                                        }
-                                    }
-                                }) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.DriveFileMove,
-                                        contentDescription = "批量移动",
-                                    )
-                                }
-                                IconButton(onClick = {
-                                    val files = viewModel?.getSelectedFiles() ?: emptyList()
-                                    if (files.isNotEmpty()) {
-                                        batchTransferRequest = BatchTransferRequest(files, TransferType.COPY)
-                                        if (viewModel == null) {
-                                            demoDestinationPath = activePath
-                                        } else {
-                                            viewModel.openDestinationPicker(activePath)
-                                        }
-                                    }
-                                }) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = "批量复制")
-                                }
-                                IconButton(onClick = {
-                                    val selected = viewModel?.getSelectedFiles() ?: emptyList()
-                                    selected.forEach { item ->
-                                        if (item.isDirectory) {
-                                            viewModel?.downloadFolder(item) { fileNode, relativePath ->
-                                                onDownload(fileNode, relativePath)
-                                            }
-                                        } else {
-                                            onDownload(item, "")
-                                        }
-                                    }
-                                    if (selected.isNotEmpty()) onMessage("已加入下载任务")
-                                    viewModel?.exitMultiSelect()
-                                }) {
-                                    Icon(Icons.Default.Download, contentDescription = "批量下载")
-                                }
-                                IconButton(onClick = {
-                                    val files = viewModel?.getSelectedFiles() ?: emptyList()
-                                    if (files.isNotEmpty()) {
-                                        if (viewModel == null) {
-                                            onMessage("演示模式不执行批量删除")
-                                        } else {
-                                            viewModel.batchDelete(files)
-                                        }
-                                    }
-                                }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "批量删除")
-                                }
-                            },
                             colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.surface,
                             ),
@@ -479,6 +429,50 @@ fun FilesScreen(
                             colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.surface,
                             ),
+                        )
+                    }
+                },
+                bottomBar = {
+                    if (multiSelectMode && isAdmin) {
+                        MultiSelectBottomBar(
+                            allSelected = allDisplayedFilesSelected,
+                            hasSelection = selectedPaths.isNotEmpty(),
+                            onToggleSelectAll = { viewModel?.toggleSelectAll() },
+                            onInvertSelection = { viewModel?.invertSelection() },
+                            onMove = {
+                                val files = viewModel?.getSelectedFiles() ?: emptyList()
+                                if (files.isNotEmpty()) {
+                                    batchTransferRequest = BatchTransferRequest(files, TransferType.MOVE)
+                                    viewModel?.openDestinationPicker(activePath)
+                                }
+                            },
+                            onCopy = {
+                                val files = viewModel?.getSelectedFiles() ?: emptyList()
+                                if (files.isNotEmpty()) {
+                                    batchTransferRequest = BatchTransferRequest(files, TransferType.COPY)
+                                    viewModel?.openDestinationPicker(activePath)
+                                }
+                            },
+                            onDownload = {
+                                val selected = viewModel?.getSelectedFiles() ?: emptyList()
+                                selected.forEach { item ->
+                                    if (item.isDirectory) {
+                                        viewModel?.downloadFolder(item) { fileNode, relativePath ->
+                                            onDownload(fileNode, relativePath)
+                                        }
+                                    } else {
+                                        onDownload(item, "")
+                                    }
+                                }
+                                if (selected.isNotEmpty()) onMessage("已加入下载任务")
+                                viewModel?.exitMultiSelect()
+                            },
+                            onDelete = {
+                                val files = viewModel?.getSelectedFiles() ?: emptyList()
+                                if (files.isNotEmpty()) {
+                                    viewModel?.batchDelete(files)
+                                }
+                            },
                         )
                     }
                 },
@@ -963,6 +957,105 @@ private sealed interface FilePaneContent {
     data class Files(val value: List<FileNode>) : FilePaneContent
 }
 
+@Composable
+private fun MultiSelectBottomBar(
+    allSelected: Boolean,
+    hasSelection: Boolean,
+    onToggleSelectAll: () -> Unit,
+    onInvertSelection: () -> Unit,
+    onMove: () -> Unit,
+    onCopy: () -> Unit,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    BottomAppBar(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 0.dp,
+        contentPadding = PaddingValues(horizontal = 4.dp),
+    ) {
+        MultiSelectAction(
+            icon = if (allSelected) Icons.Default.Deselect else Icons.Default.SelectAll,
+            label = if (allSelected) "取消全选" else "全选",
+            onClick = onToggleSelectAll,
+            modifier = Modifier.weight(1f),
+        )
+        MultiSelectAction(
+            icon = Icons.Default.FlipToBack,
+            label = "反选",
+            onClick = onInvertSelection,
+            modifier = Modifier.weight(1f),
+        )
+        MultiSelectAction(
+            icon = Icons.AutoMirrored.Filled.DriveFileMove,
+            label = "移动",
+            enabled = hasSelection,
+            onClick = onMove,
+            modifier = Modifier.weight(1f),
+        )
+        MultiSelectAction(
+            icon = Icons.Default.ContentCopy,
+            label = "复制",
+            enabled = hasSelection,
+            onClick = onCopy,
+            modifier = Modifier.weight(1f),
+        )
+        MultiSelectAction(
+            icon = Icons.Default.Download,
+            label = "下载",
+            enabled = hasSelection,
+            onClick = onDownload,
+            modifier = Modifier.weight(1f),
+        )
+        MultiSelectAction(
+            icon = Icons.Default.Delete,
+            label = "删除",
+            enabled = hasSelection,
+            destructive = true,
+            onClick = onDelete,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun MultiSelectAction(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    destructive: Boolean = false,
+) {
+    val contentColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        destructive -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(
+        modifier = modifier
+            .heightIn(min = 64.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, role = SemanticsRole.Button, onClick = onClick)
+            .padding(horizontal = 2.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = contentColor,
+        )
+        Text(
+            text = label,
+            modifier = Modifier.padding(top = 4.dp),
+            color = contentColor,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FolderBackPreview(
@@ -1107,41 +1200,39 @@ private fun FileList(
                     )
                 },
                 leadingContent = {
-                    if (multiSelectMode) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = { onFileClick(file) },
-                        )
-                    } else {
-                        Surface(
-                            modifier = Modifier.size(48.dp),
-                            shape = if (file.isDirectory) MaterialTheme.shapes.medium else CircleShape,
-                            color = if (file.isDirectory) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHighest
-                            },
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = if (file.isDirectory) {
-                                        Icons.Default.Folder
-                                    } else {
-                                        Icons.AutoMirrored.Filled.InsertDriveFile
-                                    },
-                                    contentDescription = null,
-                                    tint = if (file.isDirectory) {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                )
-                            }
+                    Surface(
+                        modifier = Modifier.size(48.dp),
+                        shape = if (file.isDirectory) MaterialTheme.shapes.medium else CircleShape,
+                        color = if (file.isDirectory) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        },
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (file.isDirectory) {
+                                    Icons.Default.Folder
+                                } else {
+                                    Icons.AutoMirrored.Filled.InsertDriveFile
+                                },
+                                contentDescription = null,
+                                tint = if (file.isDirectory) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
                         }
                     }
                 },
                 trailingContent = if (multiSelectMode) {
-                    null
+                    {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { onFileClick(file) },
+                        )
+                    }
                 } else if (file.isDirectory || isAdmin) {
                     {
                         Row(verticalAlignment = Alignment.CenterVertically) {

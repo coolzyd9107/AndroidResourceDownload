@@ -332,6 +332,8 @@ private fun MainShell(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    var filesMultiSelectMode by remember { mutableStateOf(false) }
+    val showFilesMultiSelectBar = currentRoute == ShellRoute.Files.route && filesMultiSelectMode
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var demoTasks by remember {
@@ -474,44 +476,46 @@ private fun MainShell(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 0.dp,
-            ) {
-                ShellRoute.values()
-                    .filter { destination -> !destination.adminOnly || user.role == Role.ADMIN }
-                    .forEach { destination ->
-                    val selected = currentRoute == destination.route
-                    val iconScale by animateFloatAsState(
-                        targetValue = if (selected) 1.16f else 1f,
-                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
-                        label = "navigationIconScale",
-                    )
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = {
-                            openShellRoute(destination)
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = when (destination) {
-                                    ShellRoute.Files -> Icons.Default.Folder
-                                    ShellRoute.Uploads -> Icons.Default.Upload
-                                    ShellRoute.Downloads -> Icons.Default.Download
-                                    ShellRoute.Settings -> Icons.Default.Settings
-                                },
-                                contentDescription = destination.label,
-                                modifier = Modifier.graphicsLayer {
-                                    scaleX = iconScale
-                                    scaleY = iconScale
-                                },
-                            )
-                        },
-                        label = { Text(destination.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                        ),
-                    )
+            if (!showFilesMultiSelectBar) {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    tonalElevation = 0.dp,
+                ) {
+                    ShellRoute.values()
+                        .filter { destination -> !destination.adminOnly || user.role == Role.ADMIN }
+                        .forEach { destination ->
+                        val selected = currentRoute == destination.route
+                        val iconScale by animateFloatAsState(
+                            targetValue = if (selected) 1.16f else 1f,
+                            animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+                            label = "navigationIconScale",
+                        )
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                openShellRoute(destination)
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = when (destination) {
+                                        ShellRoute.Files -> Icons.Default.Folder
+                                        ShellRoute.Uploads -> Icons.Default.Upload
+                                        ShellRoute.Downloads -> Icons.Default.Download
+                                        ShellRoute.Settings -> Icons.Default.Settings
+                                    },
+                                    contentDescription = destination.label,
+                                    modifier = Modifier.graphicsLayer {
+                                        scaleX = iconScale
+                                        scaleY = iconScale
+                                    },
+                                )
+                            },
+                            label = { Text(destination.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                            ),
+                        )
+                    }
                 }
             }
         },
@@ -541,6 +545,7 @@ private fun MainShell(
                 FilesScreen(
                     role = user.role,
                     onProfile = onProfile,
+                    onMultiSelectModeChange = { filesMultiSelectMode = it },
                     onDownload = { file, relativePath ->
                         if (BuildConfig.DEMO_MODE) {
                             demoTasks = listOf(mockTaskForFile(file)) + demoTasks

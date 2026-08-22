@@ -181,10 +181,27 @@ class FilesViewModel @Inject constructor(
         }
     }
 
-    fun selectAll() {
+    fun toggleSelectAll() {
         val current = _state.value
         if (current is FilesUiState.Success) {
-            _selectedPaths.value = current.files.map { it.path }.toSet()
+            val allPaths = current.files.mapTo(mutableSetOf()) { it.path }
+            _selectedPaths.value = if (
+                allPaths.isNotEmpty() && allPaths.all(_selectedPaths.value::contains)
+            ) {
+                emptySet()
+            } else {
+                allPaths
+            }
+        }
+    }
+
+    fun invertSelection() {
+        val current = _state.value
+        if (current is FilesUiState.Success) {
+            val selected = _selectedPaths.value
+            _selectedPaths.value = current.files
+                .mapTo(mutableSetOf()) { it.path }
+                .filterNotTo(mutableSetOf(), selected::contains)
         }
     }
 
