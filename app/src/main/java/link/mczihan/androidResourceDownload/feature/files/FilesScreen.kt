@@ -89,6 +89,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -179,7 +180,7 @@ fun FilesScreen(
     val multiSelectMode = viewModel?.multiSelectMode?.collectAsStateWithLifecycle()?.value ?: false
     val selectedPaths = viewModel?.selectedPaths?.collectAsStateWithLifecycle()?.value ?: emptySet()
     var batchTransferRequest by remember { mutableStateOf<BatchTransferRequest?>(null) }
-    LaunchedEffect(isAdmin, multiSelectMode) {
+    SideEffect {
         onMultiSelectModeChange(isAdmin && multiSelectMode)
     }
     LaunchedEffect(isAdmin) {
@@ -624,8 +625,11 @@ fun FilesScreen(
                                 },
                                 onFileLongClick = { file ->
                                     if (isAdmin && !multiSelectMode) {
-                                        viewModel?.enterMultiSelect()
-                                        viewModel?.toggleSelection(file.path)
+                                        viewModel?.let { filesViewModel ->
+                                            onMultiSelectModeChange(true)
+                                            filesViewModel.enterMultiSelect()
+                                            filesViewModel.toggleSelection(file.path)
+                                        }
                                     }
                                 },
                             )
