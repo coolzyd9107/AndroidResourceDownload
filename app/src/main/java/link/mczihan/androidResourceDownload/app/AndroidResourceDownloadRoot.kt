@@ -362,7 +362,7 @@ private fun MainShell(
     var pendingFileUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFolderUploadDestination by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFolderUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingPermissionDownload by remember { mutableStateOf<FileNode?>(null) }
+    var pendingPermissionDownload by remember { mutableStateOf<Pair<FileNode, String>?>(null) }
     var pendingPermissionRetryId by remember { mutableStateOf<String?>(null) }
     var pendingPermissionStartQueue by remember { mutableStateOf(false) }
     var requestedQueueStoragePermission by remember { mutableStateOf(false) }
@@ -416,14 +416,14 @@ private fun MainShell(
     val storagePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        val file = pendingPermissionDownload
+        val pending = pendingPermissionDownload
         val retryId = pendingPermissionRetryId
         val startQueue = pendingPermissionStartQueue
         pendingPermissionDownload = null
         pendingPermissionRetryId = null
         pendingPermissionStartQueue = false
         if (granted) {
-            file?.let { downloadsViewModel?.enqueue(it) }
+            pending?.let { (file, relativePath) -> downloadsViewModel?.enqueue(file, relativePath) }
             retryId?.let { downloadsViewModel?.retry(it) }
             if (startQueue) downloadsViewModel?.startPending()
         } else {
@@ -434,7 +434,7 @@ private fun MainShell(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        pendingPermissionDownload?.let { downloadsViewModel?.enqueue(it) }
+        pendingPermissionDownload?.let { (file, relativePath) -> downloadsViewModel?.enqueue(file, relativePath) }
         pendingPermissionDownload = null
         if (!granted) showMessage("通知权限未开启，下载仍会在队列中执行")
     }
@@ -541,7 +541,7 @@ private fun MainShell(
                 FilesScreen(
                     role = user.role,
                     onProfile = onProfile,
-                    onDownload = { file ->
+                    onDownload = { file, relativePath ->
                         if (BuildConfig.DEMO_MODE) {
                             demoTasks = listOf(mockTaskForFile(file)) + demoTasks
                             showMessage("已加入下载任务")
@@ -551,7 +551,7 @@ private fun MainShell(
                                 Manifest.permission.WRITE_EXTERNAL_STORAGE,
                             ) != PackageManager.PERMISSION_GRANTED
                         ) {
-                            pendingPermissionDownload = file
+                            pendingPermissionDownload = file to relativePath
                             storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             ContextCompat.checkSelfPermission(
@@ -559,10 +559,10 @@ private fun MainShell(
                                 Manifest.permission.POST_NOTIFICATIONS,
                             ) != PackageManager.PERMISSION_GRANTED
                         ) {
-                            pendingPermissionDownload = file
+                            pendingPermissionDownload = file to relativePath
                             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
-                            downloadsViewModel?.enqueue(file)
+                            downloadsViewModel?.enqueue(file, relativePath)
                         }
                     },
                     onMessage = ::showMessage,

@@ -33,7 +33,7 @@ class DownloadRepository @Inject constructor(
     fun observe(ownerId: String): Flow<List<DownloadTask>> =
         dao.observeForOwner(ownerId).map { tasks -> tasks.map(DownloadTaskEntity::toDomain) }
 
-    suspend fun enqueue(ownerId: String, file: FileNode): EnqueueResult = enqueueMutex.withLock {
+    suspend fun enqueue(ownerId: String, file: FileNode, relativePath: String = ""): EnqueueResult = enqueueMutex.withLock {
         require(ownerId.isNotBlank()) { "Download owner must not be blank" }
         require(!file.isDirectory) { "Directories cannot be downloaded as files" }
         val path = WebDavPath.parseDecoded(file.path)
@@ -71,6 +71,7 @@ class DownloadRepository @Inject constructor(
                     fileName = remoteName,
                     remotePath = path.toString(),
                     storageName = DownloadFileStore.storageNameFor(remoteName),
+                    relativePath = relativePath,
                     mimeType = file.mimeType,
                     totalBytes = file.size,
                     etag = file.etag,

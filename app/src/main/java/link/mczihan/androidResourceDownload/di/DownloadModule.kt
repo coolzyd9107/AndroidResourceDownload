@@ -20,7 +20,7 @@ object DownloadModule {
     @Singleton
     fun provideDownloadDatabase(@ApplicationContext context: Context): DownloadDatabase =
         Room.databaseBuilder(context, DownloadDatabase::class.java, "downloads.db")
-            .addMigrations(DownloadDatabase.MIGRATION_1_2)
+            .addMigrations(DownloadDatabase.MIGRATION_1_2, DownloadDatabase.MIGRATION_2_3)
             .build()
 
     @Provides

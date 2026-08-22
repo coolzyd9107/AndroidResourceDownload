@@ -267,6 +267,42 @@ class FilesViewModel @Inject constructor(
         }
     }
 
+    private val folderDownloadCount = mutableMapOf<String, Int>()
+
+    fun downloadFolder(folder: FileNode, onFile: (FileNode, String) -> Unit) {
+        viewModelScope.launch {
+            val folderPath = folder.path.trimEnd('/')
+            val files = listFilesRecursive(WebDavPath.parseDecoded(folder.path))
+            val count = folderDownloadCount.getOrDefault(folder.name, 0) + 1
+            folderDownloadCount[folder.name] = count
+            val uniqueFolderName = if (count > 1) "${folder.name}($count)" else folder.name
+            files.forEach { file ->
+                val relativeFull = file.path.removePrefix(folderPath).trimStart('/')
+                val subDir = relativeFull.substringBeforeLast('/', "")
+                val relativeDir = if (subDir.isNotEmpty()) "$uniqueFolderName/$subDir" else uniqueFolderName
+                onFile(file, relativeDir)
+            }
+            messageChannel.send("已加入 ${files.size} 个文件到下载队列")
+        }
+    }
+
+    private suspend fun listFilesRecursive(path: WebDavPath): List<FileNode> {
+        val result = mutableListOf<FileNode>()
+        try {
+            val items = repository.list(path)
+            for (item in items) {
+                if (item.isDirectory) {
+                    result.addAll(listFilesRecursive(WebDavPath.parseDecoded(item.path)))
+                } else {
+                    result.add(item)
+                }
+            }
+        } catch (_: Exception) {
+            // 跳过无法访问的子目录
+        }
+        return result
+    }
+
     fun preview(file: FileNode) {
         if (file.previewFormat() == null) return
         previewJob?.cancel()

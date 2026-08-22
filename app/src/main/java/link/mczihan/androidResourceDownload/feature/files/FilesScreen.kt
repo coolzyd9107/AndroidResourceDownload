@@ -142,7 +142,7 @@ import link.mczihan.androidResourceDownload.domain.webdav.strongEntityTagOrNull
 fun FilesScreen(
     role: Role,
     onProfile: () -> Unit,
-    onDownload: (FileNode) -> Unit,
+    onDownload: (FileNode, String) -> Unit,
     onMessage: (String) -> Unit,
     onUploadFile: (WebDavPath) -> Unit = {},
     onUploadFolder: (WebDavPath) -> Unit = {},
@@ -393,9 +393,17 @@ fun FilesScreen(
                                     Icon(Icons.Default.ContentCopy, contentDescription = "批量复制")
                                 }
                                 IconButton(onClick = {
-                                    val files = viewModel?.getSelectedFiles() ?: emptyList()
-                                    files.filter { !it.isDirectory }.forEach { onDownload(it) }
-                                    if (files.isNotEmpty()) onMessage("已加入 ${files.count { !it.isDirectory }} 个下载任务")
+                                    val selected = viewModel?.getSelectedFiles() ?: emptyList()
+                                    selected.forEach { item ->
+                                        if (item.isDirectory) {
+                                            viewModel?.downloadFolder(item) { fileNode, relativePath ->
+                                                onDownload(fileNode, relativePath)
+                                            }
+                                        } else {
+                                            onDownload(item, "")
+                                        }
+                                    }
+                                    if (selected.isNotEmpty()) onMessage("已加入下载任务")
                                     viewModel?.exitMultiSelect()
                                 }) {
                                     Icon(Icons.Default.Download, contentDescription = "批量下载")
@@ -657,11 +665,11 @@ fun FilesScreen(
             },
             onDismiss = { selectedFile = null },
             onDownload = {
-                onDownload(file)
+                onDownload(file, "")
                 selectedFile = null
             },
             onDownloadFolder = {
-                onMessage("开始下载文件夹：${file.name}")
+                viewModel?.downloadFolder(file) { fileNode, relativePath -> onDownload(fileNode, relativePath) }
                 selectedFile = null
             },
             onRename = {
