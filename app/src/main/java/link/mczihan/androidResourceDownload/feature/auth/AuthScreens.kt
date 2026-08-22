@@ -47,7 +47,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.OutlinedTextField
@@ -55,7 +54,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -120,7 +118,7 @@ fun LoginScreen(
         ) {
             Surface(
                 modifier = Modifier.size(96.dp),
-                shape = MaterialShapes.Cookie6Sided.toShape(),
+                shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -188,16 +186,16 @@ fun LoginScreen(
                 shapes = ButtonDefaults.shapes(),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = ButtonDefaults.MediumContainerHeight),
+                    .heightIn(min = ButtonDefaults.LargeContainerHeight),
                 enabled = !busy,
-                contentPadding = ButtonDefaults.MediumContentPadding,
+                contentPadding = ButtonDefaults.LargeContentPadding,
             ) {
                 Icon(
                     imageVector = Icons.Default.Email,
                     contentDescription = null,
-                    modifier = Modifier.size(ButtonDefaults.MediumIconSize),
+                    modifier = Modifier.size(ButtonDefaults.LargeIconSize),
                 )
-                Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
+                Spacer(Modifier.width(ButtonDefaults.LargeIconSpacing))
                 Text(
                     text = "使用邮箱验证码",
                     style = MaterialTheme.typography.labelLargeEmphasized,
@@ -240,22 +238,23 @@ fun LoginScreen(
                         onCheckedChange = null,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "我已阅读并同意",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    TextButton(
+                        onClick = { showPolicy = true },
+                        shapes = ButtonDefaults.shapes(),
+                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+                    ) {
                         Text(
-                            text = "我已阅读并同意",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = "用户协议与隐私政策",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        TextButton(
-                            onClick = { showPolicy = true },
-                            shapes = ButtonDefaults.shapes(),
-                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
-                        ) {
-                            Text(
-                                text = "用户协议与隐私政策",
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
                     }
                 }
             }
@@ -421,16 +420,16 @@ fun EmailVerificationScreen(
                     shapes = ButtonDefaults.shapes(),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = ButtonDefaults.MediumContainerHeight),
+                        .heightIn(min = ButtonDefaults.LargeContainerHeight),
                     enabled = !busy,
-                    contentPadding = ButtonDefaults.MediumContentPadding,
+                    contentPadding = ButtonDefaults.LargeContentPadding,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Email,
                         contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.MediumIconSize),
+                        modifier = Modifier.size(ButtonDefaults.LargeIconSize),
                     )
-                    Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
+                    Spacer(Modifier.width(ButtonDefaults.LargeIconSpacing))
                     Text(
                         text = if (effectiveCodeSent) "重新获取验证码" else "获取验证码",
                         style = MaterialTheme.typography.labelLargeEmphasized,

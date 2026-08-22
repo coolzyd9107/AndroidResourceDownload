@@ -22,11 +22,9 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -35,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -100,7 +99,7 @@ fun UserAccountSection(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = Color.Transparent,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
@@ -120,7 +119,7 @@ fun UserAccountSection(
                                 "用户头像"
                             }
                         },
-                    shape = MaterialShapes.Cookie6Sided.toShape(),
+                    shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colorScheme.primaryContainer,
                 ) {
                     if (avatarRequest == null) {
@@ -224,7 +223,7 @@ private fun AccountDetail(
     ) {
         Surface(
             modifier = Modifier.size(44.dp),
-            shape = MaterialTheme.shapes.large,
+            shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.secondaryContainer,
         ) {
             Box(contentAlignment = Alignment.Center) {
