@@ -10,6 +10,9 @@ import androidx.compose.ui.test.performClick
 import link.mczihan.androidResourceDownload.core.theme.ThemeSeedPreset
 import link.mczihan.androidResourceDownload.core.theme.ThemeSchemeVariant
 import link.mczihan.androidResourceDownload.core.theme.ThemeMode
+import link.mczihan.androidResourceDownload.domain.model.LoginType
+import link.mczihan.androidResourceDownload.domain.model.Role
+import link.mczihan.androidResourceDownload.domain.model.User
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -25,6 +28,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.SYSTEM,
                     onThemeModeChange = {},
                     noticeState = NoticeUiState.Content("测试公告正文"),
@@ -43,6 +47,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.SYSTEM,
                     onThemeModeChange = {},
                     onCheckUpdate = { checked = true },
@@ -63,6 +68,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.SYSTEM,
                     onThemeModeChange = {},
                     updateState = UpdateUiState.Available(
@@ -96,6 +102,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.SYSTEM,
                     onThemeModeChange = {},
                     updateState = UpdateUiState.Available(
@@ -127,6 +134,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.SYSTEM,
                     onThemeModeChange = {},
                     updateState = UpdateUiState.Available(
@@ -152,6 +160,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.SYSTEM,
                     onThemeModeChange = {},
                     updateState = UpdateUiState.UpToDate("2.0.0"),
@@ -170,6 +179,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.SYSTEM,
                     onThemeModeChange = {},
                     dynamicColorEnabled = true,
@@ -194,6 +204,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.DARK,
                     onThemeModeChange = {},
                     dynamicColorEnabled = false,
@@ -221,6 +232,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.SYSTEM,
                     onThemeModeChange = {},
                     dynamicColorEnabled = false,
@@ -255,6 +267,7 @@ class SettingsScreenTest {
         composeRule.setContent {
             MaterialTheme {
                 SettingsScreen(
+                    user = testUser,
                     themeMode = ThemeMode.LIGHT,
                     onThemeModeChange = {},
                     dynamicColorEnabled = false,
@@ -270,4 +283,32 @@ class SettingsScreenTest {
         composeRule.onNode(hasContentDescription("色彩浓度")).assertExists()
         composeRule.onNode(hasContentDescription("明度")).assertExists()
     }
+
+    @Test
+    fun accountInformationIsVisibleOnSettingsPage() {
+        composeRule.setContent {
+            MaterialTheme {
+                SettingsScreen(
+                    user = testUser,
+                    themeMode = ThemeMode.SYSTEM,
+                    onThemeModeChange = {},
+                    onLogout = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("账户").assertExists()
+        composeRule.onNodeWithText("测试用户").assertExists()
+        composeRule.onNodeWithText("user@example.com").assertExists()
+        composeRule.onNodeWithText("GitHub").assertExists()
+        composeRule.onNodeWithText("个人中心").assertDoesNotExist()
+    }
+
+    private val testUser = User(
+        id = "test-user",
+        name = "测试用户",
+        email = "user@example.com",
+        role = Role.USER,
+        loginType = LoginType.GITHUB,
+    )
 }

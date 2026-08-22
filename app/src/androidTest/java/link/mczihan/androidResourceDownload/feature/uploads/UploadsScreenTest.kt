@@ -3,9 +3,13 @@ package link.mczihan.androidResourceDownload.feature.uploads
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import link.mczihan.androidResourceDownload.domain.model.UploadStatus
 import link.mczihan.androidResourceDownload.domain.model.UploadTask
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -46,7 +50,45 @@ class UploadsScreenTest {
         composeRule.onNode(hasContentDescription("删除上传任务")).assertExists()
     }
 
-    private fun setScreen(task: UploadTask, speeds: Map<String, Long> = emptyMap()) {
+    @Test
+    fun cancelAllFloatingActionRequiresConfirmation() {
+        var cancelled = false
+        setScreen(
+            task = task("running", UploadStatus.RUNNING),
+            onCancelAll = { cancelled = true },
+        )
+
+        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNodeWithTag("cancelAllTasks").performClick()
+        composeRule.runOnIdle { assertFalse(cancelled) }
+        composeRule.onNodeWithText("全部取消？").assertExists()
+        composeRule.onNodeWithText("取消全部任务").performClick()
+
+        composeRule.runOnIdle { assertTrue(cancelled) }
+    }
+
+    @Test
+    fun clearAllFloatingActionRequiresConfirmation() {
+        var cleared = false
+        setScreen(
+            task = task("failed", UploadStatus.FAILED),
+            onClearTerminal = { cleared = true },
+        )
+
+        composeRule.onNodeWithTag("clearTerminalTasks").performClick()
+        composeRule.runOnIdle { assertFalse(cleared) }
+        composeRule.onNodeWithText("全部清除？").assertExists()
+        composeRule.onNodeWithText("清除").performClick()
+
+        composeRule.runOnIdle { assertTrue(cleared) }
+    }
+
+    private fun setScreen(
+        task: UploadTask,
+        speeds: Map<String, Long> = emptyMap(),
+        onCancelAll: () -> Unit = {},
+        onClearTerminal: () -> Unit = {},
+    ) {
         composeRule.setContent {
             MaterialTheme {
                 UploadsScreen(
@@ -55,6 +97,8 @@ class UploadsScreenTest {
                     onRetry = {},
                     onCancel = {},
                     onDelete = {},
+                    onCancelAll = onCancelAll,
+                    onClearTerminal = onClearTerminal,
                 )
             }
         }

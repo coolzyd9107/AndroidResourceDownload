@@ -26,8 +26,7 @@ class FilesScreenTest {
             MaterialTheme {
                 FilesScreen(
                     role = Role.USER,
-                    onProfile = {},
-                    onDownload = {},
+                    onDownload = { _, _ -> },
                     onMessage = {},
                 )
             }
@@ -48,6 +47,14 @@ class FilesScreenTest {
         composeRule.onNode(hasContentDescription("上传")).assertDoesNotExist()
         composeRule.onNode(hasContentDescription("新建文件夹")).assertDoesNotExist()
         composeRule.onNode(hasContentDescription("管理 应用发布")).assertDoesNotExist()
+    }
+
+    @Test
+    fun topBarKeepsRefreshAndRemovesProfileEntry() {
+        setFilesScreen(Role.USER)
+
+        composeRule.onNode(hasContentDescription("刷新文件列表")).assertExists()
+        composeRule.onNode(hasContentDescription("个人中心")).assertDoesNotExist()
     }
 
     @Test
@@ -196,8 +203,7 @@ class FilesScreenTest {
             MaterialTheme {
                 FilesScreen(
                     role = role,
-                    onProfile = {},
-                    onDownload = {},
+                    onDownload = { _, _ -> },
                     onMessage = {},
                 )
             }

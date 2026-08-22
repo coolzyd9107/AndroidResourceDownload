@@ -31,17 +31,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
@@ -63,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -87,12 +89,26 @@ fun UploadsScreen(
     onClearTerminal: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var showMenu by remember { mutableStateOf(false) }
+    var showCancelAllDialog by remember { mutableStateOf(false) }
+    var showClearDialog by remember { mutableStateOf(false) }
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val contentSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val countSpatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
     val subtitle = if (preparingSelections > 0) "正在读取所选内容" else taskCountLabel(tasks.size)
+    val hasCancellableTasks = tasks.any { task ->
+        task.status in setOf(UploadStatus.PENDING, UploadStatus.RUNNING) &&
+            !task.isDirectory &&
+            !task.committing
+    }
+    val hasClearableTasks = tasks.any { task ->
+        task.status in setOf(UploadStatus.FAILED, UploadStatus.CANCELLED)
+    }
+    val listBottomPadding = when {
+        hasCancellableTasks && hasClearableTasks -> 152.dp
+        hasCancellableTasks || hasClearableTasks -> 84.dp
+        else -> 16.dp
+    }
 
     Scaffold(
         modifier = modifier,
@@ -115,31 +131,30 @@ fun UploadsScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
-                actions = {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "更多操作")
-                    }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("全部取消") },
-                            onClick = {
-                                showMenu = false
-                                onCancelAll()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("全部清除") },
-                            onClick = {
-                                showMenu = false
-                                onClearTerminal()
-                            },
-                        )
-                    }
-                },
             )
+        },
+        floatingActionButton = {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (hasCancellableTasks) {
+                    ExtendedFloatingActionButton(
+                        text = { Text("全部取消") },
+                        icon = { Icon(Icons.Default.Cancel, contentDescription = null) },
+                        modifier = Modifier.testTag("cancelAllTasks"),
+                        onClick = { showCancelAllDialog = true },
+                    )
+                }
+                if (hasClearableTasks) {
+                    ExtendedFloatingActionButton(
+                        text = { Text("全部清除") },
+                        icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
+                        modifier = Modifier.testTag("clearTerminalTasks"),
+                        onClick = { showClearDialog = true },
+                    )
+                }
+            }
         },
     ) { innerPadding ->
         AnimatedContent(
@@ -167,7 +182,8 @@ fun UploadsScreen(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding),
+                        .padding(innerPadding)
+                        .padding(bottom = listBottomPadding),
                     contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
                 ) {
                     items(visibleTasks, key = UploadTask::id) { task ->
@@ -190,6 +206,54 @@ fun UploadsScreen(
                 }
             }
         }
+    }
+
+    if (showCancelAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showCancelAllDialog = false },
+            title = { Text("全部取消？") },
+            text = {
+                Text("确定要取消所有可取消的等待中或正在上传的文件任务吗？文件夹创建任务不会取消。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCancelAllDialog = false
+                        onCancelAll()
+                    },
+                ) {
+                    Text("取消全部任务")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelAllDialog = false }) {
+                    Text("返回")
+                }
+            },
+        )
+    }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("全部清除？") },
+            text = { Text("确定要清除所有失败或已取消的上传任务吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearDialog = false
+                        onClearTerminal()
+                    },
+                ) {
+                    Text("清除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("返回")
+                }
+            },
+        )
     }
 }
 

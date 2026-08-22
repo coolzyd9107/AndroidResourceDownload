@@ -3,9 +3,13 @@ package link.mczihan.androidResourceDownload.feature.downloads
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import link.mczihan.androidResourceDownload.domain.model.DownloadStatus
 import link.mczihan.androidResourceDownload.domain.model.DownloadTask
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -79,6 +83,58 @@ class DownloadsScreenTest {
         }
 
         composeRule.onNodeWithText("0 B / -- · 1.0 KB/s").assertExists()
+    }
+
+    @Test
+    fun cancelAllFloatingActionRequiresConfirmation() {
+        var cancelled = false
+        setScreen(
+            task = task("running", DownloadStatus.RUNNING),
+            onCancelAll = { cancelled = true },
+        )
+
+        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNodeWithTag("cancelAllTasks").performClick()
+        composeRule.runOnIdle { assertFalse(cancelled) }
+        composeRule.onNodeWithText("全部取消？").assertExists()
+        composeRule.onNodeWithText("取消全部任务").performClick()
+
+        composeRule.runOnIdle { assertTrue(cancelled) }
+    }
+
+    @Test
+    fun clearAllFloatingActionReusesDeleteLocalFilesDialog() {
+        var clearLocalFiles: Boolean? = null
+        setScreen(
+            task = task("failed", DownloadStatus.FAILED),
+            onClearTerminal = { clearLocalFiles = it },
+        )
+
+        composeRule.onNodeWithTag("clearTerminalTasks").performClick()
+        composeRule.runOnIdle { assertTrue(clearLocalFiles == null) }
+        composeRule.onNodeWithText("同时删除本地文件").assertExists()
+        composeRule.onNodeWithText("清除").performClick()
+
+        composeRule.runOnIdle { assertTrue(clearLocalFiles == true) }
+    }
+
+    private fun setScreen(
+        task: DownloadTask,
+        onCancelAll: () -> Unit = {},
+        onClearTerminal: (Boolean) -> Unit = {},
+    ) {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsScreen(
+                    tasks = listOf(task),
+                    onStatusChange = { _, _ -> },
+                    onOpen = {},
+                    onDelete = {},
+                    onCancelAll = onCancelAll,
+                    onClearTerminal = onClearTerminal,
+                )
+            }
+        }
     }
 
     private fun task(id: String, status: DownloadStatus) = DownloadTask(

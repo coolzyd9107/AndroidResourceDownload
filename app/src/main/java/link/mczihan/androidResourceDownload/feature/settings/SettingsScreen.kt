@@ -47,15 +47,17 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -67,7 +69,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -80,6 +82,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -96,10 +99,19 @@ import link.mczihan.androidResourceDownload.core.theme.normalizeThemeSeedArgb
 import link.mczihan.androidResourceDownload.core.theme.seedColorScheme
 import link.mczihan.androidResourceDownload.core.theme.themeSeedFromTone
 import link.mczihan.androidResourceDownload.core.theme.themeToneFromArgb
+import link.mczihan.androidResourceDownload.domain.model.User
+import link.mczihan.androidResourceDownload.feature.profile.UserAccountSection
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalLayoutApi::class,
+)
 @Composable
 fun SettingsScreen(
+    user: User,
+    qqNickname: String? = null,
+    allowQqLookup: Boolean = true,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     dynamicColorEnabled: Boolean = true,
@@ -129,10 +141,16 @@ fun SettingsScreen(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
+    val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
-        modifier = modifier,
-        topBar = { TopAppBar(title = { Text("设置") }) },
+        modifier = modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+        topBar = {
+            MediumFlexibleTopAppBar(
+                title = { Text("设置") },
+                scrollBehavior = topAppBarScrollBehavior,
+            )
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -141,9 +159,21 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
+                text = "账户",
+                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.titleMediumEmphasized,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            UserAccountSection(
+                user = user,
+                qqNickname = qqNickname,
+                allowQqLookup = allowQqLookup,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text(
                 text = "外观",
                 modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMediumEmphasized,
                 color = MaterialTheme.colorScheme.primary,
             )
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -279,7 +309,7 @@ fun SettingsScreen(
                 leadingContent = { SettingsIcon(Icons.Default.SystemUpdate) },
                 trailingContent = if (updateState == UpdateUiState.Checking) {
                     {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        LoadingIndicator(modifier = Modifier.size(24.dp))
                     }
                 } else {
                     null
@@ -320,7 +350,7 @@ fun SettingsScreen(
                         NoticeUiState.Loading -> Row(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            LoadingIndicator(modifier = Modifier.size(24.dp))
                             Spacer(Modifier.width(12.dp))
                             Text("正在获取最新公告")
                         }

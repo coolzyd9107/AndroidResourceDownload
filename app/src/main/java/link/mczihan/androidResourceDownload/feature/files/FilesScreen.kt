@@ -55,7 +55,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SelectAll
@@ -146,7 +145,6 @@ import link.mczihan.androidResourceDownload.domain.webdav.strongEntityTagOrNull
 @Composable
 fun FilesScreen(
     role: Role,
-    onProfile: () -> Unit,
     onDownload: (FileNode, String) -> Unit,
     onMessage: (String) -> Unit,
     onUploadFile: (WebDavPath) -> Unit = {},
@@ -421,9 +419,6 @@ fun FilesScreen(
                                     }
                                 }) {
                                     Icon(Icons.Default.Refresh, contentDescription = "刷新文件列表")
-                                }
-                                IconButton(onClick = onProfile) {
-                                    Icon(Icons.Default.Person, contentDescription = "个人中心")
                                 }
                             },
                             colors = TopAppBarDefaults.topAppBarColors(

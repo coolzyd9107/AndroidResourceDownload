@@ -79,7 +79,6 @@ import link.mczihan.androidResourceDownload.feature.auth.LoginScreen
 import link.mczihan.androidResourceDownload.feature.downloads.DownloadsScreen
 import link.mczihan.androidResourceDownload.feature.downloads.DownloadsViewModel
 import link.mczihan.androidResourceDownload.feature.files.FilesScreen
-import link.mczihan.androidResourceDownload.feature.profile.ProfileScreen
 import link.mczihan.androidResourceDownload.feature.profile.ProfileViewModel
 import link.mczihan.androidResourceDownload.feature.settings.SettingsScreen
 import link.mczihan.androidResourceDownload.feature.settings.SettingsViewModel
@@ -91,7 +90,6 @@ private object RootRoute {
     const val Login = "login"
     const val Email = "email"
     const val Main = "main"
-    const val Profile = "profile"
 }
 
 private enum class ShellRoute(
@@ -206,6 +204,11 @@ fun AndroidResourceDownloadRoot(
                     )
                 }
                 composable(RootRoute.Email) {
+                    val awaitingCodeState = when (val state = authState) {
+                        is AuthUiState.AwaitingCode -> state
+                        is AuthUiState.Error -> state.recoverableState as? AuthUiState.AwaitingCode
+                        else -> null
+                    }
                     EmailVerificationScreen(
                         onBack = { navController.popBackStack() },
                         onVerified = { email, role ->
@@ -228,11 +231,8 @@ fun AndroidResourceDownloadRoot(
                             authState is AuthUiState.Authenticating ||
                             authState is AuthUiState.LoggingOut,
                         message = (authState as? AuthUiState.Error)?.message,
-                        codeSentEmail = when (val state = authState) {
-                            is AuthUiState.AwaitingCode -> state.email
-                            is AuthUiState.Error -> (state.recoverableState as? AuthUiState.AwaitingCode)?.email
-                            else -> null
-                        },
+                        codeSentEmail = awaitingCodeState?.email,
+                        codeExpiresInSeconds = awaitingCodeState?.expiresInSeconds,
                     )
                 }
                 composable(RootRoute.Main) {
@@ -256,48 +256,7 @@ fun AndroidResourceDownloadRoot(
                             onSeedColorChange = themeViewModel::setSeedColor,
                             onSchemeVariantChange = themeViewModel::setSchemeVariant,
                             onResetSeedColor = themeViewModel::resetSeedColor,
-                            onProfile = { navController.navigate(RootRoute.Profile) },
-                            onLogout = {
-                                if (BuildConfig.DEMO_MODE) {
-                                    sessionUser = null
-                                    navController.navigate(RootRoute.Login) {
-                                        popUpTo(RootRoute.Main) { inclusive = true }
-                                    }
-                                } else {
-                                    authViewModel.logout()
-                                }
-                            },
-                        )
-                    }
-                }
-                composable(RootRoute.Profile) {
-                    val user = if (BuildConfig.DEMO_MODE) {
-                        sessionUser
-                    } else {
-                        (authState as? AuthUiState.Authenticated)?.session?.user
-                    }
-                    if (user == null) {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
-                    } else {
-                        val profileViewModel = hiltViewModel<ProfileViewModel>()
-                        val qqNickname by profileViewModel.qqNickname.collectAsStateWithLifecycle()
-                        LaunchedEffect(
-                            user.id,
-                            user.email,
-                            user.loginType,
-                            privacyConsentAccepted,
-                        ) {
-                            if (privacyConsentAccepted) {
-                                profileViewModel.load(user)
-                            } else {
-                                profileViewModel.clear()
-                            }
-                        }
-                        ProfileScreen(
-                            user = user,
-                            qqNickname = qqNickname,
-                            allowQqLookup = privacyConsentAccepted,
-                            onBack = { navController.popBackStack() },
+                            privacyConsentAccepted = privacyConsentAccepted,
                             onLogout = {
                                 if (BuildConfig.DEMO_MODE) {
                                     sessionUser = null
@@ -326,7 +285,7 @@ private fun MainShell(
     onSeedColorChange: (Int) -> Unit,
     onSchemeVariantChange: (ThemeSchemeVariant) -> Unit,
     onResetSeedColor: () -> Unit,
-    onProfile: () -> Unit,
+    privacyConsentAccepted: Boolean,
     onLogout: () -> Unit,
 ) {
     val navController = rememberNavController()
@@ -544,7 +503,6 @@ private fun MainShell(
             ) {
                 FilesScreen(
                     role = user.role,
-                    onProfile = onProfile,
                     onMultiSelectModeChange = { filesMultiSelectMode = it },
                     onDownload = { file, relativePath ->
                         if (BuildConfig.DEMO_MODE) {
@@ -697,17 +655,46 @@ private fun MainShell(
                         }
                     },
                     onDeleteWithOption = { taskId, deleteLocalFile ->
-                        if (!BuildConfig.DEMO_MODE) {
+                        if (BuildConfig.DEMO_MODE) {
+                            demoTasks = demoTasks.filterNot { task ->
+                                task.id == taskId && task.status in setOf(
+                                    DownloadStatus.SUCCESS,
+                                    DownloadStatus.FAILED,
+                                    DownloadStatus.CANCELLED,
+                                )
+                            }
+                        } else {
                             downloadsViewModel?.delete(taskId, deleteLocalFile)
                         }
                     },
                     onCancelAll = {
-                        if (!BuildConfig.DEMO_MODE) {
+                        if (BuildConfig.DEMO_MODE) {
+                            demoTasks = demoTasks.map { task ->
+                                if (task.status in setOf(
+                                        DownloadStatus.PENDING,
+                                        DownloadStatus.RUNNING,
+                                        DownloadStatus.PAUSED,
+                                    )
+                                ) {
+                                    task.withMockStatus(DownloadStatus.CANCELLED)
+                                } else {
+                                    task
+                                }
+                            }
+                        } else {
                             downloadsViewModel?.cancelAll()
                         }
                     },
                     onClearTerminal = { deleteLocalFiles ->
-                        if (!BuildConfig.DEMO_MODE) {
+                        if (BuildConfig.DEMO_MODE) {
+                            demoTasks = demoTasks.filterNot { task ->
+                                task.status in setOf(
+                                    DownloadStatus.SUCCESS,
+                                    DownloadStatus.FAILED,
+                                    DownloadStatus.CANCELLED,
+                                )
+                            }
+                        } else {
                             downloadsViewModel?.clearTerminal(deleteLocalFiles)
                         }
                     },
@@ -723,13 +710,30 @@ private fun MainShell(
                 },
             ) {
                 val settingsViewModel = hiltViewModel<SettingsViewModel>()
+                val profileViewModel = hiltViewModel<ProfileViewModel>()
                 val noticeState by settingsViewModel.noticeState.collectAsStateWithLifecycle()
                 val updateState by settingsViewModel.updateState.collectAsStateWithLifecycle()
+                val qqNickname by profileViewModel.qqNickname.collectAsStateWithLifecycle()
+                LaunchedEffect(
+                    user.id,
+                    user.email,
+                    user.loginType,
+                    privacyConsentAccepted,
+                ) {
+                    if (privacyConsentAccepted) {
+                        profileViewModel.load(user)
+                    } else {
+                        profileViewModel.clear()
+                    }
+                }
                 LifecycleResumeEffect(settingsViewModel) {
                     settingsViewModel.refreshNotice()
                     onPauseOrDispose { }
                 }
                 SettingsScreen(
+                    user = user,
+                    qqNickname = qqNickname,
+                    allowQqLookup = privacyConsentAccepted,
                     themeMode = themeSettings.themeMode,
                     onThemeModeChange = onThemeModeChange,
                     dynamicColorEnabled = themeSettings.dynamicColorEnabled,
