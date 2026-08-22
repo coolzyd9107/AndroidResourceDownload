@@ -24,9 +24,15 @@ class UserAccountSectionTest {
 
     @Test
     fun accountIdentityUsesExpressiveSettingsContent() {
-        setAccount(user(loginType = LoginType.EMAIL).copy(email = "123456@qq.com"))
+        setAccount(
+            user(loginType = LoginType.EMAIL).copy(
+                name = "QQ 昵称",
+                email = "123456@qq.com",
+            ),
+        )
 
-        composeRule.onNodeWithText("123456").assertExists()
+        composeRule.onNodeWithText("QQ 昵称").assertExists()
+        composeRule.onNodeWithText("123456").assertDoesNotExist()
         composeRule.onNodeWithText("123456@qq.com").assertExists()
         composeRule.onNodeWithText("邮箱验证码").assertExists()
         composeRule.onNodeWithText("v${BuildConfig.VERSION_NAME}").assertExists()

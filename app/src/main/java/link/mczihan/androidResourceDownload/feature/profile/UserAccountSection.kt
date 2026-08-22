@@ -326,10 +326,18 @@ private fun AccountDetail(
 
 internal fun User.accountDisplayName(qqNickname: String?): String = when (loginType) {
     LoginType.GITHUB -> name?.trim().takeUnless { it.isNullOrEmpty() } ?: "GitHub 用户"
-    LoginType.EMAIL -> qqNickname?.trim().takeUnless { it.isNullOrEmpty() }
-        ?: email?.substringBefore('@')?.trim().takeUnless { it.isNullOrEmpty() }
-        ?: name?.trim().takeUnless { it.isNullOrEmpty() }
-        ?: "邮箱用户"
+    LoginType.EMAIL -> {
+        val qqNumber = qqNumberFromEmail(email)
+        if (qqNumber != null) {
+            qqNickname?.trim().takeUnless { it.isNullOrEmpty() || it == qqNumber }
+                ?: name?.trim().takeUnless { it.isNullOrEmpty() || it == qqNumber }
+                ?: "QQ 用户"
+        } else {
+            email?.substringBefore('@')?.trim().takeUnless { it.isNullOrEmpty() }
+                ?: name?.trim().takeUnless { it.isNullOrEmpty() }
+                ?: "邮箱用户"
+        }
+    }
 }
 
 internal fun User.profileAvatarUrl(allowQqLookup: Boolean = true): String? {
