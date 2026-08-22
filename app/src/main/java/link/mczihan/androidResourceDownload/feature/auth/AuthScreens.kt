@@ -164,16 +164,16 @@ fun LoginScreen(
                 shapes = ButtonDefaults.shapes(),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = ButtonDefaults.LargeContainerHeight),
+                    .heightIn(min = ButtonDefaults.MediumContainerHeight),
                 enabled = !busy,
-                contentPadding = ButtonDefaults.LargeContentPadding,
+                contentPadding = ButtonDefaults.MediumContentPadding,
             ) {
                 Icon(
                     imageVector = Icons.Default.Code,
                     contentDescription = null,
-                    modifier = Modifier.size(ButtonDefaults.LargeIconSize),
+                    modifier = Modifier.size(ButtonDefaults.MediumIconSize),
                 )
-                Spacer(Modifier.width(ButtonDefaults.LargeIconSpacing))
+                Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
                 Text(
                     text = "使用 GitHub 登录",
                     style = MaterialTheme.typography.labelLargeEmphasized,
@@ -186,16 +186,16 @@ fun LoginScreen(
                 shapes = ButtonDefaults.shapes(),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = ButtonDefaults.LargeContainerHeight),
+                    .heightIn(min = ButtonDefaults.MediumContainerHeight),
                 enabled = !busy,
-                contentPadding = ButtonDefaults.LargeContentPadding,
+                contentPadding = ButtonDefaults.MediumContentPadding,
             ) {
                 Icon(
                     imageVector = Icons.Default.Email,
                     contentDescription = null,
-                    modifier = Modifier.size(ButtonDefaults.LargeIconSize),
+                    modifier = Modifier.size(ButtonDefaults.MediumIconSize),
                 )
-                Spacer(Modifier.width(ButtonDefaults.LargeIconSpacing))
+                Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
                 Text(
                     text = "使用邮箱验证码",
                     style = MaterialTheme.typography.labelLargeEmphasized,
@@ -420,16 +420,16 @@ fun EmailVerificationScreen(
                     shapes = ButtonDefaults.shapes(),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = ButtonDefaults.LargeContainerHeight),
+                        .heightIn(min = ButtonDefaults.MediumContainerHeight),
                     enabled = !busy,
-                    contentPadding = ButtonDefaults.LargeContentPadding,
+                    contentPadding = ButtonDefaults.MediumContentPadding,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Email,
                         contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.LargeIconSize),
+                        modifier = Modifier.size(ButtonDefaults.MediumIconSize),
                     )
-                    Spacer(Modifier.width(ButtonDefaults.LargeIconSpacing))
+                    Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
                     Text(
                         text = if (effectiveCodeSent) "重新获取验证码" else "获取验证码",
                         style = MaterialTheme.typography.labelLargeEmphasized,
@@ -509,16 +509,16 @@ fun EmailVerificationScreen(
                     shapes = ButtonDefaults.shapes(),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = ButtonDefaults.LargeContainerHeight),
+                        .heightIn(min = ButtonDefaults.MediumContainerHeight),
                     enabled = !busy,
-                    contentPadding = ButtonDefaults.LargeContentPadding,
+                    contentPadding = ButtonDefaults.MediumContentPadding,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Key,
                         contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.LargeIconSize),
+                        modifier = Modifier.size(ButtonDefaults.MediumIconSize),
                     )
-                    Spacer(Modifier.width(ButtonDefaults.LargeIconSpacing))
+                    Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
                     Text("登录", style = MaterialTheme.typography.labelLargeEmphasized)
                 }
             }

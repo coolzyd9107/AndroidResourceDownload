@@ -50,14 +50,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -69,6 +67,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -82,7 +81,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -141,14 +139,14 @@ fun SettingsScreen(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
     Scaffold(
-        modifier = modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+        modifier = modifier,
         topBar = {
-            MediumFlexibleTopAppBar(
+            TopAppBar(
                 title = { Text("设置") },
-                scrollBehavior = topAppBarScrollBehavior,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
             )
         },
     ) { innerPadding ->
@@ -169,7 +167,6 @@ fun SettingsScreen(
                 qqNickname = qqNickname,
                 allowQqLookup = allowQqLookup,
             )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(
                 text = "外观",
                 modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
@@ -277,7 +274,6 @@ fun SettingsScreen(
                     onCustomColor = { showCustomColor = true },
                 )
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             ListItem(
                 headlineContent = { Text("公告") },
                 supportingContent = {
