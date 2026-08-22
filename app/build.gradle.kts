@@ -25,7 +25,7 @@ require(releaseSigningValues.all { it.isNullOrBlank() } || releaseSigningConfigu
 
 android {
     namespace = "link.mczihan.androidResourceDownload"
-    compileSdk = 35
+    compileSdk = 36
 
     val apiBaseUrl = providers.gradleProperty("apiBaseUrl")
         .orElse("https://api.example.invalid/")
@@ -39,7 +39,7 @@ android {
     defaultConfig {
         applicationId = "link.mczihan.androidResourceDownload"
         minSdk = 27
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 8
         versionName = "2.3.2"
 

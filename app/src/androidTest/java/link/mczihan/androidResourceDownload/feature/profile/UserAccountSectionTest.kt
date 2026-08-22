@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import link.mczihan.androidResourceDownload.BuildConfig
 import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
@@ -28,6 +29,7 @@ class UserAccountSectionTest {
         composeRule.onNodeWithText("123456").assertExists()
         composeRule.onNodeWithText("123456@qq.com").assertExists()
         composeRule.onNodeWithText("邮箱验证码").assertExists()
+        composeRule.onNodeWithText("v${BuildConfig.VERSION_NAME}").assertExists()
     }
 
     private fun setAccount(user: User) {
