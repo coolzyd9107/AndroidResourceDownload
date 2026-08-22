@@ -6,6 +6,7 @@ data class DownloadTask(
     val fileName: String,
     val remotePath: String,
     val storageName: String = fileName,
+    val relativePath: String = "",
     val publicUri: String? = null,
     val mimeType: String? = null,
     val totalBytes: Long? = null,

@@ -156,14 +156,19 @@ class PublicDownloadStore @Inject constructor(
         mimeType: String?,
     ): Uri {
         val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val existingNames = mediaStoreNames(collection).toMutableSet()
+        val relativeDir = if (task.relativePath.isNotBlank()) {
+            "${Environment.DIRECTORY_DOWNLOADS}/${task.relativePath}"
+        } else {
+            Environment.DIRECTORY_DOWNLOADS
+        }
+        val existingNames = mediaStoreNames(collection, relativeDir).toMutableSet()
         for (index in 0..MAX_COLLISION_INDEX) {
             val displayName = collisionFileName(task.storageName, index)
             if (displayName in existingNames) continue
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeType ?: DEFAULT_MIME_TYPE)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDir)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val uri = try {
@@ -207,12 +212,12 @@ class PublicDownloadStore @Inject constructor(
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun mediaStoreNames(collection: Uri): Set<String> {
+    private fun mediaStoreNames(collection: Uri, relativeDir: String): Set<String> {
         val cursor = resolver.query(
             collection,
             arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
             "${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
-            arrayOf("${Environment.DIRECTORY_DOWNLOADS}/"),
+            arrayOf("$relativeDir/"),
             null,
         ) ?: throw IOException("MediaStore did not enumerate public downloads")
         return cursor.use {
@@ -281,8 +286,13 @@ class PublicDownloadStore @Inject constructor(
 
     @Suppress("DEPRECATION")
     private fun createLegacyDownload(task: DownloadTask): Uri {
-        val directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val baseDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             .absoluteFile
+        val directory = if (task.relativePath.isNotBlank()) {
+            File(baseDirectory, task.relativePath)
+        } else {
+            baseDirectory
+        }
         if (!directory.exists() && !directory.mkdirs()) {
             throw IOException("Unable to create the public Download directory")
         }
@@ -437,7 +447,15 @@ class PublicDownloadStore @Inject constructor(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).canonicalFile
         }.getOrNull() ?: return null
         val file = runCatching { File(path).canonicalFile }.getOrNull() ?: return null
-        return file.takeIf { it.parentFile == directory }
+        // 允许文件在 Downloads 目录或其子目录中
+        return file.takeIf { 
+            var parent = it.parentFile
+            while (parent != null) {
+                if (parent == directory) return@takeIf true
+                parent = parent.parentFile
+            }
+            false
+        }
     }
 
     private fun parsePublicUri(value: String?): Uri? {

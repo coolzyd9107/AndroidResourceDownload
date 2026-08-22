@@ -88,11 +88,11 @@ class DownloadsViewModel @Inject constructor(
         }
     }
 
-    fun enqueue(file: FileNode) {
+    fun enqueue(file: FileNode, relativePath: String = "") {
         val currentOwner = ownerId.value ?: return
         viewModelScope.launch {
             val result = try {
-                repository.enqueue(currentOwner, file)
+                repository.enqueue(currentOwner, file, relativePath)
             } catch (_: IllegalArgumentException) {
                 messageChannel.send("文件路径无效，无法下载")
                 return@launch
