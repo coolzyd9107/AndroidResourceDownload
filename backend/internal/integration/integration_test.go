@@ -45,12 +45,6 @@ type testEnv struct {
 	lastOTP string
 }
 
-type qqProfileStub struct{}
-
-func (qqProfileStub) Nickname(_ context.Context, _ string) (string, error) {
-	return "QQ 测试用户", nil
-}
-
 func newTestEnv(t *testing.T) *testEnv { return newTestEnvWithLogger(t, slogDiscard()) }
 
 func newTestEnvWithLogger(t *testing.T, log *slog.Logger) *testEnv {
@@ -76,9 +70,6 @@ func newTestEnvWithLogger(t *testing.T, log *slog.Logger) *testEnv {
 	db, err := repository.Open(cfg)
 	require.NoError(t, err)
 	require.NoError(t, repository.Migrate(db))
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 	repos := repository.New(db)
 
 	issuer, err := jwt.NewIssuer(cfg.JWT.Secret, cfg.JWT.Issuer)
@@ -90,7 +81,7 @@ func newTestEnvWithLogger(t *testing.T, log *slog.Logger) *testEnv {
 	github := service.NewGitHubClient(&cfg.Github)
 	credSvc := service.NewCredentialService(suite, service.NewWebDAVConfigAdapter(&cfg.WebDAV), repos.CredentialLogs)
 	updateSvc := service.NewUpdateService(suite, repos.AppVersions, repos.UpdateURLLogs, cfg.Update.TTLSeconds)
-	authSvc := service.NewAuthService(repos.Users, repos.Identities, repos.AdminGithub, tokens, roles, emails, qqProfileStub{}, github, repos.AuditLogs, log)
+	authSvc := service.NewAuthService(repos.Users, repos.Identities, repos.AdminGithub, tokens, roles, emails, github, repos.AuditLogs, log)
 	limiter := ratelimit.NewInMemory(ratelimit.DefaultRules()...)
 
 	r := gin.New()
@@ -207,26 +198,6 @@ func TestEmailLoginHappyPath(t *testing.T) {
 	// /webdav/credential without token → 401.
 	code, _ = env.doJSON(t, http.MethodPost, "/api/v1/webdav/credential", map[string]any{}, "")
 	assert.Equal(t, http.StatusUnauthorized, code)
-}
-
-// TestNumericQQEmailLoginPersistsNickname verifies QQ profile enrichment survives /auth/me.
-func TestNumericQQEmailLoginPersistsNickname(t *testing.T) {
-	env := newTestEnv(t)
-	email := "123456@qq.com"
-
-	_, _ = env.doJSON(t, http.MethodPost, "/api/v1/auth/email/code", map[string]string{"email": email}, "")
-	otp := readLatestOTPCode(t, env, email)
-	code, body := env.doJSON(t, http.MethodPost, "/api/v1/auth/email/login", map[string]any{
-		"email": email, "code": otp,
-	}, "")
-	require.Equal(t, http.StatusOK, code)
-	data := body["data"].(map[string]any)
-	assert.Equal(t, "QQ 测试用户", data["user"].(map[string]any)["name"])
-
-	access := data["accessToken"].(string)
-	code, body = env.doJSON(t, http.MethodGet, "/api/v1/auth/me", nil, access)
-	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, "QQ 测试用户", body["data"].(map[string]any)["name"])
 }
 
 // TestEmailLoginAdmin verifies admin role + READ_WRITE credentials.

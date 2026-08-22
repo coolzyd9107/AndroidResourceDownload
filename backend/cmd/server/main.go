@@ -59,11 +59,10 @@ func main() {
 	roles := service.NewRoleService(cfg.UserEmailDomains, cfg.AdminEmailDomains)
 	tokens := service.NewTokenService(issuer, cfg.JWT.AccessTTLSeconds, cfg.JWT.RefreshTTLDays, repos.RefreshTokens)
 	emails := service.NewEmailService(&cfg.Email, repos.EmailCodes, log)
-	qqProfiles := service.NewQQProfileClient()
 	github := service.NewGitHubClient(&cfg.Github)
 	credSvc := service.NewCredentialService(suite, service.NewWebDAVConfigAdapter(&cfg.WebDAV), repos.CredentialLogs)
 	updateSvc := service.NewUpdateService(suite, repos.AppVersions, repos.UpdateURLLogs, cfg.Update.TTLSeconds)
-	authSvc := service.NewAuthService(repos.Users, repos.Identities, repos.AdminGithub, tokens, roles, emails, qqProfiles, github, repos.AuditLogs, log)
+	authSvc := service.NewAuthService(repos.Users, repos.Identities, repos.AdminGithub, tokens, roles, emails, github, repos.AuditLogs, log)
 	githubOAuth := service.NewGithubOAuthService(authSvc, github, repos.OAuthTransactions, &cfg.Github)
 	limiter := ratelimit.NewInMemory(ratelimit.DefaultRules()...)
 

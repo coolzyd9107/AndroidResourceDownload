@@ -23,7 +23,6 @@ type AuthService struct {
 	tokens     *TokenService
 	roles      *RoleService
 	emails     *EmailService
-	qqProfiles QQProfileLookup
 	github     githubOAuthClient
 	log        *slog.Logger
 	audit      *repository.AuditLogRepo
@@ -41,7 +40,6 @@ func NewAuthService(
 	tokens *TokenService,
 	roles *RoleService,
 	emails *EmailService,
-	qqProfiles QQProfileLookup,
 	github githubOAuthClient,
 	audit *repository.AuditLogRepo,
 	log *slog.Logger,
@@ -53,7 +51,6 @@ func NewAuthService(
 		tokens:     tokens,
 		roles:      roles,
 		emails:     emails,
-		qqProfiles: qqProfiles,
 		github:     github,
 		audit:      audit,
 		log:        log,
@@ -82,20 +79,10 @@ func (s *AuthService) EmailLogin(ctx context.Context, email, code, deviceID stri
 		s.auditEvent(ctx, "", "login_failed", map[string]string{"method": "email", "email": maskEmail(email)})
 		return nil, err
 	}
-	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
-	role, _ := s.roles.MapEmail(normalizedEmail)
+	role, _ := s.roles.MapEmail(email)
 	roleSource := string(model.RoleSourceEmailDomain)
-	var qqNickname *string
-	if qqNumber, ok := qqNumberFromEmail(normalizedEmail); ok && s.qqProfiles != nil {
-		nickname, lookupErr := s.qqProfiles.Nickname(ctx, qqNumber)
-		if lookupErr == nil {
-			qqNickname = ptrStr(nickname)
-		} else {
-			s.log.Warn("auth_service: QQ nickname lookup failed", slog.String("err", lookupErr.Error()))
-		}
-	}
 
-	user, err := s.users.GetByEmail(normalizedEmail)
+	user, err := s.users.GetByEmail(strings.ToLower(strings.TrimSpace(email)))
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +90,7 @@ func (s *AuthService) EmailLogin(ctx context.Context, email, code, deviceID stri
 	if user == nil {
 		user = &model.User{
 			ID:         uuid.NewString(),
-			Email:      ptrStr(normalizedEmail),
-			Name:       qqNickname,
+			Email:      ptrStr(strings.ToLower(strings.TrimSpace(email))),
 			Role:       role,
 			RoleSource: ptrStr(roleSource),
 			Status:     model.UserStatusActive,
@@ -114,25 +100,15 @@ func (s *AuthService) EmailLogin(ctx context.Context, email, code, deviceID stri
 		if err := s.users.Create(user); err != nil {
 			return nil, err
 		}
-	} else {
-		needsUpdate := false
-		if user.Role != role || user.RoleSource == nil || *user.RoleSource != roleSource {
-			user.Role = role
-			user.RoleSource = ptrStr(roleSource)
-			needsUpdate = true
-		}
-		if user.GithubID == nil && qqNickname != nil && (user.Name == nil || *user.Name != *qqNickname) {
-			user.Name = qqNickname
-			needsUpdate = true
-		}
-		if needsUpdate {
-			if err := s.users.Update(user); err != nil {
-				return nil, err
-			}
+	} else if user.Role != role || user.RoleSource == nil || *user.RoleSource != roleSource {
+		user.Role = role
+		user.RoleSource = ptrStr(roleSource)
+		if err := s.users.Update(user); err != nil {
+			return nil, err
 		}
 	}
 
-	if err := s.ensureIdentity(user.ID, "email", normalizedEmail, &email, nil); err != nil {
+	if err := s.ensureIdentity(user.ID, "email", strings.ToLower(strings.TrimSpace(email)), &email, nil); err != nil {
 		return nil, err
 	}
 

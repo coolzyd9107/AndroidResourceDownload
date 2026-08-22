@@ -275,9 +275,6 @@ func newGithubAuthTestService(t *testing.T, githubUser *GitHubUser) (*AuthServic
 	db, err := repository.Open(cfg)
 	require.NoError(t, err)
 	require.NoError(t, repository.Migrate(db))
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 	repos := repository.New(db)
 
 	issuer, err := jwt.NewIssuer("github-auth-test-secret-32-bytes", "github-auth-test")
@@ -291,7 +288,6 @@ func newGithubAuthTestService(t *testing.T, githubUser *GitHubUser) (*AuthServic
 		repos.AdminGithub,
 		tokens,
 		NewRoleService(nil, nil),
-		nil,
 		nil,
 		github,
 		repos.AuditLogs,

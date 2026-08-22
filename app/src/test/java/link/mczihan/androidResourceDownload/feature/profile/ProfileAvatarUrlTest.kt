@@ -66,37 +66,6 @@ class ProfileAvatarUrlTest {
         assertNull(user.profileAvatarUrl())
     }
 
-    @Test
-    fun numericQqEmailUsesBackendNickname() {
-        val user = user(
-            loginType = LoginType.EMAIL,
-            email = "123456789@qq.com",
-        ).copy(name = "QQ 昵称")
-
-        assertEquals("QQ 昵称", user.accountDisplayName(null))
-    }
-
-    @Test
-    fun numericQqEmailNeverUsesQqNumberAsNickname() {
-        val user = user(
-            loginType = LoginType.EMAIL,
-            email = "123456789@qq.com",
-        ).copy(name = "123456789")
-
-        assertEquals("QQ 用户", user.accountDisplayName(null))
-        assertEquals("QQ 用户", user.accountDisplayName("123456789"))
-    }
-
-    @Test
-    fun qqAliasKeepsEmailPrefixAsDisplayName() {
-        val user = user(
-            loginType = LoginType.EMAIL,
-            email = "member@qq.com",
-        ).copy(name = "Backend Name")
-
-        assertEquals("member", user.accountDisplayName(null))
-    }
-
     private fun user(
         loginType: LoginType,
         email: String? = null,
