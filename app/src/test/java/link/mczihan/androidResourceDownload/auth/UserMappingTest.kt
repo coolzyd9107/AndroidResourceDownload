@@ -44,16 +44,16 @@ class UserMappingTest {
     }
 
     @Test
-    fun emailLoginTypeDoesNotDetermineRole() {
+    fun qqLoginTypeDoesNotDetermineRole() {
         val user = BackendUserDto(
-            id = "email-user",
-            name = null,
-            email = "member@qq.com",
+            id = "qq-user",
+            name = "QQ User",
+            email = null,
             role = "USER",
-            loginType = "EMAIL",
+            loginType = "QQ",
         ).toDomain()
 
-        assertEquals(LoginType.EMAIL, user.loginType)
+        assertEquals(LoginType.QQ, user.loginType)
         assertEquals(Role.USER, user.role)
     }
 }

@@ -299,7 +299,8 @@ class SettingsScreenTest {
 
         composeRule.onNodeWithText("账户").assertDoesNotExist()
         composeRule.onNodeWithText("测试用户").assertExists()
-        composeRule.onNodeWithText("user@example.com").assertExists()
+        composeRule.onNodeWithText("user@example.com").assertDoesNotExist()
+        composeRule.onNodeWithText("邮箱").assertDoesNotExist()
         composeRule.onNodeWithText("GitHub").assertExists()
         composeRule.onNodeWithText("退出登录").assertExists()
         composeRule.onNodeWithText("个人中心").assertDoesNotExist()

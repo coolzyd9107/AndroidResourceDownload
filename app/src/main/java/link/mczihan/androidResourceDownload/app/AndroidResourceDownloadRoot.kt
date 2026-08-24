@@ -1,6 +1,9 @@
 package link.mczihan.androidResourceDownload.app
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -72,14 +75,12 @@ import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavPath
-import link.mczihan.androidResourceDownload.feature.auth.EmailVerificationScreen
 import link.mczihan.androidResourceDownload.feature.auth.AuthUiState
 import link.mczihan.androidResourceDownload.feature.auth.AuthViewModel
 import link.mczihan.androidResourceDownload.feature.auth.LoginScreen
 import link.mczihan.androidResourceDownload.feature.downloads.DownloadsScreen
 import link.mczihan.androidResourceDownload.feature.downloads.DownloadsViewModel
 import link.mczihan.androidResourceDownload.feature.files.FilesScreen
-import link.mczihan.androidResourceDownload.feature.profile.ProfileViewModel
 import link.mczihan.androidResourceDownload.feature.settings.SettingsScreen
 import link.mczihan.androidResourceDownload.feature.settings.SettingsViewModel
 import link.mczihan.androidResourceDownload.feature.settings.ThemeViewModel
@@ -88,9 +89,11 @@ import link.mczihan.androidResourceDownload.feature.uploads.UploadsViewModel
 
 private object RootRoute {
     const val Login = "login"
-    const val Email = "email"
     const val Main = "main"
 }
+
+private const val QQ_PRIVACY_POLICY_URL =
+    "https://wiki.connect.qq.com/qq%E4%BA%92%E8%81%94sdk%E9%9A%90%E7%A7%81%E4%BF%9D%E6%8A%A4%E5%A3%B0%E6%98%8E"
 
 private enum class ShellRoute(
     val route: String,
@@ -179,60 +182,49 @@ fun AndroidResourceDownloadRoot(
                                 }
                             } else {
                                 val authorizationUrl = authViewModel.beginGithub()
-                                if (authorizationUrl == null) {
-                                    authViewModel.reportError("未配置有效的后端 API 地址")
-                                } else {
-                                    CustomTabsIntent.Builder().build().launchUrl(
-                                        context,
-                                        Uri.parse(authorizationUrl),
-                                    )
+                                if (authorizationUrl != null) {
+                                    runCatching {
+                                        CustomTabsIntent.Builder().build().launchUrl(
+                                            context,
+                                            Uri.parse(authorizationUrl),
+                                        )
+                                    }.onFailure { authViewModel.reportGithubLaunchFailure() }
                                 }
                             }
                         },
-                        onEmailLogin = {
+                        onQqLogin = {
                             if (BuildConfig.DEMO_MODE) {
-                                navController.navigate(RootRoute.Email)
+                                sessionUser = User(
+                                    id = "mock-qq-user",
+                                    name = "QQ 用户",
+                                    email = null,
+                                    role = Role.USER,
+                                    loginType = LoginType.QQ,
+                                )
+                                navController.navigate(RootRoute.Main) {
+                                    popUpTo(RootRoute.Login) { inclusive = true }
+                                }
                             } else {
-                                navController.navigate(RootRoute.Email)
+                                context.findActivity()?.let(authViewModel::beginQq)
+                                    ?: authViewModel.reportError("无法获取当前页面，QQ 登录未启动")
                             }
                         },
                         busy = authState is AuthUiState.Restoring ||
                             authState is AuthUiState.Authenticating ||
                             authState is AuthUiState.LoggingOut,
                         message = (authState as? AuthUiState.Error)?.message,
+                        policyAccepted = privacyConsentAccepted,
                         onPolicyAccepted = authViewModel::acceptPrivacyPolicy,
-                    )
-                }
-                composable(RootRoute.Email) {
-                    val awaitingCodeState = when (val state = authState) {
-                        is AuthUiState.AwaitingCode -> state
-                        is AuthUiState.Error -> state.recoverableState as? AuthUiState.AwaitingCode
-                        else -> null
-                    }
-                    EmailVerificationScreen(
-                        onBack = { navController.popBackStack() },
-                        onVerified = { email, role ->
-                            if (BuildConfig.DEMO_MODE) {
-                                sessionUser = User(
-                                    id = "mock-email-${email.hashCode()}",
-                                    name = if (role == Role.ADMIN) "管理员" else "邮箱用户",
-                                    email = email,
-                                    role = role,
-                                    loginType = LoginType.EMAIL,
+                        onOpenQqPrivacyPolicy = {
+                            runCatching {
+                                CustomTabsIntent.Builder().build().launchUrl(
+                                    context,
+                                    Uri.parse(QQ_PRIVACY_POLICY_URL),
                                 )
-                                navController.navigate(RootRoute.Main) {
-                                    popUpTo(RootRoute.Login) { inclusive = true }
-                                }
+                            }.onFailure {
+                                authViewModel.reportError("无法打开 QQ 互联 SDK 隐私保护声明")
                             }
                         },
-                        onRequestCode = if (BuildConfig.DEMO_MODE) null else authViewModel::requestCode,
-                        onLogin = if (BuildConfig.DEMO_MODE) null else authViewModel::loginWithEmail,
-                        busy = authState is AuthUiState.SendingCode ||
-                            authState is AuthUiState.Authenticating ||
-                            authState is AuthUiState.LoggingOut,
-                        message = (authState as? AuthUiState.Error)?.message,
-                        codeSentEmail = awaitingCodeState?.email,
-                        codeExpiresInSeconds = awaitingCodeState?.expiresInSeconds,
                     )
                 }
                 composable(RootRoute.Main) {
@@ -256,7 +248,6 @@ fun AndroidResourceDownloadRoot(
                             onSeedColorChange = themeViewModel::setSeedColor,
                             onSchemeVariantChange = themeViewModel::setSchemeVariant,
                             onResetSeedColor = themeViewModel::resetSeedColor,
-                            privacyConsentAccepted = privacyConsentAccepted,
                             onLogout = {
                                 if (BuildConfig.DEMO_MODE) {
                                     sessionUser = null
@@ -285,7 +276,6 @@ private fun MainShell(
     onSeedColorChange: (Int) -> Unit,
     onSchemeVariantChange: (ThemeSchemeVariant) -> Unit,
     onResetSeedColor: () -> Unit,
-    privacyConsentAccepted: Boolean,
     onLogout: () -> Unit,
 ) {
     val navController = rememberNavController()
@@ -710,30 +700,14 @@ private fun MainShell(
                 },
             ) {
                 val settingsViewModel = hiltViewModel<SettingsViewModel>()
-                val profileViewModel = hiltViewModel<ProfileViewModel>()
                 val noticeState by settingsViewModel.noticeState.collectAsStateWithLifecycle()
                 val updateState by settingsViewModel.updateState.collectAsStateWithLifecycle()
-                val qqNickname by profileViewModel.qqNickname.collectAsStateWithLifecycle()
-                LaunchedEffect(
-                    user.id,
-                    user.email,
-                    user.loginType,
-                    privacyConsentAccepted,
-                ) {
-                    if (privacyConsentAccepted) {
-                        profileViewModel.load(user)
-                    } else {
-                        profileViewModel.clear()
-                    }
-                }
                 LifecycleResumeEffect(settingsViewModel) {
                     settingsViewModel.refreshNotice()
                     onPauseOrDispose { }
                 }
                 SettingsScreen(
                     user = user,
-                    qqNickname = qqNickname,
-                    allowQqLookup = privacyConsentAccepted,
                     themeMode = themeSettings.themeMode,
                     onThemeModeChange = onThemeModeChange,
                     dynamicColorEnabled = themeSettings.dynamicColorEnabled,
@@ -760,6 +734,12 @@ private fun MainShell(
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 private fun DownloadTask.withMockStatus(status: DownloadStatus): DownloadTask {

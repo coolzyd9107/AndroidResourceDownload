@@ -9,8 +9,7 @@ Android 使用后端实际路由和统一响应包络：
 - `GET /api/v1/auth/github/start`
 - `GET /api/v1/auth/github/callback`
 - `POST /api/v1/auth/github/complete`
-- `POST /api/v1/auth/email/code`
-- `POST /api/v1/auth/email/login`
+- `POST /api/v1/auth/qq/login`
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
@@ -18,11 +17,11 @@ Android 使用后端实际路由和统一响应包络：
 - `GET /api/v1/update/info`
 - `POST /api/v1/update/resolve`
 
-响应形态为 `{ "code": 0, "message": "ok", "data": ... }`。GitHub 登录不检查邮箱后缀，角色以后端 `role` 为准；邮箱验证码登录仍只允许 `@qq.com` 和 `@mczihan.link`。
+响应形态为 `{ "code": 0, "message": "ok", "data": ... }`。GitHub 和 QQ 的角色均以后端 `role` 为准。QQ 登录请求为 `{ "accessToken": "...", "openId": "..." }`，可选字段为 `deviceId`；后端必须向腾讯重新校验 access token、AppID 和 OpenID，不能信任客户端提交的身份字段。
 
 ## 安全边界
 
-本期使用 HTTPS 简化凭据模式，因为现有后端会返回明文 JSON 凭据，且尚未实现真正的 ECDH 协议。Android 将 WebDAV 用户名和密码限制在进程内存中，过期、401、角色变化和登出时清除；不写入 Room、DataStore、普通文件或日志。`expiresAt` 不能撤销后端当前的静态共享 WebDAV 密码，生产环境仍应换成服务端可撤销的临时账号、令牌或代理。
+本期使用 HTTPS 简化凭据模式，因为现有后端会返回明文 JSON 凭据，且尚未实现真正的 ECDH 协议。Android 将 WebDAV 用户名和密码限制在进程内存中，过期、401、角色变化和登出时清除；不写入 Room、DataStore、普通文件或日志。QQ provider token 仅用于一次后端换取应用会话，并在回调后同步清除 OpenSDK 会话。`expiresAt` 不能撤销后端当前的静态共享 WebDAV 密码，生产环境仍应换成服务端可撤销的临时账号、令牌或代理。
 
 ECDH-ES/A256GCM 不会在客户端单方面伪实现，也不会把长期密钥内置 APK。后续增强协议必须同时具备版本、服务端签名、Keystore 私钥、HKDF 域隔离、AEAD 关联数据和禁止降级策略。
 
@@ -35,7 +34,7 @@ apiBaseUrl=https://api.example.com/
 demoMode=false
 ```
 
-仓库不保存真实后端地址、GitHub Client Secret 或 WebDAV 密码。Debug 默认使用显式 Demo 模式；真实网络错误不会自动显示 Mock 数据。
+仓库不保存真实后端地址、GitHub Client Secret、QQ AppKey 或 WebDAV 密码。QQ AppID `1905483457` 是必须内置 APK 和 `tencent<AppID>` 回调 scheme 的公开标识，不属于 secret。Debug 默认使用显式 Demo 模式；真实网络错误不会自动显示 Mock 数据。
 
 ## 仓库版本检查
 
@@ -56,7 +55,7 @@ WebDAV `401` 只允许一次：失效当前 credential generation，单飞重新
 
 ## 后续阶段
 
-GitHub OAuth callback 由后端 HTTPS 接收，后端只通过 App deep link 返回短期一次性 code；App 以 PKCE verifier 兑换会话 token，随后再请求短期 WebDAV 凭据。URL 中禁止放 access/refresh token、WebDAV 地址、账号或密码。
+GitHub OAuth callback 由后端 HTTPS 接收，后端只通过 App deep link 返回短期一次性 code；App 以 PKCE verifier 兑换会话 token。QQ 登录仅在用户同意隐私政策且已安装支持 SSO 的手机 QQ 时，通过官方 Android OpenSDK 拉起 QQ App，不提供 H5 登录入口；SDK 返回的 provider token 和 OpenID 立即交给后端校验并换取应用会话。随后 App 再请求短期 WebDAV 凭据。URL 中禁止放应用 access/refresh token、WebDAV 地址、账号或密码。
 
 下载 Room 仅持久化任务所有者、远程安全路径、进度、状态和续传校验信息；上传 Room 另行持久化任务所有者、批次、远端路径、SAF `content://` 来源 URI、进度和状态。WebDAV 地址、用户名、密码及短期解析 URL 均不进入数据库。下载前台服务按用户串行执行队列，文件先写入应用内部目录的 `.part`，仅在强 ETag 或原始 Last-Modified 匹配且 `206 Content-Range` 有效时追加，完成后通过 FileProvider 打开。
 

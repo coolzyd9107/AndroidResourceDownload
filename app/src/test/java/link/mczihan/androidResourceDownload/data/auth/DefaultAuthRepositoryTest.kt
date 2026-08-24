@@ -13,6 +13,48 @@ import retrofit2.Response
 
 class DefaultAuthRepositoryTest {
     @Test
+    fun qqLoginSendsProviderCredentialAndPersistsAppSession() {
+        val store = InMemorySessionStore(null)
+        var receivedRequest: QqLoginRequestDto? = null
+        val api = object : AuthApi by unsupportedAuthApi() {
+            override suspend fun loginWithQq(
+                request: QqLoginRequestDto,
+            ): Response<BackendEnvelope<LoginResponseDto>> {
+                receivedRequest = request
+                return Response.success(
+                    BackendEnvelope(
+                        0,
+                        "ok",
+                        LoginResponseDto(
+                            accessToken = "app-access",
+                            refreshToken = "app-refresh",
+                            expiresIn = 900,
+                            user = BackendUserDto(
+                                id = "qq-user",
+                                name = "QQ User",
+                                role = "USER",
+                                loginType = "QQ",
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }
+        val repository = DefaultAuthRepository(api, store, nowEpochMillis = { 1_000L })
+
+        val session = runBlocking {
+            repository.loginWithQq("provider-access", "provider-open-id", "device")
+        }
+
+        assertEquals("provider-access", receivedRequest?.accessToken)
+        assertEquals("provider-open-id", receivedRequest?.openId)
+        assertEquals("device", receivedRequest?.deviceId)
+        assertEquals("app-access", session.accessToken)
+        assertEquals(901_000L, session.expiresAtEpochMillis)
+        assertEquals(session, runBlocking { store.read() })
+    }
+
+    @Test
     fun logoutWithoutSnapshotClearsAndRevokesLatestSession() {
         val latestSession = session(refreshToken = "rotated-refresh")
         val store = InMemorySessionStore(latestSession)
@@ -46,9 +88,9 @@ class DefaultAuthRepositoryTest {
         user = User(
             id = "admin-id",
             name = "Admin",
-            email = "admin@mczihan.link",
+            email = null,
             role = Role.ADMIN,
-            loginType = LoginType.EMAIL,
+            loginType = LoginType.QQ,
         ),
     )
 

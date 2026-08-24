@@ -10,7 +10,7 @@
 - 最低支持 Android 8.1（API 27）。
 - 先实现 Mock 后端与 Repository 替身，稳定 UI 状态、导航和领域接口后，再接入真实认证、WebDAV 与更新服务。
 - GitHub Actions 对所有事件执行 Release lint、单元测试和无签名打包；仅在 `main` 上通过受保护的 `release` Environment 注入正式签名并构建 Release APK。
-- 真实后端路由采用 `{code,message,data}` envelope；GitHub 不校验邮箱后缀，角色以后端返回为准，Email 登录保留域名规则。
+- 真实后端路由采用 `{code,message,data}` envelope；GitHub 与 QQ 的角色均以后端返回为准，邮箱验证码登录已移除。
 - Android 直连 WebDAV，当前已完成凭据 DTO、内存缓存、路径安全、PROPFIND 解析、Range 校验和串行下载队列；凭据密码不落盘。
 - 本地 Android 构建默认 `DEMO_MODE=true`；CI 通过 Gradle 属性注入真实 API 地址并设置 `demoMode=false`。
 - GitHub Actions 同时执行 Android Release 门禁和 backend Go test/vet/build。
@@ -55,25 +55,25 @@
 
 **目标**
 
-完成 GitHub OAuth（PKCE、后端换取 token）与 Email 验证码登录流程，建立安全的会话持久化、角色识别和退出登录能力。
+完成 GitHub OAuth（PKCE、后端换取 token）与 QQ OpenSDK 手机客户端授权流程，建立安全的会话持久化、角色识别和退出登录能力。
 
 **交付物**
 
 - Android `User` 已迁移到 nullable `name/email` 与 `LoginType`。
 - 后端 DTO/Retrofit API 契约、统一 envelope 解码和加密会话存储基础。
-- GitHub 服务端 HTTPS callback、App PKCE 一次性登录票据、任意邮箱登录和白名单角色降级。
+- GitHub 服务端 HTTPS callback、App PKCE 一次性登录票据、QQ provider token 后端校验和服务端角色判定。
 - WebDAV 凭据生命周期、Basic Auth、PROPFIND/HEAD/GET/PUT/MKCOL/DELETE/MOVE 协议核心。
 - 已完成 Custom Tabs OAuth 回调、真实认证状态驱动的根导航、文件 ViewModel、Room 下载/上传任务、前台服务传输和 SAF 文件及文件夹选择；仍待完成应用内更新安装。
 
 **验证**
 
-- 单元测试覆盖允许的邮箱域、拒绝路径、token 刷新和退出清理。
-- Mock 流程先通过，再使用非生产测试后端验证两种登录方式与授权回调。
+- 单元测试覆盖 QQ wire contract、用户映射、token 刷新和退出清理。
+- Mock 流程先通过，再使用非生产测试后端和已登记签名的真机 APK 验证 GitHub、QQ 两种登录方式与授权回调。
 - 客户端日志、崩溃信息和持久化明文中不出现 token、验证码或 client secret。
 
 **主要风险**
 
-- GitHub 邮箱不可见、回调配置不一致或 PKCE 状态校验失败。
+- GitHub 回调配置不一致或 PKCE 状态校验失败；QQ AppID、包名或 APK 签名与开放平台登记不一致。
 - 仅依赖客户端角色判断造成越权；最终授权必须由服务端执行。
 - 凭据刷新并发、失效状态和安全存储兼容性处理不完整。
 
@@ -191,7 +191,7 @@
 
 **交付物**
 
-- 设置页直接展示账户信息和关于入口，不保留独立个人中心路由；账户区域显示 GitHub 或纯数字 QQ 邮箱头像与昵称，并支持默认回退。
+- 设置页直接展示账户信息和关于入口，不保留独立个人中心路由；账户区域显示 GitHub 或 QQ OAuth 头像与昵称，不展示邮箱，并支持默认回退。
 - `SYSTEM`、`LIGHT`、`DARK` 三种主题模式及 DataStore 持久化。
 - Android 12+ 莫奈自动取色开关，以及关闭后的预设、恢复默认、HCT 自定义主题色和八种官方英文名配色方案；旧版 Android 直接使用自定义主题色。
 - 所有页面、弹窗、底部面板、Snackbar、状态栏与导航栏的深色适配。
@@ -202,7 +202,7 @@
 - 主题模式、自动取色和主题色切换立即生效且重启后保持，所有主要状态均检查浅色和深色表现。
 - 自动取色关闭时验证 HCT 生成的关键前景/背景角色满足 Material 对比度要求。
 - 用户资料、头像、角色与登录方式显示一致，头像加载失败回退默认图标，退出登录返回受限入口。
-- QQ 资料请求会把纯数字 QQ 号发送给腾讯公开服务；不接受邮箱别名，并通过持久化政策版本控制用户同意。
+- QQ 互联 SDK 只在持久化政策版本确认用户同意后初始化；QQ provider token 不写入应用持久化存储，头像只接受受信任的腾讯 HTTPS 主机。
 - 缓存清理不会删除进行中的任务或用户选择保留的文件。
 
 **主要风险**

@@ -13,16 +13,14 @@ data class GitHubCompleteRequestDto(
 )
 
 @Serializable
-data class EmailCodeRequestDto(
-    val email: String,
-)
-
-@Serializable
-data class EmailLoginRequestDto(
-    val email: String,
-    val code: String,
+data class QqLoginRequestDto(
+    val accessToken: String,
+    val openId: String,
     val deviceId: String = "",
-)
+) {
+    override fun toString(): String =
+        "QqLoginRequestDto(accessToken=<redacted>, openId=<redacted>, deviceId=<redacted>)"
+}
 
 @Serializable
 data class RefreshTokenRequestDto(
@@ -64,11 +62,6 @@ data class RefreshResponseDto(
 }
 
 @Serializable
-data class EmailCodeResponseDto(
-    val expiresIn: Int,
-)
-
-@Serializable
 data class StatusResponseDto(
     val status: String,
 )
@@ -90,6 +83,6 @@ private fun String.toRole(): Role = when (this) {
 
 private fun String.toLoginType(): LoginType = when (this) {
     "GITHUB" -> LoginType.GITHUB
-    "EMAIL" -> LoginType.EMAIL
+    "QQ" -> LoginType.QQ
     else -> throw BackendProtocolException("Unknown login type: $this")
 }

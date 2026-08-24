@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -52,7 +51,6 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import java.net.URI
 import link.mczihan.androidResourceDownload.BuildConfig
-import link.mczihan.androidResourceDownload.core.common.qqNumberFromEmail
 import link.mczihan.androidResourceDownload.domain.model.LoginType
 import link.mczihan.androidResourceDownload.domain.model.Role
 import link.mczihan.androidResourceDownload.domain.model.User
@@ -63,25 +61,22 @@ import okhttp3.OkHttpClient
 fun UserAccountSection(
     user: User,
     onLogout: () -> Unit,
-    qqNickname: String? = null,
-    allowQqLookup: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val displayEmail = user.email?.trim().takeUnless { it.isNullOrEmpty() } ?: "未提供邮箱"
-    val displayName = user.accountDisplayName(qqNickname)
+    val displayName = user.accountDisplayName()
     val loginMethod = when (user.loginType) {
         LoginType.GITHUB -> "GitHub"
-        LoginType.EMAIL -> "邮箱验证码"
+        LoginType.QQ -> "QQ"
     }
-    val avatarUrl = user.profileAvatarUrl(allowQqLookup)
+    val avatarUrl = user.profileAvatarUrl()
     val context = LocalContext.current
-    val avatarRequest = remember(context, avatarUrl) {
+    val avatarRequest = remember(context, avatarUrl, user.loginType) {
         avatarUrl?.let {
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(true)
                 .apply {
-                    if (it.startsWith("https://q1.qlogo.cn/")) {
+                    if (user.loginType == LoginType.QQ) {
                         diskCachePolicy(CachePolicy.DISABLED)
                     }
                 }
@@ -220,11 +215,6 @@ fun UserAccountSection(
                 }
             }
 
-            AccountDetail(
-                icon = Icons.Default.Email,
-                label = "邮箱",
-                value = displayEmail,
-            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -324,26 +314,26 @@ private fun AccountDetail(
     }
 }
 
-internal fun User.accountDisplayName(qqNickname: String?): String = when (loginType) {
+internal fun User.accountDisplayName(): String = when (loginType) {
     LoginType.GITHUB -> name?.trim().takeUnless { it.isNullOrEmpty() } ?: "GitHub 用户"
-    LoginType.EMAIL -> qqNickname?.trim().takeUnless { it.isNullOrEmpty() }
-        ?: email?.substringBefore('@')?.trim().takeUnless { it.isNullOrEmpty() }
-        ?: name?.trim().takeUnless { it.isNullOrEmpty() }
-        ?: "邮箱用户"
+    LoginType.QQ -> name?.trim().takeUnless { it.isNullOrEmpty() } ?: "QQ 用户"
 }
 
-internal fun User.profileAvatarUrl(allowQqLookup: Boolean = true): String? {
-    if (allowQqLookup && loginType == LoginType.EMAIL) {
-        qqNumberFromEmail(email)?.let { qqNumber ->
-            return "https://q1.qlogo.cn/g?b=qq&nk=$qqNumber&s=640"
-        }
-    }
-
+internal fun User.profileAvatarUrl(): String? {
     val normalizedUrl = avatarUrl?.trim()?.takeIf { it.none(Char::isWhitespace) } ?: return null
     val uri = runCatching { URI(normalizedUrl) }.getOrNull() ?: return null
-    return normalizedUrl.takeIf {
-        uri.scheme.equals("https", ignoreCase = true) &&
-            uri.host.equals("avatars.githubusercontent.com", ignoreCase = true) &&
-            (uri.port == -1 || uri.port == 443)
+    val allowedHosts = when (loginType) {
+        LoginType.GITHUB -> setOf("avatars.githubusercontent.com")
+        LoginType.QQ -> setOf("q.qlogo.cn", "q1.qlogo.cn", "qzapp.qlogo.cn", "thirdqq.qlogo.cn")
+    }
+    if (uri.userInfo != null || uri.host?.lowercase() !in allowedHosts) return null
+    return when {
+        uri.scheme.equals("https", ignoreCase = true) && (uri.port == -1 || uri.port == 443) ->
+            normalizedUrl
+        loginType == LoginType.QQ &&
+            uri.scheme.equals("http", ignoreCase = true) &&
+            (uri.port == -1 || uri.port == 80) ->
+            "https${normalizedUrl.substring(normalizedUrl.indexOf(':'))}"
+        else -> null
     }
 }

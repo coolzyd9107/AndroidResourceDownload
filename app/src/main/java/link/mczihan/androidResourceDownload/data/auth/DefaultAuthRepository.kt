@@ -26,23 +26,16 @@ class DefaultAuthRepository(
 
     override suspend fun currentSession(): AuthSession? = sessionStore.read()
 
-    override suspend fun requestEmailCode(email: String): EmailCodeChallenge {
-        val response = executeBackendCall {
-            authApi.requestEmailCode(EmailCodeRequestDto(email.trim()))
-        }
-        return EmailCodeChallenge(response.expiresIn)
-    }
-
-    override suspend fun loginWithEmail(
-        email: String,
-        code: String,
+    override suspend fun loginWithQq(
+        accessToken: String,
+        openId: String,
         deviceId: String,
     ): AuthSession {
         val response = executeBackendCall {
-            authApi.loginWithEmail(
-                EmailLoginRequestDto(
-                    email = email.trim(),
-                    code = code.trim(),
+            authApi.loginWithQq(
+                QqLoginRequestDto(
+                    accessToken = accessToken,
+                    openId = openId,
                     deviceId = deviceId,
                 ),
             )

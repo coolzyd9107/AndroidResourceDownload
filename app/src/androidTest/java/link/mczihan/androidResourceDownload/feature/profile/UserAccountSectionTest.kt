@@ -24,11 +24,17 @@ class UserAccountSectionTest {
 
     @Test
     fun accountIdentityUsesExpressiveSettingsContent() {
-        setAccount(user(loginType = LoginType.EMAIL).copy(email = "123456@qq.com"))
+        setAccount(
+            user(loginType = LoginType.QQ).copy(
+                name = "QQ 用户",
+                email = "hidden@example.com",
+            ),
+        )
 
-        composeRule.onNodeWithText("123456").assertExists()
-        composeRule.onNodeWithText("123456@qq.com").assertExists()
-        composeRule.onNodeWithText("邮箱验证码").assertExists()
+        composeRule.onNodeWithText("QQ 用户").assertExists()
+        composeRule.onNodeWithText("QQ").assertExists()
+        composeRule.onNodeWithText("hidden@example.com").assertDoesNotExist()
+        composeRule.onNodeWithText("邮箱").assertDoesNotExist()
         composeRule.onNodeWithText("v${BuildConfig.VERSION_NAME}").assertExists()
     }
 
@@ -38,7 +44,6 @@ class UserAccountSectionTest {
                 UserAccountSection(
                     user = user,
                     onLogout = {},
-                    allowQqLookup = false,
                 )
             }
         }

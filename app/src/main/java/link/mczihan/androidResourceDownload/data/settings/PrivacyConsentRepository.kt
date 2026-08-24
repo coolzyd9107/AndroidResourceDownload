@@ -40,7 +40,7 @@ class PrivacyConsentRepository @Inject constructor(
     }
 
     private companion object {
-        const val CURRENT_POLICY_VERSION = 2
+        const val CURRENT_POLICY_VERSION = 3
         val ACCEPTED_POLICY_VERSION = intPreferencesKey("accepted_policy_version")
     }
 }

@@ -34,6 +34,13 @@ android {
         .orElse("true")
         .get()
         .toBoolean()
+    val qqAppId = providers.gradleProperty("qqAppId")
+        .orElse("1905483457")
+        .get()
+        .trim()
+    require(qqAppId.isNotEmpty() && qqAppId.all { it in '0'..'9' }) {
+        "qqAppId must contain only ASCII digits"
+    }
     fun buildConfigString(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     defaultConfig {
@@ -45,8 +52,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        manifestPlaceholders["qqAuthScheme"] = "tencent$qqAppId"
         buildConfigField("String", "API_BASE_URL", buildConfigString(apiBaseUrl))
         buildConfigField("boolean", "DEMO_MODE", demoMode.toString())
+        buildConfigField("String", "QQ_APP_ID", buildConfigString(qqAppId))
     }
 
     signingConfigs {
@@ -127,6 +136,7 @@ dependencies {
     implementation(libs.timber)
     implementation(libs.androidx.browser)
     implementation(libs.kxml2)
+    implementation(files("libs/qq-open-sdk-3.5.19.jar"))
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

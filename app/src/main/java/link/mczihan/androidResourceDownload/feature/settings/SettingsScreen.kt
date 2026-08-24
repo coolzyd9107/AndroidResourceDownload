@@ -107,8 +107,6 @@ import link.mczihan.androidResourceDownload.feature.profile.UserAccountSection
 @Composable
 fun SettingsScreen(
     user: User,
-    qqNickname: String? = null,
-    allowQqLookup: Boolean = true,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     dynamicColorEnabled: Boolean = true,
@@ -158,8 +156,6 @@ fun SettingsScreen(
             UserAccountSection(
                 user = user,
                 onLogout = { showLogout = true },
-                qqNickname = qqNickname,
-                allowQqLookup = allowQqLookup,
                 modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp),
             )
             Text(

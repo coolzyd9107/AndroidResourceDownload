@@ -18,9 +18,10 @@ import link.mczihan.androidResourceDownload.data.webdav.CredentialBackedWebDavCl
 import link.mczihan.androidResourceDownload.data.webdav.InMemoryWebDavCredentialProvider
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavClient
 import link.mczihan.androidResourceDownload.domain.webdav.WebDavCredentialProvider
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
-import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import timber.log.Timber
@@ -31,6 +32,12 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideBackendHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
         .apply {
             if (BuildConfig.DEBUG) {
                 addInterceptor(
@@ -50,7 +57,8 @@ object NetworkModule {
     ): Retrofit {
         val baseUrl = BuildConfig.API_BASE_URL.trim().let {
             if (it.endsWith('/')) it else "$it/"
-        }
+        }.toHttpUrl()
+        require(baseUrl.isHttps) { "Backend API base URL must use HTTPS" }
         return Retrofit.Builder()
             .baseUrl(baseUrl)
             .client(client)

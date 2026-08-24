@@ -19,26 +19,36 @@ class ProfileAvatarUrlTest {
     }
 
     @Test
-    fun numericQqEmailUsesQqAvatar() {
+    fun qqUserUsesTrustedBackendAvatarUrl() {
         val user = user(
-            loginType = LoginType.EMAIL,
-            email = "123456789@qq.com",
+            loginType = LoginType.QQ,
+            avatarUrl = "https://thirdqq.qlogo.cn/g?b=oidb&k=avatar&s=100",
         )
 
         assertEquals(
-            "https://q1.qlogo.cn/g?b=qq&nk=123456789&s=640",
+            "https://thirdqq.qlogo.cn/g?b=oidb&k=avatar&s=100",
             user.profileAvatarUrl(),
         )
     }
 
     @Test
-    fun qqAliasDoesNotExposeAnAvatarRequest() {
+    fun qqUserUpgradesTrustedHttpAvatarUrl() {
         val user = user(
-            loginType = LoginType.EMAIL,
-            email = "member@qq.com",
+            loginType = LoginType.QQ,
+            avatarUrl = "http://thirdqq.qlogo.cn/avatar.png",
         )
 
-        assertNull(user.profileAvatarUrl())
+        assertEquals("https://thirdqq.qlogo.cn/avatar.png", user.profileAvatarUrl())
+    }
+
+    @Test
+    fun qqUserRejectsUntrustedBackendAvatarUrl() {
+        val untrustedHostUser = user(
+            loginType = LoginType.QQ,
+            avatarUrl = "https://example.com/avatar.png",
+        )
+
+        assertNull(untrustedHostUser.profileAvatarUrl())
     }
 
     @Test
@@ -56,24 +66,13 @@ class ProfileAvatarUrlTest {
         assertNull(untrustedHostUser.profileAvatarUrl())
     }
 
-    @Test
-    fun nonAsciiDigitsAreNotAcceptedAsQqNumber() {
-        val user = user(
-            loginType = LoginType.EMAIL,
-            email = "１２３４５６@qq.com",
-        )
-
-        assertNull(user.profileAvatarUrl())
-    }
-
     private fun user(
         loginType: LoginType,
-        email: String? = null,
         avatarUrl: String? = null,
     ) = User(
         id = "user",
         name = null,
-        email = email,
+        email = null,
         role = Role.USER,
         loginType = loginType,
         avatarUrl = avatarUrl,
