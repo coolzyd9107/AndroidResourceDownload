@@ -26,10 +26,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -53,11 +51,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import link.mczihan.androidResourceDownload.BuildConfig
+import link.mczihan.androidResourceDownload.R
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -158,7 +158,7 @@ fun LoginScreen(
                 contentPadding = ButtonDefaults.MediumContentPadding,
             ) {
                 Icon(
-                    imageVector = Icons.Default.Code,
+                    painter = painterResource(R.drawable.ic_github),
                     contentDescription = null,
                     modifier = Modifier.size(ButtonDefaults.MediumIconSize),
                 )
@@ -180,7 +180,7 @@ fun LoginScreen(
                 contentPadding = ButtonDefaults.MediumContentPadding,
             ) {
                 Icon(
-                    imageVector = Icons.Default.AccountCircle,
+                    painter = painterResource(R.drawable.ic_qq),
                     contentDescription = null,
                     modifier = Modifier.size(ButtonDefaults.MediumIconSize),
                 )
