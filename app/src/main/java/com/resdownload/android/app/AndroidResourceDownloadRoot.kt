@@ -10,13 +10,14 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -45,7 +46,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
@@ -59,6 +59,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import com.resdownload.android.BuildConfig
@@ -100,6 +102,7 @@ private object SettingsRoute {
 
 private const val QQ_PRIVACY_POLICY_URL =
     "https://wiki.connect.qq.com/qq%E4%BA%92%E8%81%94sdk%E9%9A%90%E7%A7%81%E4%BF%9D%E6%8A%A4%E5%A3%B0%E6%98%8E"
+private const val TAB_NAVIGATION_COALESCE_MILLIS = 120L
 
 private enum class ShellRoute(
     val route: String,
@@ -325,7 +328,6 @@ private fun MainShell(
     var pendingFolderUploadDestination by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFolderUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
     var requestedQueueStoragePermission by rememberSaveable(user.id) { mutableStateOf(false) }
-    val tabSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val tabOffsetSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val tabEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val tabDirection = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1 else -1
@@ -340,11 +342,20 @@ private fun MainShell(
         .onFailure { showMessage("无法打开链接") }
         .isSuccess
 
-    fun openShellRoute(route: ShellRoute) {
+    fun openShellRoute(route: ShellRoute): Boolean {
+        if (navController.currentDestination?.route == route.route) return false
         navController.navigate(route.route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
             launchSingleTop = true
             restoreState = true
+        }
+        return true
+    }
+
+    val tabNavigationRequests = remember { Channel<ShellRoute>(Channel.CONFLATED) }
+    LaunchedEffect(navController, tabNavigationRequests) {
+        for (route in tabNavigationRequests) {
+            if (openShellRoute(route)) delay(TAB_NAVIGATION_COALESCE_MILLIS)
         }
     }
 
@@ -430,6 +441,15 @@ private fun MainShell(
     LaunchedEffect(uploadsViewModel, user.id) {
         uploadsViewModel?.bindOwner(user.id)
     }
+    LifecycleResumeEffect(downloadsViewModel, uploadsViewModel, user.id) {
+        val reconciliation = if (BuildConfig.DEMO_MODE) {
+            null
+        } else {
+            downloadsViewModel?.removeMissingSuccessful(user.id)
+        }
+        uploadsViewModel?.startPending()
+        onPauseOrDispose { reconciliation?.cancel() }
+    }
     LaunchedEffect(downloadsViewModel) {
         downloadsViewModel?.messages?.collect(::showMessage)
     }
@@ -452,15 +472,10 @@ private fun MainShell(
                         .filter { destination -> !destination.adminOnly || user.role == Role.ADMIN }
                         .forEach { destination ->
                         val selected = currentRoute == destination.route
-                        val iconScale by animateFloatAsState(
-                            targetValue = if (selected) 1.16f else 1f,
-                            animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
-                            label = "navigationIconScale",
-                        )
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
-                                openShellRoute(destination)
+                                tabNavigationRequests.trySend(destination)
                             },
                             icon = {
                                 Icon(
@@ -471,10 +486,6 @@ private fun MainShell(
                                         ShellRoute.Settings -> Icons.Default.Settings
                                     },
                                     contentDescription = destination.label,
-                                    modifier = Modifier.graphicsLayer {
-                                        scaleX = iconScale
-                                        scaleY = iconScale
-                                    },
                                 )
                             },
                             label = { Text(destination.label) },
@@ -491,24 +502,39 @@ private fun MainShell(
             navController = navController,
             startDestination = ShellRoute.Files.route,
             modifier = Modifier.padding(shellPadding),
+            enterTransition = {
+                if (targetState.destination.route == SettingsRoute.About) {
+                    fadeIn(tabEffectsSpec) +
+                        slideInHorizontally(tabOffsetSpec) { width -> tabDirection * width / 8 }
+                } else {
+                    EnterTransition.None
+                }
+            },
+            exitTransition = {
+                if (targetState.destination.route == SettingsRoute.About) {
+                    fadeOut(tabEffectsSpec)
+                } else {
+                    ExitTransition.None
+                }
+            },
             popEnterTransition = {
-                fadeIn(tabEffectsSpec) +
-                    slideInHorizontally(tabOffsetSpec) { width -> -tabDirection * width / 12 }
+                if (initialState.destination.route == SettingsRoute.About) {
+                    fadeIn(tabEffectsSpec) +
+                        slideInHorizontally(tabOffsetSpec) { width -> -tabDirection * width / 12 }
+                } else {
+                    EnterTransition.None
+                }
             },
             popExitTransition = {
-                fadeOut(tabEffectsSpec) +
-                    slideOutHorizontally(tabOffsetSpec) { width -> tabDirection * width / 5 }
+                if (initialState.destination.route == SettingsRoute.About) {
+                    fadeOut(tabEffectsSpec) +
+                        slideOutHorizontally(tabOffsetSpec) { width -> tabDirection * width / 5 }
+                } else {
+                    ExitTransition.None
+                }
             },
         ) {
-            composable(
-                route = ShellRoute.Files.route,
-                enterTransition = {
-                    fadeIn(tabEffectsSpec) + scaleIn(tabSpatialSpec, initialScale = 0.96f)
-                },
-                exitTransition = {
-                    fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
-                },
-            ) {
+            composable(route = ShellRoute.Files.route) {
                 FilesScreen(
                     role = user.role,
                     onMultiSelectModeChange = { filesMultiSelectMode = it },
@@ -567,21 +593,12 @@ private fun MainShell(
                     },
                 )
             }
-            composable(
-                route = ShellRoute.Uploads.route,
-                enterTransition = {
-                    fadeIn(tabEffectsSpec) + scaleIn(tabSpatialSpec, initialScale = 0.96f)
-                },
-                exitTransition = {
-                    fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
-                },
-            ) {
+            composable(route = ShellRoute.Uploads.route) {
                 if (user.role != Role.ADMIN) {
                     LaunchedEffect(Unit) { openShellRoute(ShellRoute.Files) }
                 } else {
                     LifecycleResumeEffect(uploadsViewModel) {
                         uploadsViewModel?.startSpeedTracking()
-                        uploadsViewModel?.startPending()
                         onPauseOrDispose { uploadsViewModel?.stopSpeedTracking() }
                     }
                     UploadsScreen(
@@ -597,24 +614,10 @@ private fun MainShell(
                     )
                 }
             }
-            composable(
-                route = ShellRoute.Downloads.route,
-                enterTransition = {
-                    fadeIn(tabEffectsSpec) + scaleIn(tabSpatialSpec, initialScale = 0.96f)
-                },
-                exitTransition = {
-                    fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
-                },
-            ) {
+            composable(route = ShellRoute.Downloads.route) {
                 LifecycleResumeEffect(downloadsViewModel, user.id) {
                     downloadsViewModel?.startSpeedTracking()
-                    val reconciliation = if (BuildConfig.DEMO_MODE) {
-                        null
-                    } else {
-                        downloadsViewModel?.removeMissingSuccessful(user.id)
-                    }
                     onPauseOrDispose {
-                        reconciliation?.cancel()
                         downloadsViewModel?.stopSpeedTracking()
                     }
                 }
@@ -723,21 +726,9 @@ private fun MainShell(
                     onMultiSelectModeChange = { transferMultiSelectMode = it },
                 )
             }
-            composable(
-                route = ShellRoute.Settings.route,
-                enterTransition = {
-                    fadeIn(tabEffectsSpec) + scaleIn(tabSpatialSpec, initialScale = 0.96f)
-                },
-                exitTransition = {
-                    fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
-                },
-            ) {
+            composable(route = ShellRoute.Settings.route) {
                 val settingsViewModel = hiltViewModel<SettingsViewModel>()
                 val noticeState by settingsViewModel.noticeState.collectAsStateWithLifecycle()
-                LifecycleResumeEffect(settingsViewModel) {
-                    settingsViewModel.refreshNotice()
-                    onPauseOrDispose { }
-                }
                 SettingsScreen(
                     user = user,
                     themeMode = themeSettings.themeMode,
@@ -759,17 +750,7 @@ private fun MainShell(
                     onLogout = onLogout,
                 )
             }
-            composable(
-                route = SettingsRoute.About,
-                enterTransition = {
-                    fadeIn(tabEffectsSpec) +
-                        slideInHorizontally(tabOffsetSpec) { width -> tabDirection * width / 8 }
-                },
-                exitTransition = {
-                    fadeOut(tabEffectsSpec) +
-                        slideOutHorizontally(tabOffsetSpec) { width -> tabDirection * width / 8 }
-                },
-            ) {
+            composable(route = SettingsRoute.About) {
                 val aboutViewModel = hiltViewModel<AboutViewModel>()
                 val updateState by aboutViewModel.updateState.collectAsStateWithLifecycle()
                 AboutScreen(
