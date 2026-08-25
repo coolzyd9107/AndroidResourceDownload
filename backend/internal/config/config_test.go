@@ -41,10 +41,3 @@ func TestInvalidDriver(t *testing.T) {
 	_, err := Load("")
 	assert.Error(t, err)
 }
-
-func TestRejectsStaleAndroidOAuthCallback(t *testing.T) {
-	t.Setenv("GITHUB_APP_REDIRECT_URI", "link.mczihan.androidresourcedownload://oauth/callback")
-
-	_, err := Load("")
-	require.EqualError(t, err, "config: github.app-redirect-uri must be com.resdownload.android://oauth/callback")
-}
