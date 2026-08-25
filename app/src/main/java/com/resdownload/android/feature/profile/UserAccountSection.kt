@@ -122,7 +122,7 @@ fun UserAccountSection(
                                 "用户头像"
                             }
                         },
-                    shape = MaterialTheme.shapes.medium,
+                    shape = CircleShape,
                     color = MaterialTheme.colorScheme.primaryContainer,
                 ) {
                     if (avatarRequest == null) {

@@ -288,7 +288,12 @@ private fun MainShell(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     var filesMultiSelectMode by remember { mutableStateOf(false) }
-    val showFilesMultiSelectBar = currentRoute == ShellRoute.Files.route && filesMultiSelectMode
+    var transferMultiSelectMode by remember { mutableStateOf(false) }
+    val showMultiSelectBar = when (currentRoute) {
+        ShellRoute.Files.route -> filesMultiSelectMode
+        ShellRoute.Downloads.route, ShellRoute.Uploads.route -> transferMultiSelectMode
+        else -> false
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var demoTasks by remember {
@@ -319,10 +324,7 @@ private fun MainShell(
     var pendingFileUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFolderUploadDestination by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFolderUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingPermissionDownload by remember { mutableStateOf<Pair<FileNode, String>?>(null) }
-    var pendingPermissionRetryId by remember { mutableStateOf<String?>(null) }
-    var pendingPermissionStartQueue by remember { mutableStateOf(false) }
-    var requestedQueueStoragePermission by remember { mutableStateOf(false) }
+    var requestedQueueStoragePermission by rememberSaveable(user.id) { mutableStateOf(false) }
     val tabSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val tabOffsetSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val tabEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
@@ -379,16 +381,13 @@ private fun MainShell(
     val storagePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        val pending = pendingPermissionDownload
-        val retryId = pendingPermissionRetryId
-        val startQueue = pendingPermissionStartQueue
-        pendingPermissionDownload = null
-        pendingPermissionRetryId = null
-        pendingPermissionStartQueue = false
+        val work = downloadsViewModel?.takeDeferredPermissionWork()
         if (granted) {
-            pending?.let { (file, relativePath) -> downloadsViewModel?.enqueue(file, relativePath) }
-            retryId?.let { downloadsViewModel?.retry(it) }
-            if (startQueue) downloadsViewModel?.startPending()
+            work?.downloads.orEmpty().forEach { (file, relativePath) ->
+                downloadsViewModel?.enqueue(file, relativePath)
+            }
+            work?.retryIds.orEmpty().forEach { downloadsViewModel?.retry(it) }
+            if (work?.startPending == true) downloadsViewModel?.startPending()
         } else {
             showMessage("需要存储权限才能保存到系统下载目录")
         }
@@ -397,8 +396,10 @@ private fun MainShell(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        pendingPermissionDownload?.let { (file, relativePath) -> downloadsViewModel?.enqueue(file, relativePath) }
-        pendingPermissionDownload = null
+        val work = downloadsViewModel?.takeDeferredPermissionWork()
+        work?.downloads.orEmpty().forEach { (file, relativePath) ->
+            downloadsViewModel?.enqueue(file, relativePath)
+        }
         if (!granted) showMessage("通知权限未开启，下载仍会在队列中执行")
     }
 
@@ -416,8 +417,10 @@ private fun MainShell(
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             requestedQueueStoragePermission = true
-            pendingPermissionStartQueue = true
-            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            val shouldLaunch = downloadsViewModel?.deferPermissionStartPending() == true
+            if (shouldLaunch) {
+                storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
         }
     }
 
@@ -438,7 +441,7 @@ private fun MainShell(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (
-                !showFilesMultiSelectBar &&
+                !showMultiSelectBar &&
                 ShellRoute.values().any { destination -> destination.route == currentRoute }
             ) {
                 NavigationBar(
@@ -519,16 +522,26 @@ private fun MainShell(
                                 Manifest.permission.WRITE_EXTERNAL_STORAGE,
                             ) != PackageManager.PERMISSION_GRANTED
                         ) {
-                            pendingPermissionDownload = file to relativePath
-                            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            val shouldLaunch = downloadsViewModel
+                                ?.deferPermissionDownload(file, relativePath) == true
+                            if (shouldLaunch) {
+                                storagePermissionLauncher.launch(
+                                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                )
+                            }
                         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             ContextCompat.checkSelfPermission(
                                 context,
                                 Manifest.permission.POST_NOTIFICATIONS,
                             ) != PackageManager.PERMISSION_GRANTED
                         ) {
-                            pendingPermissionDownload = file to relativePath
-                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            val shouldLaunch = downloadsViewModel
+                                ?.deferPermissionDownload(file, relativePath) == true
+                            if (shouldLaunch) {
+                                notificationPermissionLauncher.launch(
+                                    Manifest.permission.POST_NOTIFICATIONS,
+                                )
+                            }
                         } else {
                             downloadsViewModel?.enqueue(file, relativePath)
                         }
@@ -580,6 +593,7 @@ private fun MainShell(
                         onDelete = { taskId -> uploadsViewModel?.delete(taskId) },
                         onCancelAll = { uploadsViewModel?.cancelAll() },
                         onClearTerminal = { uploadsViewModel?.clearTerminal() },
+                        onMultiSelectModeChange = { transferMultiSelectMode = it },
                     )
                 }
             }
@@ -625,10 +639,13 @@ private fun MainShell(
                                             Manifest.permission.WRITE_EXTERNAL_STORAGE,
                                         ) != PackageManager.PERMISSION_GRANTED
                                     ) {
-                                        pendingPermissionRetryId = taskId
-                                        storagePermissionLauncher.launch(
-                                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                        )
+                                        val shouldLaunch = downloadsViewModel
+                                            ?.deferPermissionRetry(taskId) == true
+                                        if (shouldLaunch) {
+                                            storagePermissionLauncher.launch(
+                                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                            )
+                                        }
                                     } else {
                                         downloadsViewModel?.retry(taskId)
                                     }
@@ -703,6 +720,7 @@ private fun MainShell(
                             downloadsViewModel?.clearTerminal(deleteLocalFiles)
                         }
                     },
+                    onMultiSelectModeChange = { transferMultiSelectMode = it },
                 )
             }
             composable(

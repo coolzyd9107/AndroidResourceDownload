@@ -2,6 +2,7 @@ package com.resdownload.android.feature.auth
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertFalse
@@ -28,6 +29,7 @@ class AuthScreensTest {
             }
         }
 
+        composeRule.onNodeWithContentDescription("资源云盘 应用图标").assertExists()
         composeRule.onNodeWithText("使用 GitHub 登录").performClick()
         composeRule.onNodeWithText("使用 QQ 登录").performClick()
         composeRule.onNodeWithText("请先同意用户协议与隐私政策").assertExists()

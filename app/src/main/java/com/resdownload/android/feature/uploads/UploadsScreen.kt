@@ -1,5 +1,6 @@
 package com.resdownload.android.feature.uploads
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -23,22 +24,30 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -55,10 +64,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +86,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.resdownload.android.core.common.formatFileSize
 import com.resdownload.android.core.ui.EmptyPane
+import com.resdownload.android.core.ui.SearchTopAppBar
+import com.resdownload.android.core.ui.SelectionAction
+import com.resdownload.android.core.ui.SelectionBottomBar
 import com.resdownload.android.domain.model.UploadStatus
 import com.resdownload.android.domain.model.UploadTask
 
@@ -87,15 +103,79 @@ fun UploadsScreen(
     onDelete: (taskId: String) -> Unit,
     onCancelAll: () -> Unit = {},
     onClearTerminal: () -> Unit = {},
+    onMultiSelectModeChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showCancelAllDialog by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var multiSelectMode by rememberSaveable { mutableStateOf(false) }
+    var selectedTaskIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    var showDeleteSelectedDialog by remember { mutableStateOf(false) }
+    SideEffect { onMultiSelectModeChange(multiSelectMode) }
+    DisposableEffect(Unit) {
+        onDispose { onMultiSelectModeChange(false) }
+    }
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val contentSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val countSpatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
-    val subtitle = if (preparingSelections > 0) "正在读取所选内容" else taskCountLabel(tasks.size)
+    val filteredTasks = filterUploadTasks(tasks, if (searchActive) searchQuery else "")
+    val normalizedSearchQuery = searchQuery.trim()
+    val selectedTaskIdSet = selectedTaskIds.toSet()
+    val selectedTasks = tasks.filter { it.id in selectedTaskIdSet }
+    val allVisibleTasksSelected = filteredTasks.isNotEmpty() &&
+        filteredTasks.all { it.id in selectedTaskIdSet }
+    val retryableTasks = selectedTasks.filter { task ->
+        task.status in setOf(UploadStatus.FAILED, UploadStatus.CANCELLED)
+    }
+    val retryOperations = buildList {
+        val scheduledTreeBatches = mutableSetOf<String>()
+        retryableTasks.forEach { task ->
+            if (task.isTreeUpload && task.status == UploadStatus.FAILED) {
+                if (scheduledTreeBatches.add(task.batchId)) add(task)
+            } else {
+                add(task)
+            }
+        }
+    }
+    val cancellableSelectedTasks = selectedTasks.filter { task ->
+        task.status in setOf(UploadStatus.PENDING, UploadStatus.RUNNING) &&
+            !task.isDirectory &&
+            !task.committing
+    }
+    val deletableSelectedTasks = selectedTasks.filter { task ->
+        task.status in setOf(UploadStatus.SUCCESS, UploadStatus.FAILED, UploadStatus.CANCELLED)
+    }
+    val selectedDirectoryBatchIds = deletableSelectedTasks
+        .filter(UploadTask::isDirectory)
+        .mapTo(mutableSetOf(), UploadTask::batchId)
+    val deletableDirectoryBatchIds = selectedDirectoryBatchIds.filterTo(mutableSetOf()) { batchId ->
+        tasks.none { task ->
+            task.batchId == batchId &&
+                task.status in setOf(UploadStatus.PENDING, UploadStatus.RUNNING)
+        }
+    }
+    val deletionOperations = buildList {
+        deletableDirectoryBatchIds.forEach { batchId ->
+            deletableSelectedTasks.firstOrNull { it.isDirectory && it.batchId == batchId }
+                ?.let(::add)
+        }
+        addAll(deletableSelectedTasks.filter { task ->
+            !task.isDirectory && task.batchId !in deletableDirectoryBatchIds
+        })
+    }
+    val affectedDeletionTasks = tasks.filter { task ->
+        task.status in setOf(UploadStatus.SUCCESS, UploadStatus.FAILED, UploadStatus.CANCELLED) &&
+            (task.batchId in deletableDirectoryBatchIds ||
+                (!task.isDirectory && task.id in selectedTaskIdSet))
+    }
+    val subtitle = if (preparingSelections > 0) {
+        "正在读取所选内容"
+    } else {
+        taskCountLabel(tasks.size)
+    }
     val hasCancellableTasks = tasks.any { task ->
         task.status in setOf(UploadStatus.PENDING, UploadStatus.RUNNING) &&
             !task.isDirectory &&
@@ -105,60 +185,210 @@ fun UploadsScreen(
         task.status in setOf(UploadStatus.FAILED, UploadStatus.CANCELLED)
     }
     val listBottomPadding = when {
+        multiSelectMode -> 16.dp
         hasCancellableTasks && hasClearableTasks -> 152.dp
         hasCancellableTasks || hasClearableTasks -> 84.dp
         else -> 16.dp
     }
 
+    fun exitMultiSelect() {
+        multiSelectMode = false
+        selectedTaskIds = emptyList()
+    }
+
+    fun toggleTaskSelection(taskId: String) {
+        selectedTaskIds = selectedTaskIds.toMutableList().apply {
+            if (contains(taskId)) remove(taskId) else add(taskId)
+        }
+    }
+
+    fun toggleAllVisibleTasks() {
+        val visibleIds = filteredTasks.map(UploadTask::id)
+        selectedTaskIds = if (visibleIds.isNotEmpty() && visibleIds.all(selectedTaskIdSet::contains)) {
+            selectedTaskIds.filterNot(visibleIds::contains)
+        } else {
+            (selectedTaskIds + visibleIds).distinct()
+        }
+    }
+
+    fun invertVisibleTasks() {
+        val visibleIds = filteredTasks.map(UploadTask::id)
+        selectedTaskIds = selectedTaskIds.filterNot(visibleIds::contains) +
+            visibleIds.filterNot(selectedTaskIdSet::contains)
+    }
+
+    LaunchedEffect(tasks.map(UploadTask::id)) {
+        val retainedIds = selectedTaskIds.filter { selectedId -> tasks.any { it.id == selectedId } }
+        if (retainedIds != selectedTaskIds) {
+            val hadSelection = selectedTaskIds.isNotEmpty()
+            selectedTaskIds = retainedIds
+            if (hadSelection && retainedIds.isEmpty()) multiSelectMode = false
+        }
+    }
+
+    BackHandler(enabled = searchActive && !multiSelectMode) {
+        searchActive = false
+        searchQuery = ""
+    }
+
+    BackHandler(enabled = multiSelectMode, onBack = ::exitMultiSelect)
+
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = { Text("上传") },
-                subtitle = {
-                    AnimatedContent(
-                        targetState = subtitle,
-                        transitionSpec = {
-                            (fadeIn(itemEffectsSpec) + slideInVertically(countSpatialSpec) { it / 2 })
-                                .togetherWith(
-                                    fadeOut(itemEffectsSpec) +
-                                        slideOutVertically(countSpatialSpec) { -it / 2 },
+            if (multiSelectMode) {
+                TopAppBar(
+                    title = { Text("已选择 ${selectedTasks.size} 项") },
+                    navigationIcon = {
+                        IconButton(onClick = ::exitMultiSelect) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "退出上传任务选择",
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
+            } else if (searchActive) {
+                SearchTopAppBar(
+                    query = searchQuery,
+                    placeholder = "搜索上传任务",
+                    closeContentDescription = "关闭上传搜索",
+                    searchContentDescription = "执行上传搜索",
+                    onQueryChange = { searchQuery = it },
+                    onSearch = {},
+                    showSearchAction = false,
+                    onClose = {
+                        searchActive = false
+                        searchQuery = ""
+                    },
+                    subtitle = when {
+                        preparingSelections > 0 -> "正在读取所选内容"
+                        normalizedSearchQuery.isNotEmpty() ->
+                            "${filteredTasks.size} / ${tasks.size} 个任务"
+                        else -> null
+                    },
+                    additionalActions = {
+                        if (filteredTasks.isNotEmpty()) {
+                            IconButton(onClick = { multiSelectMode = true }) {
+                                Icon(
+                                    Icons.Default.Checklist,
+                                    contentDescription = "选择上传搜索结果",
                                 )
-                        },
-                        label = "uploadCount",
-                    ) { text -> Text(text) }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
+                            }
+                        }
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("上传") },
+                    subtitle = {
+                        AnimatedContent(
+                            targetState = subtitle,
+                            transitionSpec = {
+                                (fadeIn(itemEffectsSpec) +
+                                    slideInVertically(countSpatialSpec) { it / 2 })
+                                    .togetherWith(
+                                        fadeOut(itemEffectsSpec) +
+                                            slideOutVertically(countSpatialSpec) { -it / 2 },
+                                    )
+                            },
+                            label = "uploadCount",
+                        ) { text -> Text(text) }
+                    },
+                    actions = {
+                        IconButton(onClick = { searchActive = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "搜索上传任务")
+                        }
+                        if (tasks.isNotEmpty()) {
+                            IconButton(onClick = { multiSelectMode = true }) {
+                                Icon(
+                                    Icons.Default.Checklist,
+                                    contentDescription = "选择上传任务",
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
+            }
         },
-        floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (hasCancellableTasks) {
-                    ExtendedFloatingActionButton(
-                        text = { Text("全部取消") },
-                        icon = { Icon(Icons.Default.Cancel, contentDescription = null) },
-                        modifier = Modifier.testTag("cancelAllTasks"),
-                        onClick = { showCancelAllDialog = true },
+        bottomBar = {
+            if (multiSelectMode) {
+                SelectionBottomBar {
+                    SelectionAction(
+                        icon = if (allVisibleTasksSelected) Icons.Default.Deselect else Icons.Default.SelectAll,
+                        label = if (allVisibleTasksSelected) "取消全选" else "全选",
+                        onClick = ::toggleAllVisibleTasks,
+                        enabled = filteredTasks.isNotEmpty(),
+                    )
+                    SelectionAction(
+                        icon = Icons.Default.FlipToBack,
+                        label = "反选",
+                        onClick = ::invertVisibleTasks,
+                        enabled = filteredTasks.isNotEmpty(),
+                    )
+                    SelectionAction(
+                        icon = Icons.Default.Refresh,
+                        label = "重试",
+                        enabled = retryOperations.isNotEmpty(),
+                        onClick = {
+                            retryOperations.forEach { onRetry(it.id) }
+                            exitMultiSelect()
+                        },
+                    )
+                    SelectionAction(
+                        icon = Icons.Default.Cancel,
+                        label = "取消",
+                        enabled = cancellableSelectedTasks.isNotEmpty(),
+                        destructive = true,
+                        onClick = {
+                            cancellableSelectedTasks.forEach { onCancel(it.id) }
+                            exitMultiSelect()
+                        },
+                    )
+                    SelectionAction(
+                        icon = Icons.Default.Delete,
+                        label = "删除",
+                        enabled = deletionOperations.isNotEmpty(),
+                        destructive = true,
+                        onClick = { showDeleteSelectedDialog = true },
                     )
                 }
-                if (hasClearableTasks) {
-                    ExtendedFloatingActionButton(
-                        text = { Text("全部清除") },
-                        icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
-                        modifier = Modifier.testTag("clearTerminalTasks"),
-                        onClick = { showClearDialog = true },
-                    )
+            }
+        },
+        floatingActionButton = {
+            if (!multiSelectMode) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (hasCancellableTasks) {
+                        ExtendedFloatingActionButton(
+                            text = { Text("全部取消") },
+                            icon = { Icon(Icons.Default.Cancel, contentDescription = null) },
+                            modifier = Modifier.testTag("cancelAllTasks"),
+                            onClick = { showCancelAllDialog = true },
+                        )
+                    }
+                    if (hasClearableTasks) {
+                        ExtendedFloatingActionButton(
+                            text = { Text("全部清除") },
+                            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
+                            modifier = Modifier.testTag("clearTerminalTasks"),
+                            onClick = { showClearDialog = true },
+                        )
+                    }
                 }
             }
         },
     ) { innerPadding ->
         AnimatedContent(
-            targetState = tasks,
+            targetState = filteredTasks,
             contentKey = { visibleTasks -> visibleTasks.isEmpty() },
             transitionSpec = {
                 (fadeIn(itemEffectsSpec) + scaleIn(contentSpatialSpec, initialScale = 0.98f))
@@ -169,10 +399,14 @@ fun UploadsScreen(
             modifier = Modifier.fillMaxSize(),
             label = "uploadContent",
         ) { visibleTasks ->
-            val isTargetContent = visibleTasks == tasks
+            val isTargetContent = visibleTasks == filteredTasks
             if (visibleTasks.isEmpty()) {
                 EmptyPane(
-                    message = if (preparingSelections > 0) "正在创建上传任务" else "暂无上传任务",
+                    message = when {
+                        preparingSelections > 0 -> "正在创建上传任务"
+                        tasks.isEmpty() -> "暂无上传任务"
+                        else -> "未找到匹配的上传任务"
+                    },
                     modifier = Modifier
                         .padding(innerPadding)
                         .then(if (isTargetContent) Modifier else Modifier.clearAndSetSemantics { }),
@@ -193,6 +427,9 @@ fun UploadsScreen(
                             onRetry = { onRetry(task.id) },
                             onCancel = { onCancel(task.id) },
                             onDelete = { onDelete(task.id) },
+                            selectionMode = multiSelectMode,
+                            selected = task.id in selectedTaskIdSet,
+                            onSelectionToggle = { toggleTaskSelection(task.id) },
                             enabled = isTargetContent,
                             modifier = Modifier
                                 .animateItem(
@@ -255,6 +492,28 @@ fun UploadsScreen(
             },
         )
     }
+
+    if (showDeleteSelectedDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedDialog = false },
+            title = { Text("删除所选任务？") },
+            text = {
+                Text("此操作将删除 ${affectedDeletionTasks.size} 个已结束上传任务，确定继续吗？")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteSelectedDialog = false
+                        deletionOperations.forEach { onDelete(it.id) }
+                        exitMultiSelect()
+                    },
+                ) { Text("确认删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedDialog = false }) { Text("取消") }
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -265,6 +524,9 @@ private fun UploadTaskItem(
     onRetry: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onSelectionToggle: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
@@ -285,10 +547,21 @@ private fun UploadTaskItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (selectionMode) {
+                    Modifier.clickable(enabled = enabled, onClick = onSelectionToggle)
+                } else {
+                    Modifier
+                },
+            )
             .then(if (enabled) Modifier else Modifier.clearAndSetSemantics { }),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            },
         ),
     ) {
         Column(
@@ -349,6 +622,12 @@ private fun UploadTaskItem(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onSelectionToggle() },
+                    )
+                }
             }
 
             AnimatedVisibility(
@@ -367,17 +646,19 @@ private fun UploadTaskItem(
             }
 
             StatusBadge(task)
-            Box(
-                modifier = Modifier.align(Alignment.End),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                TaskActions(
-                    task = task,
-                    enabled = enabled,
-                    onRetry = onRetry,
-                    onCancel = onCancel,
-                    onDelete = onDelete,
-                )
+            if (!selectionMode) {
+                Box(
+                    modifier = Modifier.align(Alignment.End),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    TaskActions(
+                        task = task,
+                        enabled = enabled,
+                        onRetry = onRetry,
+                        onCancel = onCancel,
+                        onDelete = onDelete,
+                    )
+                }
             }
         }
     }
@@ -514,6 +795,20 @@ private fun statusLabel(task: UploadTask): String = when (task.status) {
     UploadStatus.SUCCESS -> "已完成"
     UploadStatus.FAILED -> "失败"
     UploadStatus.CANCELLED -> "已取消"
+}
+
+internal fun filterUploadTasks(
+    tasks: List<UploadTask>,
+    query: String,
+): List<UploadTask> {
+    val normalizedQuery = query.trim()
+    if (normalizedQuery.isEmpty()) return tasks
+    return tasks.filter { task ->
+        task.fileName.contains(normalizedQuery, ignoreCase = true) ||
+            task.relativePath.contains(normalizedQuery, ignoreCase = true) ||
+            task.remotePath.contains(normalizedQuery, ignoreCase = true) ||
+            statusLabel(task).contains(normalizedQuery, ignoreCase = true)
+    }
 }
 
 private fun statusIcon(status: UploadStatus, isDirectory: Boolean) = when (status) {

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Deselect
@@ -57,9 +58,12 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
@@ -81,6 +85,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -132,6 +139,7 @@ import com.resdownload.android.core.ui.ContentState
 import com.resdownload.android.core.ui.EmptyPane
 import com.resdownload.android.core.ui.ErrorPane
 import com.resdownload.android.core.ui.LoadingPane
+import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.data.mock.mockFilesForPath
 import com.resdownload.android.data.mock.mockPreviewForFile
 import com.resdownload.android.domain.model.FileNode
@@ -165,8 +173,19 @@ fun FilesScreen(
     var deleteTarget by remember { mutableStateOf<FileNode?>(null) }
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
     var showUploadMenu by remember { mutableStateOf(false) }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedSearchScope by rememberSaveable {
+        mutableStateOf(FileSearchScope.CURRENT_DIRECTORY)
+    }
+    var searchSubmitted by rememberSaveable { mutableStateOf(false) }
     var demoDestinationPath by remember { mutableStateOf(WebDavPath.root()) }
     var demoPreviewState by remember { mutableStateOf<FilePreviewUiState>(FilePreviewUiState.Idle) }
+    var demoSearchState by remember { mutableStateOf<FileSearchUiState>(FileSearchUiState.Idle) }
+    var demoSearchJob by remember { mutableStateOf<Job?>(null) }
+    var demoSearchVersion by remember { mutableIntStateOf(0) }
+    var demoMultiSelectMode by remember { mutableStateOf(false) }
+    var demoSelectedPaths by remember { mutableStateOf<Set<String>>(emptySet()) }
     val mutationState = viewModel?.mutationState?.collectAsStateWithLifecycle()?.value
         ?: FileMutationState.Idle
     val realDirectoryPickerState = viewModel?.directoryPickerState
@@ -175,10 +194,13 @@ fun FilesScreen(
         ?: DirectoryPickerState.Idle
     val previewState = viewModel?.previewState?.collectAsStateWithLifecycle()?.value
         ?: demoPreviewState
+    val realSearchState = viewModel?.searchState?.collectAsStateWithLifecycle()?.value
     val isAdmin = role == Role.ADMIN
     val isRefreshing = viewModel?.isRefreshing?.collectAsStateWithLifecycle()?.value ?: false
-    val multiSelectMode = viewModel?.multiSelectMode?.collectAsStateWithLifecycle()?.value ?: false
-    val selectedPaths = viewModel?.selectedPaths?.collectAsStateWithLifecycle()?.value ?: emptySet()
+    val multiSelectMode = viewModel?.multiSelectMode?.collectAsStateWithLifecycle()?.value
+        ?: demoMultiSelectMode
+    val selectedPaths = viewModel?.selectedPaths?.collectAsStateWithLifecycle()?.value
+        ?: demoSelectedPaths
     var batchTransferRequest by remember { mutableStateOf<BatchTransferRequest?>(null) }
     SideEffect {
         onMultiSelectModeChange(isAdmin && multiSelectMode)
@@ -191,6 +213,8 @@ fun FilesScreen(
             deleteTarget = null
             showCreateDirectoryDialog = false
             showUploadMenu = false
+            demoMultiSelectMode = false
+            demoSelectedPaths = emptySet()
             viewModel?.dismissDestinationPicker()
             viewModel?.exitMultiSelect()
         }
@@ -205,7 +229,150 @@ fun FilesScreen(
         }
     }
     val activePath = realState?.path ?: WebDavPath.parseDecoded(currentPath)
-    val directoryPickerState = if (viewModel == null && transferRequest != null) {
+    val fileSearchScope = rememberCoroutineScope()
+
+    fun cancelSearchResults() {
+        searchSubmitted = false
+        viewModel?.cancelSearch()
+        demoSearchVersion++
+        demoSearchJob?.cancel()
+        demoSearchState = FileSearchUiState.Idle
+    }
+
+    fun submitFileSearch(query: String, scope: FileSearchScope) {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) {
+            cancelSearchResults()
+            return
+        }
+        searchSubmitted = true
+        if (viewModel != null) {
+            viewModel.search(normalizedQuery, scope)
+            return
+        }
+        val request = FileSearchRequest(
+            query = normalizedQuery,
+            scope = scope,
+            basePath = if (scope == FileSearchScope.ROOT) WebDavPath.root() else activePath,
+        )
+        val version = ++demoSearchVersion
+        demoSearchJob?.cancel()
+        demoSearchState = FileSearchUiState.Loading(request, scannedDirectories = 0)
+        demoSearchJob = fileSearchScope.launch {
+            val nextState = try {
+                val result = searchFilesRecursively(
+                    request = request,
+                    listDirectory = { path ->
+                        mockFilesForPath(path.toString())
+                            ?: throw IllegalStateException("暂时无法加载 ${path}")
+                    },
+                    onDirectoryScanned = { count ->
+                        if (version == demoSearchVersion) {
+                            demoSearchState = FileSearchUiState.Loading(request, count)
+                        }
+                    },
+                )
+                if (result.files.isEmpty()) {
+                    FileSearchUiState.Empty(request, result.incomplete)
+                } else {
+                    FileSearchUiState.Success(request, result.files, result.incomplete)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                FileSearchUiState.Error(
+                    request,
+                    error.message?.takeIf(String::isNotBlank) ?: "文件搜索失败",
+                )
+            }
+            if (version == demoSearchVersion) demoSearchState = nextState
+        }
+    }
+
+    fun closeFileSearch() {
+        cancelSearchResults()
+        searchQuery = ""
+        searchActive = false
+    }
+
+    fun enterFileMultiSelect() {
+        if (!isAdmin) return
+        if (viewModel == null) {
+            demoMultiSelectMode = true
+        } else {
+            viewModel.enterMultiSelect()
+        }
+    }
+
+    fun exitFileMultiSelect() {
+        if (viewModel == null) {
+            demoMultiSelectMode = false
+            demoSelectedPaths = emptySet()
+        } else {
+            viewModel.exitMultiSelect()
+        }
+    }
+
+    fun toggleFileSelection(path: String) {
+        if (!isAdmin) return
+        if (viewModel == null) {
+            demoSelectedPaths = demoSelectedPaths.toMutableSet().apply {
+                if (!add(path)) remove(path)
+            }
+        } else {
+            viewModel.toggleSelection(path)
+        }
+    }
+
+    fun toggleAllFileSelections(files: List<FileNode>) {
+        if (!isAdmin) return
+        if (viewModel == null) {
+            val paths = files.mapTo(mutableSetOf(), FileNode::path)
+            demoSelectedPaths = if (paths.isNotEmpty() && paths.all(demoSelectedPaths::contains)) {
+                emptySet()
+            } else {
+                paths
+            }
+        } else {
+            viewModel.toggleSelectAll(files)
+        }
+    }
+
+    fun invertFileSelections(files: List<FileNode>) {
+        if (!isAdmin) return
+        if (viewModel == null) {
+            demoSelectedPaths = files.mapTo(mutableSetOf(), FileNode::path)
+                .filterNotTo(mutableSetOf(), demoSelectedPaths::contains)
+        } else {
+            viewModel.invertSelection(files)
+        }
+    }
+
+    val rawSearchState = realSearchState ?: demoSearchState
+    LaunchedEffect(searchActive, searchSubmitted, rawSearchState) {
+        if (
+            searchActive &&
+            searchSubmitted &&
+            searchQuery.isNotBlank() &&
+            rawSearchState == FileSearchUiState.Idle
+        ) {
+            submitFileSearch(searchQuery, selectedSearchScope)
+        }
+    }
+    val searchState = when (rawSearchState) {
+        is FileSearchUiState.Success -> {
+            val visibleFiles = rawSearchState.files.filter { isAdmin || !it.isUploadTemporary }
+            if (visibleFiles.isEmpty()) {
+                FileSearchUiState.Empty(rawSearchState.request, rawSearchState.incomplete)
+            } else {
+                rawSearchState.copy(files = visibleFiles)
+            }
+        }
+        else -> rawSearchState
+    }
+    val directoryPickerState = if (
+        viewModel == null && (transferRequest != null || batchTransferRequest != null)
+    ) {
         demoDirectoryPickerState(demoDestinationPath)
     } else {
         realDirectoryPickerState
@@ -253,8 +420,14 @@ fun FilesScreen(
         }
     }
     val displayedFiles = (filePaneState.content as? FilePaneContent.Files)?.value.orEmpty()
-    val allDisplayedFilesSelected = displayedFiles.isNotEmpty() &&
-        displayedFiles.all { it.path in selectedPaths }
+    val selectableFiles = if (searchActive) {
+        (searchState as? FileSearchUiState.Success)?.files.orEmpty()
+    } else {
+        displayedFiles
+    }
+    val selectedFiles = selectableFiles.filter { it.path in selectedPaths }
+    val allDisplayedFilesSelected = selectableFiles.isNotEmpty() &&
+        selectableFiles.all { it.path in selectedPaths }
     var folderHistory by remember { mutableStateOf<List<FilePaneState>>(emptyList()) }
     val predictiveBackProgress = remember { Animatable(0f) }
     var predictiveBackInProgress by remember { mutableStateOf(false) }
@@ -294,6 +467,7 @@ fun FilesScreen(
             deleteTarget == null &&
             !showCreateDirectoryDialog &&
             !multiSelectMode &&
+            !searchActive &&
             previewState == FilePreviewUiState.Idle &&
             mutationState == FileMutationState.Idle &&
             !activePath.isRoot,
@@ -323,7 +497,11 @@ fun FilesScreen(
     }
 
     BackHandler(enabled = multiSelectMode) {
-        viewModel?.exitMultiSelect()
+        exitFileMultiSelect()
+    }
+
+    BackHandler(enabled = searchActive && !multiSelectMode) {
+        closeFileSearch()
     }
 
     val predictiveDirection = if (predictiveBackEdge == BackEventCompat.EDGE_RIGHT) -1f else 1f
@@ -363,7 +541,7 @@ fun FilesScreen(
                         TopAppBar(
                             title = { Text("已选择 ${selectedPaths.size} 项") },
                             navigationIcon = {
-                                IconButton(onClick = { viewModel?.exitMultiSelect() }) {
+                                IconButton(onClick = ::exitFileMultiSelect) {
                                     Icon(
                                         Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "取消选择",
@@ -374,6 +552,72 @@ fun FilesScreen(
                                 containerColor = MaterialTheme.colorScheme.surface,
                             ),
                         )
+                    } else if (searchActive) {
+                        Column {
+                            SearchTopAppBar(
+                                query = searchQuery,
+                                placeholder = "搜索文件和文件夹",
+                                closeContentDescription = "关闭文件搜索",
+                                searchContentDescription = "执行文件搜索",
+                                onQueryChange = { query ->
+                                    searchQuery = query
+                                    cancelSearchResults()
+                                },
+                                onSearch = {
+                                    submitFileSearch(searchQuery, selectedSearchScope)
+                                },
+                                onClose = ::closeFileSearch,
+                                subtitle = (searchState as? FileSearchUiState.Loading)?.let { loading ->
+                                    if (loading.scannedDirectories == 0) {
+                                        "正在准备搜索"
+                                    } else {
+                                        "已扫描 ${loading.scannedDirectories} 个目录"
+                                    }
+                                },
+                                additionalActions = {
+                                    if (
+                                        isAdmin &&
+                                        (searchState as? FileSearchUiState.Success)?.files?.isNotEmpty() == true
+                                    ) {
+                                        IconButton(onClick = ::enterFileMultiSelect) {
+                                            Icon(
+                                                Icons.Default.Checklist,
+                                                contentDescription = "选择文件搜索结果",
+                                            )
+                                        }
+                                    }
+                                },
+                            )
+                            Surface(color = MaterialTheme.colorScheme.surface) {
+                                SingleChoiceSegmentedButtonRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                ) {
+                                    val scopes = listOf(
+                                        FileSearchScope.ROOT,
+                                        FileSearchScope.CURRENT_DIRECTORY,
+                                    )
+                                    scopes.forEachIndexed { index, scope ->
+                                        SegmentedButton(
+                                            selected = selectedSearchScope == scope,
+                                            onClick = {
+                                                selectedSearchScope = scope
+                                                cancelSearchResults()
+                                                if (searchQuery.isNotBlank()) {
+                                                    submitFileSearch(searchQuery, scope)
+                                                }
+                                            },
+                                            shape = SegmentedButtonDefaults.itemShape(
+                                                index = index,
+                                                count = scopes.size,
+                                            ),
+                                            label = { Text(scope.label()) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         TopAppBar(
                             title = { Text("文件") },
@@ -412,6 +656,12 @@ fun FilesScreen(
                                 }
                             },
                             actions = {
+                                IconButton(onClick = { searchActive = true }) {
+                                    Icon(
+                                        Icons.Default.Search,
+                                        contentDescription = "搜索文件和文件夹",
+                                    )
+                                }
                                 IconButton(onClick = {
                                     if (viewModel == null) {
                                         state = fileStateForPath(currentPath)
@@ -433,24 +683,34 @@ fun FilesScreen(
                         MultiSelectBottomBar(
                             allSelected = allDisplayedFilesSelected,
                             hasSelection = selectedPaths.isNotEmpty(),
-                            onToggleSelectAll = { viewModel?.toggleSelectAll() },
-                            onInvertSelection = { viewModel?.invertSelection() },
+                            onToggleSelectAll = { toggleAllFileSelections(selectableFiles) },
+                            onInvertSelection = { invertFileSelections(selectableFiles) },
                             onMove = {
-                                val files = viewModel?.getSelectedFiles() ?: emptyList()
+                                val files = selectedFiles
                                 if (files.isNotEmpty()) {
                                     batchTransferRequest = BatchTransferRequest(files, TransferType.MOVE)
+                                    if (searchActive) {
+                                        closeFileSearch()
+                                        exitFileMultiSelect()
+                                    }
+                                    if (viewModel == null) demoDestinationPath = activePath
                                     viewModel?.openDestinationPicker(activePath)
                                 }
                             },
                             onCopy = {
-                                val files = viewModel?.getSelectedFiles() ?: emptyList()
+                                val files = selectedFiles
                                 if (files.isNotEmpty()) {
                                     batchTransferRequest = BatchTransferRequest(files, TransferType.COPY)
+                                    if (searchActive) {
+                                        closeFileSearch()
+                                        exitFileMultiSelect()
+                                    }
+                                    if (viewModel == null) demoDestinationPath = activePath
                                     viewModel?.openDestinationPicker(activePath)
                                 }
                             },
                             onDownload = {
-                                val selected = viewModel?.getSelectedFiles() ?: emptyList()
+                                val selected = selectedFiles
                                 selected.forEach { item ->
                                     if (item.isDirectory) {
                                         viewModel?.downloadFolder(item) { fileNode, relativePath ->
@@ -461,19 +721,32 @@ fun FilesScreen(
                                     }
                                 }
                                 if (selected.isNotEmpty()) onMessage("已加入下载任务")
-                                viewModel?.exitMultiSelect()
+                                exitFileMultiSelect()
                             },
                             onDelete = {
-                                val files = viewModel?.getSelectedFiles() ?: emptyList()
+                                val files = selectedFiles
                                 if (files.isNotEmpty()) {
-                                    viewModel?.batchDelete(files)
+                                    if (searchActive) {
+                                        closeFileSearch()
+                                        exitFileMultiSelect()
+                                    }
+                                    if (viewModel == null) {
+                                        onMessage("演示模式不执行云端文件操作")
+                                    } else {
+                                        viewModel.batchDelete(files)
+                                    }
                                 }
                             },
                         )
                     }
                 },
                 floatingActionButton = {
-                    if (isAdmin && mutationState == FileMutationState.Idle && !multiSelectMode) {
+                    if (
+                        isAdmin &&
+                        mutationState == FileMutationState.Idle &&
+                        !multiSelectMode &&
+                        !searchActive
+                    ) {
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -532,107 +805,146 @@ fun FilesScreen(
                     }
                 },
             ) { innerPadding ->
-                AnimatedContent(
-                    targetState = filePaneState,
-                    contentKey = { pane -> pane.path to pane.content::class },
-                    transitionSpec = {
-                        if (initialState.path != targetState.path) {
-                            val direction = if (
-                                targetState.path.decodedSegments.size >
-                                initialState.path.decodedSegments.size
-                            ) {
-                                1
+                if (searchActive) {
+                    FileSearchContent(
+                        state = searchState,
+                        isAdmin = isAdmin,
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .fillMaxSize(),
+                        onRetry = {
+                            if (viewModel == null) {
+                                submitFileSearch(searchQuery, selectedSearchScope)
                             } else {
-                                -1
+                                viewModel.retrySearch()
                             }
-                            (
-                                fadeIn(folderEffectsSpec) +
-                                    slideInHorizontally(folderSpatialSpec) { width ->
-                                        direction * width / 4
-                                    } +
-                                    scaleIn(folderScaleSpec, initialScale = 0.98f)
-                                ).togetherWith(
-                                fadeOut(folderEffectsSpec) +
-                                    slideOutHorizontally(folderSpatialSpec) { width ->
-                                        -direction * width / 8
-                                    },
-                            ).using(SizeTransform(clip = true))
+                        },
+                        multiSelectMode = multiSelectMode,
+                        selectedPaths = selectedPaths,
+                        onManage = { file -> if (isAdmin) selectedFile = file },
+                        onFileClick = { file ->
+                            if (multiSelectMode) {
+                                toggleFileSelection(file.path)
+                            } else if (file.isDirectory) {
+                                closeFileSearch()
+                                folderHistory = emptyList()
+                                if (viewModel == null) {
+                                    currentPath = file.path
+                                } else {
+                                    viewModel.openDirectory(WebDavPath.parseDecoded(file.path))
+                                }
+                            } else {
+                                selectedFile = file
+                            }
+                        },
+                        onFileLongClick = { file ->
+                            if (isAdmin && !multiSelectMode) {
+                                enterFileMultiSelect()
+                                toggleFileSelection(file.path)
+                            }
+                        },
+                    )
+                } else {
+                    AnimatedContent(
+                        targetState = filePaneState,
+                        contentKey = { pane -> pane.path to pane.content::class },
+                        transitionSpec = {
+                            if (initialState.path != targetState.path) {
+                                val direction = if (
+                                    targetState.path.decodedSegments.size >
+                                    initialState.path.decodedSegments.size
+                                ) {
+                                    1
+                                } else {
+                                    -1
+                                }
+                                (
+                                    fadeIn(folderEffectsSpec) +
+                                        slideInHorizontally(folderSpatialSpec) { width ->
+                                            direction * width / 4
+                                        } +
+                                        scaleIn(folderScaleSpec, initialScale = 0.98f)
+                                    ).togetherWith(
+                                    fadeOut(folderEffectsSpec) +
+                                        slideOutHorizontally(folderSpatialSpec) { width ->
+                                            -direction * width / 8
+                                        },
+                                ).using(SizeTransform(clip = true))
+                            } else {
+                                fadeIn(folderEffectsSpec).togetherWith(fadeOut(folderEffectsSpec))
+                            }
+                        },
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .fillMaxSize(),
+                        label = "folderContent",
+                    ) { pane ->
+                        val isTargetContent = pane == filePaneState
+                        val contentModifier = if (isTargetContent) {
+                            Modifier
                         } else {
-                            fadeIn(folderEffectsSpec).togetherWith(fadeOut(folderEffectsSpec))
+                            Modifier.clearAndSetSemantics { }
                         }
-                    },
-                    modifier = Modifier
-                        .padding(innerPadding)
-                        .fillMaxSize(),
-                    label = "folderContent",
-                ) { pane ->
-                    val isTargetContent = pane == filePaneState
-                    val contentModifier = if (isTargetContent) {
-                        Modifier
-                    } else {
-                        Modifier.clearAndSetSemantics { }
-                    }
-                    when (val content = pane.content) {
-                        FilePaneContent.Loading -> LoadingPane(contentModifier)
-                        is FilePaneContent.Empty -> EmptyPane(
-                            message = content.message,
-                            modifier = contentModifier,
-                        )
-                        is FilePaneContent.Error -> ErrorPane(
-                            message = content.message,
-                            modifier = contentModifier,
-                            enabled = isTargetContent,
-                            onRetry = {
-                                if (viewModel == null) {
-                                    state = fileStateForPath(currentPath)
-                                } else {
-                                    viewModel.retry()
-                                }
-                            },
-                        )
-                        is FilePaneContent.Files -> PullToRefreshBox(
-                            isRefreshing = isRefreshing,
-                            onRefresh = {
-                                if (viewModel == null) {
-                                    state = fileStateForPath(currentPath)
-                                } else {
-                                    viewModel.refresh()
-                                }
-                            },
-                            modifier = contentModifier,
-                        ) {
-                            FileList(
-                                files = content.value,
-                                modifier = Modifier.fillMaxSize(),
+                        when (val content = pane.content) {
+                            FilePaneContent.Loading -> LoadingPane(contentModifier)
+                            is FilePaneContent.Empty -> EmptyPane(
+                                message = content.message,
+                                modifier = contentModifier,
+                            )
+                            is FilePaneContent.Error -> ErrorPane(
+                                message = content.message,
+                                modifier = contentModifier,
                                 enabled = isTargetContent,
-                                isAdmin = isAdmin,
-                                multiSelectMode = multiSelectMode,
-                                selectedPaths = selectedPaths,
-                                onManage = { if (isAdmin) selectedFile = it },
-                                onFileClick = { file ->
-                                    if (multiSelectMode) {
-                                        viewModel?.toggleSelection(file.path)
-                                    } else if (file.isDirectory) {
-                                        folderHistory = (folderHistory + filePaneState).takeLast(12)
-                                        if (viewModel == null) {
-                                            currentPath = file.path
-                                        } else {
-                                            viewModel.openDirectory(WebDavPath.parseDecoded(file.path))
-                                        }
+                                onRetry = {
+                                    if (viewModel == null) {
+                                        state = fileStateForPath(currentPath)
                                     } else {
-                                        selectedFile = file
-                                    }
-                                },
-                                onFileLongClick = { file ->
-                                    if (isAdmin && !multiSelectMode) {
-                                        viewModel?.let { filesViewModel ->
-                                            onMultiSelectModeChange(true)
-                                            filesViewModel.enterMultiSelect()
-                                            filesViewModel.toggleSelection(file.path)
-                                        }
+                                        viewModel.retry()
                                     }
                                 },
                             )
+                            is FilePaneContent.Files -> PullToRefreshBox(
+                                isRefreshing = isRefreshing,
+                                onRefresh = {
+                                    if (viewModel == null) {
+                                        state = fileStateForPath(currentPath)
+                                    } else {
+                                        viewModel.refresh()
+                                    }
+                                },
+                                modifier = contentModifier,
+                            ) {
+                                FileList(
+                                    files = content.value,
+                                    modifier = Modifier.fillMaxSize(),
+                                    enabled = isTargetContent,
+                                    isAdmin = isAdmin,
+                                    multiSelectMode = multiSelectMode,
+                                    selectedPaths = selectedPaths,
+                                    onManage = { if (isAdmin) selectedFile = it },
+                                    onFileClick = { file ->
+                                        if (multiSelectMode) {
+                                            toggleFileSelection(file.path)
+                                        } else if (file.isDirectory) {
+                                            folderHistory = (folderHistory + filePaneState).takeLast(12)
+                                            if (viewModel == null) {
+                                                currentPath = file.path
+                                            } else {
+                                                viewModel.openDirectory(WebDavPath.parseDecoded(file.path))
+                                            }
+                                        } else {
+                                            selectedFile = file
+                                        }
+                                    },
+                                    onFileLongClick = { file ->
+                                        if (isAdmin && !multiSelectMode) {
+                                            onMultiSelectModeChange(true)
+                                            enterFileMultiSelect()
+                                            toggleFileSelection(file.path)
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -666,10 +978,12 @@ fun FilesScreen(
                 selectedFile = null
             },
             onRename = {
+                if (searchActive) closeFileSearch()
                 selectedFile = null
                 renameTarget = file
             },
             onMove = {
+                if (searchActive) closeFileSearch()
                 selectedFile = null
                 transferRequest = TransferRequest(file, TransferType.MOVE)
                 if (viewModel == null) {
@@ -679,6 +993,7 @@ fun FilesScreen(
                 }
             },
             onCopy = {
+                if (searchActive) closeFileSearch()
                 selectedFile = null
                 transferRequest = TransferRequest(file, TransferType.COPY)
                 if (viewModel == null) {
@@ -688,6 +1003,7 @@ fun FilesScreen(
                 }
             },
             onDelete = {
+                if (searchActive) closeFileSearch()
                 if (viewModel == null) {
                     selectedFile = null
                     onMessage("演示模式不执行云端文件操作")
@@ -775,6 +1091,7 @@ fun FilesScreen(
     batchTransferRequest?.takeIf { isAdmin }?.let { request ->
         DestinationDirectoryDialog(
             request = TransferRequest(request.files.first(), request.type),
+            sources = request.files,
             state = directoryPickerState,
             onOpenDirectory = { path ->
                 if (viewModel == null) {
@@ -1152,6 +1469,98 @@ private fun fileStateForPath(path: String): ContentState<List<FileNode>> =
         }
     }
 
+@Composable
+private fun FileSearchContent(
+    state: FileSearchUiState,
+    isAdmin: Boolean,
+    multiSelectMode: Boolean,
+    selectedPaths: Set<String>,
+    onRetry: () -> Unit,
+    onManage: (FileNode) -> Unit,
+    onFileClick: (FileNode) -> Unit,
+    onFileLongClick: (FileNode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (state) {
+        FileSearchUiState.Idle -> EmptyPane(
+            message = "输入关键词开始搜索",
+            icon = Icons.Default.Search,
+            modifier = modifier,
+        )
+        is FileSearchUiState.Loading -> Column(
+            modifier = modifier,
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CircularProgressIndicator()
+            Text(
+                text = if (state.scannedDirectories == 0) {
+                    "正在准备搜索"
+                } else {
+                    "正在搜索，已扫描 ${state.scannedDirectories} 个目录"
+                },
+                modifier = Modifier.padding(top = 16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        is FileSearchUiState.Empty -> EmptyPane(
+            message = if (state.incomplete) {
+                "未找到匹配项，部分目录无法访问"
+            } else {
+                "未找到匹配的文件或文件夹"
+            },
+            icon = Icons.Default.SearchOff,
+            modifier = modifier,
+        )
+        is FileSearchUiState.Error -> ErrorPane(
+            message = state.message,
+            onRetry = onRetry,
+            modifier = modifier,
+        )
+        is FileSearchUiState.Success -> Column(modifier = modifier) {
+            if (state.incomplete) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.WarningAmber, contentDescription = null)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = "部分目录无法访问，搜索结果可能不完整",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+            FileList(
+                files = state.files,
+                onFileClick = onFileClick,
+                modifier = Modifier.weight(1f),
+                isAdmin = isAdmin,
+                multiSelectMode = multiSelectMode,
+                selectedPaths = selectedPaths,
+                onManage = onManage,
+                onFileLongClick = onFileLongClick,
+                showPath = true,
+                reserveAdminActionSpace = false,
+            )
+        }
+    }
+}
+
+private fun FileSearchScope.label(): String = when (this) {
+    FileSearchScope.ROOT -> "整个云盘"
+    FileSearchScope.CURRENT_DIRECTORY -> "当前目录"
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun FileList(
@@ -1164,6 +1573,8 @@ private fun FileList(
     selectedPaths: Set<String> = emptySet(),
     onManage: (FileNode) -> Unit = {},
     onFileLongClick: (FileNode) -> Unit = {},
+    showPath: Boolean = false,
+    reserveAdminActionSpace: Boolean = true,
 ) {
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
@@ -1173,7 +1584,7 @@ private fun FileList(
             start = 12.dp,
             top = 8.dp,
             end = 12.dp,
-            bottom = if (isAdmin && !multiSelectMode) 184.dp else 112.dp,
+            bottom = if (reserveAdminActionSpace && isAdmin && !multiSelectMode) 184.dp else 112.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -1188,13 +1599,18 @@ private fun FileList(
                     )
                 },
                 supportingContent = {
+                    val metadata = if (file.isDirectory) {
+                        "文件夹 · ${formatDate(file.lastModified)}"
+                    } else {
+                        "${formatFileSize(file.size)} · ${formatDate(file.lastModified)}"
+                    }
                     Text(
-                        text = if (file.isDirectory) {
-                            "文件夹 · ${formatDate(file.lastModified)}"
+                        text = if (showPath) {
+                            "$metadata\n${file.path}"
                         } else {
-                            "${formatFileSize(file.size)} · ${formatDate(file.lastModified)}"
+                            metadata
                         },
-                        maxLines = 1,
+                        maxLines = if (showPath) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
@@ -1746,6 +2162,7 @@ private fun ImagePreviewPane(
 @Composable
 private fun DestinationDirectoryDialog(
     request: TransferRequest,
+    sources: List<FileNode> = listOf(request.file),
     state: DirectoryPickerState,
     onOpenDirectory: (WebDavPath) -> Unit,
     onNavigateUp: () -> Unit,
@@ -1753,22 +2170,28 @@ private fun DestinationDirectoryDialog(
     onDismiss: () -> Unit,
     onConfirm: (WebDavPath) -> Unit,
 ) {
-    val source = remember(request.file.path) { WebDavPath.parseDecoded(request.file.path) }
-    val currentPath = state.currentPathOrNull()
-    val destination = currentPath?.let { path ->
-        source.name?.let { remoteName -> runCatching { path.child(remoteName) }.getOrNull() }
+    val sourcePaths = remember(sources.map(FileNode::path)) {
+        sources.map { file -> WebDavPath.parseDecoded(file.path) }
     }
+    val directorySources = sources.zip(sourcePaths)
+        .filter { (file, _) -> file.isDirectory }
+        .map { (_, path) -> path }
+    val currentPath = state.currentPathOrNull()
+    val destinations = currentPath?.let { path ->
+        sourcePaths.mapNotNull { sourcePath ->
+            sourcePath.name?.let { remoteName -> runCatching { path.child(remoteName) }.getOrNull() }
+        }
+    }.orEmpty()
     val validDestination = state is DirectoryPickerState.Success &&
-        destination != null &&
-        destination != source &&
-        !destination.isDescendantOf(source) &&
-        !source.isDescendantOf(destination)
+        currentPath != null &&
+        isValidTransferDestination(sourcePaths, currentPath)
     val directories = (state as? DirectoryPickerState.Success)?.directories.orEmpty()
         .mapNotNull { directory ->
             val path = runCatching { WebDavPath.parseDecoded(directory.path) }.getOrNull()
                 ?: return@mapNotNull null
-            val allowed = !request.file.isDirectory ||
-                (path != source && !path.isDescendantOf(source))
+            val allowed = directorySources.none { sourceDirectory ->
+                path == sourceDirectory || path.isDescendantOf(sourceDirectory)
+            }
             if (allowed) directory to path else null
         }
     AlertDialog(
@@ -1777,7 +2200,7 @@ private fun DestinationDirectoryDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = request.file.name,
+                    text = if (sources.size == 1) request.file.name else "已选择 ${sources.size} 项",
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1881,7 +2304,11 @@ private fun DestinationDirectoryDialog(
                     )
                 }
                 Text(
-                    text = "目标：${destination ?: "-"}",
+                    text = if (sources.size == 1) {
+                        "目标：${destinations.firstOrNull() ?: "-"}"
+                    } else {
+                        "目标目录：${currentPath ?: "-"}"
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -1896,6 +2323,30 @@ private fun DestinationDirectoryDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+internal fun isValidTransferDestination(
+    sources: List<WebDavPath>,
+    destinationDirectory: WebDavPath,
+): Boolean {
+    if (sources.isEmpty()) return false
+    val sortedSources = sources.sortedBy { path ->
+        path.decodedSegments.joinToString(separator = "\u0000")
+    }
+    val hasOverlappingSources = sortedSources.zipWithNext().any { (first, second) ->
+        second.isDescendantOf(first)
+    }
+    if (hasOverlappingSources) return false
+    val destinations = sources.map { source ->
+        val name = source.name ?: return false
+        runCatching { destinationDirectory.child(name) }.getOrNull() ?: return false
+    }
+    if (destinations.distinct().size != destinations.size) return false
+    return sources.zip(destinations).all { (source, destination) ->
+        destination != source &&
+            !destination.isDescendantOf(source) &&
+            !source.isDescendantOf(destination)
+    }
 }
 
 @Composable

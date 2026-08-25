@@ -1,8 +1,10 @@
 package com.resdownload.android.feature.files
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -10,6 +12,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import com.resdownload.android.data.file.FileRepository
 import com.resdownload.android.domain.model.FileNode
 import com.resdownload.android.domain.model.FilePreviewContent
@@ -137,6 +140,227 @@ class FilesViewModelTest {
         viewModel.invertSelection()
 
         assertEquals(setOf("/notes.txt"), viewModel.selectedPaths.value)
+    }
+
+    @Test
+    fun selectAllCanUseCrossDirectorySearchResults() = runTest(dispatcher) {
+        val viewModel = FilesViewModel(FakeFileRepository { emptyList() })
+        advanceUntilIdle()
+        val searchResults = listOf(
+            FileNode("one.txt", "/first/one.txt", isDirectory = false),
+            FileNode("two.txt", "/second/nested/two.txt", isDirectory = false),
+        )
+
+        viewModel.enterMultiSelect()
+        viewModel.toggleSelectAll(searchResults)
+
+        assertEquals(searchResults.mapTo(mutableSetOf(), FileNode::path), viewModel.selectedPaths.value)
+    }
+
+    @Test
+    fun batchDestinationMustBeValidForEverySelectedSource() {
+        val sources = listOf(
+            WebDavPath.parseDecoded("/safe.txt"),
+            WebDavPath.parseDecoded("/folder"),
+        )
+
+        assertFalse(
+            isValidTransferDestination(
+                sources,
+                WebDavPath.parseDecoded("/folder/nested"),
+            ),
+        )
+        assertTrue(
+            isValidTransferDestination(
+                sources,
+                WebDavPath.parseDecoded("/archive"),
+            ),
+        )
+        assertFalse(
+            isValidTransferDestination(
+                listOf(
+                    WebDavPath.parseDecoded("/first/report.pdf"),
+                    WebDavPath.parseDecoded("/second/report.pdf"),
+                ),
+                WebDavPath.parseDecoded("/archive"),
+            ),
+        )
+        assertFalse(
+            isValidTransferDestination(
+                listOf(
+                    WebDavPath.parseDecoded("/folder"),
+                    WebDavPath.parseDecoded("/folder/nested/file.txt"),
+                ),
+                WebDavPath.parseDecoded("/archive"),
+            ),
+        )
+    }
+
+    @Test
+    fun rootSearchFindsMatchingDirectoriesAndFilesAtEveryDepth() = runTest(dispatcher) {
+        val tree = mapOf(
+            "/" to listOf(
+                FileNode("Reports", "/Reports", isDirectory = true),
+                FileNode("Archive", "/Archive", isDirectory = true),
+            ),
+            "/Reports" to listOf(
+                FileNode("2026", "/Reports/2026", isDirectory = true),
+                FileNode("summary.txt", "/Reports/summary.txt", isDirectory = false),
+            ),
+            "/Reports/2026" to listOf(
+                FileNode("FINAL-REPORT.pdf", "/Reports/2026/FINAL-REPORT.pdf", isDirectory = false),
+            ),
+            "/Archive" to emptyList(),
+        )
+        val viewModel = FilesViewModel(FakeFileRepository { path -> tree[path.toString()].orEmpty() })
+        advanceUntilIdle()
+
+        viewModel.search("report", FileSearchScope.ROOT)
+        advanceUntilIdle()
+
+        val state = viewModel.searchState.value as FileSearchUiState.Success
+        assertEquals(
+            setOf("/Reports", "/Reports/2026/FINAL-REPORT.pdf"),
+            state.files.map(FileNode::path).toSet(),
+        )
+        assertFalse(state.incomplete)
+        assertEquals("/", state.request.basePath.toString())
+    }
+
+    @Test
+    fun currentDirectorySearchExcludesSiblingSubtrees() = runTest(dispatcher) {
+        val tree = mapOf(
+            "/" to listOf(
+                FileNode("Current", "/Current", isDirectory = true),
+                FileNode("Sibling", "/Sibling", isDirectory = true),
+            ),
+            "/Current" to listOf(
+                FileNode("nested", "/Current/nested", isDirectory = true),
+            ),
+            "/Current/nested" to listOf(
+                FileNode("target.txt", "/Current/nested/target.txt", isDirectory = false),
+            ),
+            "/Sibling" to listOf(
+                FileNode("target.txt", "/Sibling/target.txt", isDirectory = false),
+            ),
+        )
+        val viewModel = FilesViewModel(FakeFileRepository { path -> tree[path.toString()].orEmpty() })
+        advanceUntilIdle()
+        viewModel.openDirectory(WebDavPath.parseDecoded("/Current"))
+        advanceUntilIdle()
+
+        viewModel.search("TARGET", FileSearchScope.CURRENT_DIRECTORY)
+        advanceUntilIdle()
+
+        val state = viewModel.searchState.value as FileSearchUiState.Success
+        assertEquals(listOf("/Current/nested/target.txt"), state.files.map(FileNode::path))
+        assertEquals("/Current", state.request.basePath.toString())
+    }
+
+    @Test
+    fun inaccessibleDescendantProducesExplicitPartialResults() = runTest(dispatcher) {
+        val viewModel = FilesViewModel(
+            FakeFileRepository { path ->
+                when (path.toString()) {
+                    "/" -> listOf(
+                        FileNode("blocked", "/blocked", isDirectory = true),
+                        FileNode("match.txt", "/match.txt", isDirectory = false),
+                    )
+                    "/blocked" -> throw WebDavException.PermissionDenied()
+                    else -> emptyList()
+                }
+            },
+        )
+        advanceUntilIdle()
+
+        viewModel.search("match", FileSearchScope.ROOT)
+        advanceUntilIdle()
+
+        val state = viewModel.searchState.value as FileSearchUiState.Success
+        assertEquals(listOf("/match.txt"), state.files.map(FileNode::path))
+        assertTrue(state.incomplete)
+    }
+
+    @Test
+    fun cancellingSearchPreventsLateResultPublication() = runTest(dispatcher) {
+        val searchResult = CompletableDeferred<List<FileNode>>()
+        var rootCalls = 0
+        val viewModel = FilesViewModel(
+            FakeFileRepository { path ->
+                if (path.isRoot) {
+                    rootCalls++
+                    if (rootCalls == 1) emptyList() else searchResult.await()
+                } else {
+                    emptyList()
+                }
+            },
+        )
+        runCurrent()
+        viewModel.search("late", FileSearchScope.ROOT)
+        runCurrent()
+
+        viewModel.cancelSearch()
+        searchResult.complete(listOf(FileNode("late.txt", "/late.txt", isDirectory = false)))
+        advanceUntilIdle()
+
+        assertEquals(FileSearchUiState.Idle, viewModel.searchState.value)
+    }
+
+    @Test
+    fun cancellationIgnoringOldSearchCannotReplaceNewerResults() = runTest(dispatcher) {
+        val oldResult = CompletableDeferred<List<FileNode>>()
+        var rootCalls = 0
+        val viewModel = FilesViewModel(
+            FakeFileRepository { path ->
+                if (!path.isRoot) return@FakeFileRepository emptyList()
+                rootCalls++
+                when (rootCalls) {
+                    1 -> emptyList()
+                    2 -> try {
+                        oldResult.await()
+                    } catch (_: CancellationException) {
+                        withContext(NonCancellable) { oldResult.await() }
+                    }
+                    else -> listOf(FileNode("new.txt", "/new.txt", isDirectory = false))
+                }
+            },
+        )
+        runCurrent()
+        viewModel.search("old", FileSearchScope.ROOT)
+        runCurrent()
+
+        viewModel.search("new", FileSearchScope.ROOT)
+        runCurrent()
+        val newState = viewModel.searchState.value as FileSearchUiState.Success
+        assertEquals(listOf("/new.txt"), newState.files.map(FileNode::path))
+
+        oldResult.complete(listOf(FileNode("old.txt", "/old.txt", isDirectory = false)))
+        advanceUntilIdle()
+
+        val finalState = viewModel.searchState.value as FileSearchUiState.Success
+        assertEquals(listOf("/new.txt"), finalState.files.map(FileNode::path))
+    }
+
+    @Test
+    fun recursiveSearchRejectsResourcesOutsideListedDirectory() = runTest(dispatcher) {
+        val request = FileSearchRequest(
+            query = "secret",
+            scope = FileSearchScope.CURRENT_DIRECTORY,
+            basePath = WebDavPath.parseDecoded("/allowed"),
+        )
+
+        val result = searchFilesRecursively(
+            request = request,
+            listDirectory = {
+                listOf(
+                    FileNode("secret.txt", "/outside/secret.txt", isDirectory = false),
+                    FileNode("secret.txt", "/allowed/nested/secret.txt", isDirectory = false),
+                )
+            },
+        )
+
+        assertTrue(result.files.isEmpty())
+        assertTrue(result.incomplete)
     }
 
     @Test

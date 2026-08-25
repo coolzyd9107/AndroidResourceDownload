@@ -27,7 +27,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,12 +51,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.resdownload.android.BuildConfig
 import com.resdownload.android.R
+import com.resdownload.android.core.ui.AppIcon
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -74,6 +75,7 @@ fun LoginScreen(
     var agreementAccepted by rememberSaveable { mutableStateOf(policyAccepted) }
     var showAgreementError by rememberSaveable { mutableStateOf(false) }
     var showPolicy by rememberSaveable { mutableStateOf(false) }
+    val appName = stringResource(R.string.app_name)
     val visibilityEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val visibilitySpatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<androidx.compose.ui.unit.IntSize>()
 
@@ -105,22 +107,12 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Surface(
+            AppIcon(
+                contentDescription = "$appName 应用图标",
                 modifier = Modifier.size(96.dp),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primaryContainer,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDownload,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-            }
+            )
             Text(
-                text = "资源云盘",
+                text = appName,
                 modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.headlineLargeEmphasized,
                 textAlign = TextAlign.Center,

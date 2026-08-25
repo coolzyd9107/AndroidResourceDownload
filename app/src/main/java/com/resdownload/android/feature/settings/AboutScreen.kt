@@ -1,6 +1,5 @@
 package com.resdownload.android.feature.settings
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,8 +43,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.colorResource
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -56,6 +53,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.resdownload.android.BuildConfig
 import com.resdownload.android.R
+import com.resdownload.android.core.ui.AppIcon
 
 internal const val FRONTEND_DEVELOPER_URL = "https://github.com/coolzyd9107"
 internal const val BACKEND_DEVELOPER_URL = "https://github.com/zhuzhuzihan"
@@ -208,17 +206,10 @@ private fun AppIdentity(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Surface(
+        AppIcon(
+            contentDescription = "$appName 应用图标",
             modifier = Modifier.size(88.dp),
-            shape = CircleShape,
-            color = colorResource(R.color.launcher_background),
-        ) {
-            Image(
-                painter = painterResource(R.drawable.ic_launcher_foreground),
-                contentDescription = "$appName 应用图标",
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        )
         Text(
             text = appName,
             style = MaterialTheme.typography.headlineSmallEmphasized,
@@ -309,7 +300,7 @@ private fun DeveloperRow(
             modifier = Modifier
                 .size(56.dp)
                 .semantics { contentDescription = "$username 的 GitHub 头像" },
-            shape = MaterialTheme.shapes.medium,
+            shape = CircleShape,
             color = MaterialTheme.colorScheme.primaryContainer,
         ) {
             SubcomposeAsyncImage(

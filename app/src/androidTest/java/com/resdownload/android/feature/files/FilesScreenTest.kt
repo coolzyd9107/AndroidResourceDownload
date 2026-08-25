@@ -4,9 +4,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -47,6 +49,7 @@ class FilesScreenTest {
         composeRule.onNode(hasContentDescription("上传")).assertDoesNotExist()
         composeRule.onNode(hasContentDescription("新建文件夹")).assertDoesNotExist()
         composeRule.onNode(hasContentDescription("管理 应用发布")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("选择文件搜索结果")).assertDoesNotExist()
     }
 
     @Test
@@ -55,6 +58,111 @@ class FilesScreenTest {
 
         composeRule.onNode(hasContentDescription("刷新文件列表")).assertExists()
         composeRule.onNode(hasContentDescription("个人中心")).assertDoesNotExist()
+    }
+
+    @Test
+    fun fileSearchSwitchesBetweenCurrentSubtreeAndEntireCloud() {
+        setFilesScreen(Role.USER)
+        composeRule.onNodeWithText("应用发布").performClick()
+        composeRule.onNode(hasContentDescription("搜索文件和文件夹")).performClick()
+        composeRule.onNodeWithText("当前目录").assertIsDisplayed()
+        composeRule.onNodeWithText("整个云盘").assertIsDisplayed()
+
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("界面")
+        composeRule.onNode(hasContentDescription("执行文件搜索")).performClick()
+
+        composeRule.onNodeWithText("未找到匹配的文件或文件夹").assertIsDisplayed()
+
+        composeRule.onNodeWithText("整个云盘").performClick()
+
+        composeRule.onNodeWithText("界面规范.pdf").assertIsDisplayed()
+        composeRule.onNodeWithText("/设计资料/界面规范.pdf", substring = true).assertExists()
+        composeRule.onNodeWithText("部分目录无法访问，搜索结果可能不完整").assertIsDisplayed()
+    }
+
+    @Test
+    fun directorySearchResultOpensDirectoryAndClosesSearch() {
+        setFilesScreen(Role.USER)
+        composeRule.onNode(hasContentDescription("搜索文件和文件夹")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("设计资料")
+        composeRule.onNode(hasContentDescription("执行文件搜索")).performClick()
+
+        composeRule.onNode(
+            hasText("设计资料", substring = true) and
+                hasClickAction() and
+                !hasSetTextAction(),
+        ).performClick()
+
+        composeRule.onNodeWithText("/设计资料").assertIsDisplayed()
+        composeRule.onNode(hasContentDescription("关闭文件搜索")).assertDoesNotExist()
+    }
+
+    @Test
+    fun userCannotSelectFileSearchResults() {
+        setFilesScreen(Role.USER)
+        composeRule.onNode(hasContentDescription("搜索文件和文件夹")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("pdf")
+        composeRule.onNode(hasContentDescription("执行文件搜索")).performClick()
+        composeRule.onNodeWithText("使用说明.pdf").assertExists()
+
+        composeRule.onNode(hasContentDescription("选择文件搜索结果")).assertDoesNotExist()
+        composeRule.onNodeWithText("全选").assertDoesNotExist()
+    }
+
+    @Test
+    fun adminCanSelectCrossDirectoryFileSearchResults() {
+        setFilesScreen(Role.ADMIN)
+        composeRule.onNode(hasContentDescription("搜索文件和文件夹")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("pdf")
+        composeRule.onNode(hasContentDescription("执行文件搜索")).performClick()
+        composeRule.onNode(hasContentDescription("选择文件搜索结果")).performClick()
+
+        composeRule.onNodeWithText("全选").performClick()
+
+        composeRule.onNodeWithText("已选择 2 项").assertExists()
+        composeRule.onNodeWithText("移动").assertExists()
+        composeRule.onNodeWithText("复制").assertExists()
+        composeRule.onNodeWithText("下载").assertExists()
+        composeRule.onNodeWithText("删除").assertExists()
+    }
+
+    @Test
+    fun backFromFileSearchSelectionReturnsToSearchBeforeClosingIt() {
+        setFilesScreen(Role.ADMIN)
+        composeRule.onNode(hasContentDescription("搜索文件和文件夹")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("pdf")
+        composeRule.onNode(hasContentDescription("执行文件搜索")).performClick()
+        composeRule.onNode(hasContentDescription("选择文件搜索结果")).performClick()
+        composeRule.onNodeWithText("全选").performClick()
+
+        Espresso.pressBack()
+
+        composeRule.onNode(hasContentDescription("关闭文件搜索")).assertExists()
+        composeRule.onNodeWithText("使用说明.pdf").assertExists()
+        composeRule.onNodeWithText("已选择 2 项").assertDoesNotExist()
+    }
+
+    @Test
+    fun submittedFileSearchRerunsAfterStateRestoration() {
+        val restorationTester = StateRestorationTester(composeRule)
+        restorationTester.setContent {
+            MaterialTheme {
+                FilesScreen(
+                    role = Role.USER,
+                    onDownload = { _, _ -> },
+                    onMessage = {},
+                )
+            }
+        }
+        composeRule.onNode(hasContentDescription("搜索文件和文件夹")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("release-notes")
+        composeRule.onNode(hasContentDescription("执行文件搜索")).performClick()
+        composeRule.onNodeWithText("release-notes.txt").assertIsDisplayed()
+
+        restorationTester.emulateSavedInstanceStateRestore()
+
+        composeRule.onNodeWithText("release-notes.txt").assertIsDisplayed()
+        composeRule.onNode(hasContentDescription("关闭文件搜索")).assertExists()
     }
 
     @Test

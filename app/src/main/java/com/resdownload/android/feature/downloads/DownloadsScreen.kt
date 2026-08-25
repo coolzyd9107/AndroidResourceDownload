@@ -1,5 +1,6 @@
 package com.resdownload.android.feature.downloads
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -23,21 +24,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
@@ -58,10 +66,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +88,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.resdownload.android.core.common.formatFileSize
 import com.resdownload.android.core.ui.EmptyPane
+import com.resdownload.android.core.ui.SearchTopAppBar
+import com.resdownload.android.core.ui.SelectionAction
+import com.resdownload.android.core.ui.SelectionBottomBar
 import com.resdownload.android.domain.model.DownloadStatus
 import com.resdownload.android.domain.model.DownloadTask
 
@@ -90,17 +105,54 @@ fun DownloadsScreen(
     onDeleteWithOption: (taskId: String, deleteLocalFile: Boolean) -> Unit = { _, _ -> },
     onCancelAll: () -> Unit = {},
     onClearTerminal: (deleteLocalFiles: Boolean) -> Unit = {},
+    onMultiSelectModeChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var deleteTaskId by remember { mutableStateOf<String?>(null) }
+    var deleteTaskIds by remember { mutableStateOf<List<String>?>(null) }
     var deleteLocalFile by remember { mutableStateOf(true) }
     var showCancelAllDialog by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
     var clearLocalFiles by remember { mutableStateOf(true) }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var multiSelectMode by rememberSaveable { mutableStateOf(false) }
+    var selectedTaskIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    SideEffect { onMultiSelectModeChange(multiSelectMode) }
+    DisposableEffect(Unit) {
+        onDispose { onMultiSelectModeChange(false) }
+    }
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val contentSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val countSpatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
+    val filteredTasks = filterDownloadTasks(tasks, if (searchActive) searchQuery else "")
+    val normalizedSearchQuery = searchQuery.trim()
+    val selectedTaskIdSet = selectedTaskIds.toSet()
+    val selectedTasks = tasks.filter { it.id in selectedTaskIdSet }
+    val allVisibleTasksSelected = filteredTasks.isNotEmpty() &&
+        filteredTasks.all { it.id in selectedTaskIdSet }
+    val resumableTasks = selectedTasks.filter { task ->
+        task.status in setOf(
+            DownloadStatus.PAUSED,
+            DownloadStatus.FAILED,
+            DownloadStatus.CANCELLED,
+        )
+    }
+    val pausableTasks = selectedTasks.filter { it.status == DownloadStatus.RUNNING }
+    val cancellableSelectedTasks = selectedTasks.filter { task ->
+        task.status in setOf(
+            DownloadStatus.PENDING,
+            DownloadStatus.RUNNING,
+            DownloadStatus.PAUSED,
+        )
+    }
+    val deletableSelectedTasks = selectedTasks.filter { task ->
+        task.status in setOf(
+            DownloadStatus.SUCCESS,
+            DownloadStatus.FAILED,
+            DownloadStatus.CANCELLED,
+        )
+    }
     val hasCancellableTasks = tasks.any { task ->
         task.status in setOf(
             DownloadStatus.PENDING,
@@ -116,66 +168,226 @@ fun DownloadsScreen(
         )
     }
     val listBottomPadding = when {
+        multiSelectMode -> 16.dp
         hasCancellableTasks && hasClearableTasks -> 152.dp
         hasCancellableTasks || hasClearableTasks -> 84.dp
         else -> 16.dp
     }
 
+    fun exitMultiSelect() {
+        multiSelectMode = false
+        selectedTaskIds = emptyList()
+    }
+
+    fun toggleTaskSelection(taskId: String) {
+        selectedTaskIds = selectedTaskIds.toMutableList().apply {
+            if (contains(taskId)) remove(taskId) else add(taskId)
+        }
+    }
+
+    fun toggleAllVisibleTasks() {
+        val visibleIds = filteredTasks.map(DownloadTask::id)
+        selectedTaskIds = if (visibleIds.isNotEmpty() && visibleIds.all(selectedTaskIdSet::contains)) {
+            selectedTaskIds.filterNot(visibleIds::contains)
+        } else {
+            (selectedTaskIds + visibleIds).distinct()
+        }
+    }
+
+    fun invertVisibleTasks() {
+        val visibleIds = filteredTasks.map(DownloadTask::id)
+        selectedTaskIds = selectedTaskIds.filterNot(visibleIds::contains) +
+            visibleIds.filterNot(selectedTaskIdSet::contains)
+    }
+
+    LaunchedEffect(tasks.map(DownloadTask::id)) {
+        val retainedIds = selectedTaskIds.filter { selectedId -> tasks.any { it.id == selectedId } }
+        if (retainedIds != selectedTaskIds) {
+            val hadSelection = selectedTaskIds.isNotEmpty()
+            selectedTaskIds = retainedIds
+            if (hadSelection && retainedIds.isEmpty()) multiSelectMode = false
+        }
+    }
+
+    BackHandler(enabled = searchActive && !multiSelectMode) {
+        searchActive = false
+        searchQuery = ""
+    }
+
+    BackHandler(enabled = multiSelectMode, onBack = ::exitMultiSelect)
+
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = { Text("下载") },
-                subtitle = {
-                    AnimatedContent(
-                        targetState = tasks.size,
-                        transitionSpec = {
-                            (fadeIn(itemEffectsSpec) +
-                                slideInVertically(countSpatialSpec) { it / 2 })
-                                .togetherWith(
-                                    fadeOut(itemEffectsSpec) +
-                                        slideOutVertically(countSpatialSpec) { -it / 2 },
+            if (multiSelectMode) {
+                TopAppBar(
+                    title = { Text("已选择 ${selectedTasks.size} 项") },
+                    navigationIcon = {
+                        IconButton(onClick = ::exitMultiSelect) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "退出下载任务选择",
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
+            } else if (searchActive) {
+                SearchTopAppBar(
+                    query = searchQuery,
+                    placeholder = "搜索下载任务",
+                    closeContentDescription = "关闭下载搜索",
+                    searchContentDescription = "执行下载搜索",
+                    onQueryChange = { searchQuery = it },
+                    onSearch = {},
+                    showSearchAction = false,
+                    onClose = {
+                        searchActive = false
+                        searchQuery = ""
+                    },
+                    subtitle = normalizedSearchQuery.takeIf(String::isNotEmpty)?.let {
+                        "${filteredTasks.size} / ${tasks.size} 个任务"
+                    },
+                    additionalActions = {
+                        if (filteredTasks.isNotEmpty()) {
+                            IconButton(onClick = { multiSelectMode = true }) {
+                                Icon(
+                                    Icons.Default.Checklist,
+                                    contentDescription = "选择下载搜索结果",
                                 )
-                        },
-                        label = "downloadCount",
-                    ) { count ->
-                        Text(text = if (count == 0) "暂无任务" else "$count 个任务")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
+                            }
+                        }
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("下载") },
+                    subtitle = {
+                        AnimatedContent(
+                            targetState = tasks.size,
+                            transitionSpec = {
+                                (fadeIn(itemEffectsSpec) +
+                                    slideInVertically(countSpatialSpec) { it / 2 })
+                                    .togetherWith(
+                                        fadeOut(itemEffectsSpec) +
+                                            slideOutVertically(countSpatialSpec) { -it / 2 },
+                                    )
+                            },
+                            label = "downloadCount",
+                        ) { count ->
+                            Text(text = if (count == 0) "暂无任务" else "$count 个任务")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { searchActive = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "搜索下载任务")
+                        }
+                        if (tasks.isNotEmpty()) {
+                            IconButton(onClick = { multiSelectMode = true }) {
+                                Icon(
+                                    Icons.Default.Checklist,
+                                    contentDescription = "选择下载任务",
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
+            }
         },
-        floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (hasCancellableTasks) {
-                    ExtendedFloatingActionButton(
-                        text = { Text("全部取消") },
-                        icon = { Icon(Icons.Default.Cancel, contentDescription = null) },
-                        modifier = Modifier.testTag("cancelAllTasks"),
-                        onClick = { showCancelAllDialog = true },
+        bottomBar = {
+            if (multiSelectMode) {
+                SelectionBottomBar {
+                    SelectionAction(
+                        icon = if (allVisibleTasksSelected) Icons.Default.Deselect else Icons.Default.SelectAll,
+                        label = if (allVisibleTasksSelected) "取消全选" else "全选",
+                        onClick = ::toggleAllVisibleTasks,
+                        enabled = filteredTasks.isNotEmpty(),
                     )
-                }
-                if (hasClearableTasks) {
-                    ExtendedFloatingActionButton(
-                        text = { Text("全部清除") },
-                        icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
-                        modifier = Modifier.testTag("clearTerminalTasks"),
+                    SelectionAction(
+                        icon = Icons.Default.FlipToBack,
+                        label = "反选",
+                        onClick = ::invertVisibleTasks,
+                        enabled = filteredTasks.isNotEmpty(),
+                    )
+                    SelectionAction(
+                        icon = Icons.Default.PlayArrow,
+                        label = "继续",
+                        enabled = resumableTasks.isNotEmpty(),
                         onClick = {
-                            clearLocalFiles = true
-                            showClearDialog = true
+                            resumableTasks.forEach { onStatusChange(it.id, DownloadStatus.RUNNING) }
+                            exitMultiSelect()
+                        },
+                    )
+                    SelectionAction(
+                        icon = Icons.Default.Pause,
+                        label = "暂停",
+                        enabled = pausableTasks.isNotEmpty(),
+                        onClick = {
+                            pausableTasks.forEach { onStatusChange(it.id, DownloadStatus.PAUSED) }
+                            exitMultiSelect()
+                        },
+                    )
+                    SelectionAction(
+                        icon = Icons.Default.Cancel,
+                        label = "取消",
+                        enabled = cancellableSelectedTasks.isNotEmpty(),
+                        destructive = true,
+                        onClick = {
+                            cancellableSelectedTasks.forEach {
+                                onStatusChange(it.id, DownloadStatus.CANCELLED)
+                            }
+                            exitMultiSelect()
+                        },
+                    )
+                    SelectionAction(
+                        icon = Icons.Default.Delete,
+                        label = "删除",
+                        enabled = deletableSelectedTasks.isNotEmpty(),
+                        destructive = true,
+                        onClick = {
+                            deleteLocalFile = true
+                            deleteTaskIds = deletableSelectedTasks.map(DownloadTask::id)
                         },
                     )
                 }
             }
         },
+        floatingActionButton = {
+            if (!multiSelectMode) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (hasCancellableTasks) {
+                        ExtendedFloatingActionButton(
+                            text = { Text("全部取消") },
+                            icon = { Icon(Icons.Default.Cancel, contentDescription = null) },
+                            modifier = Modifier.testTag("cancelAllTasks"),
+                            onClick = { showCancelAllDialog = true },
+                        )
+                    }
+                    if (hasClearableTasks) {
+                        ExtendedFloatingActionButton(
+                            text = { Text("全部清除") },
+                            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
+                            modifier = Modifier.testTag("clearTerminalTasks"),
+                            onClick = {
+                                clearLocalFiles = true
+                                showClearDialog = true
+                            },
+                        )
+                    }
+                }
+            }
+        },
     ) { innerPadding ->
         AnimatedContent(
-            targetState = tasks,
+            targetState = filteredTasks,
             contentKey = { visibleTasks -> visibleTasks.isEmpty() },
             transitionSpec = {
                 (fadeIn(itemEffectsSpec) + scaleIn(contentSpatialSpec, initialScale = 0.98f))
@@ -186,10 +398,14 @@ fun DownloadsScreen(
             modifier = Modifier.fillMaxSize(),
             label = "downloadContent",
         ) { visibleTasks ->
-            val isTargetContent = visibleTasks == tasks
+            val isTargetContent = visibleTasks == filteredTasks
             if (visibleTasks.isEmpty()) {
                 EmptyPane(
-                    message = "暂无下载任务",
+                    message = if (tasks.isEmpty()) {
+                        "暂无下载任务"
+                    } else {
+                        "未找到匹配的下载任务"
+                    },
                     modifier = Modifier
                         .padding(innerPadding)
                         .then(
@@ -212,9 +428,12 @@ fun DownloadsScreen(
                             onStatusChange = { status -> onStatusChange(task.id, status) },
                             onOpen = { onOpen(task) },
                             onDelete = {
-                                deleteTaskId = task.id
+                                deleteTaskIds = listOf(task.id)
                                 deleteLocalFile = true
                             },
+                            selectionMode = multiSelectMode,
+                            selected = task.id in selectedTaskIdSet,
+                            onSelectionToggle = { toggleTaskSelection(task.id) },
                             enabled = isTargetContent,
                             modifier = Modifier
                                 .animateItem(
@@ -253,13 +472,19 @@ fun DownloadsScreen(
         )
     }
 
-    if (deleteTaskId != null) {
+    deleteTaskIds?.let { taskIds ->
         AlertDialog(
-            onDismissRequest = { deleteTaskId = null },
-            title = { Text("删除任务") },
+            onDismissRequest = { deleteTaskIds = null },
+            title = { Text(if (taskIds.size == 1) "删除任务" else "删除所选任务") },
             text = {
                 Column {
-                    Text("确定要删除此下载任务吗？")
+                    Text(
+                        if (taskIds.size == 1) {
+                            "确定要删除此下载任务吗？"
+                        } else {
+                            "确定要删除所选的 ${taskIds.size} 个已结束下载任务吗？"
+                        },
+                    )
                     Row(
                         modifier = Modifier.padding(top = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -274,15 +499,15 @@ fun DownloadsScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val id = deleteTaskId
-                    deleteTaskId = null
-                    if (id != null) onDeleteWithOption(id, deleteLocalFile)
+                    deleteTaskIds = null
+                    taskIds.forEach { id -> onDeleteWithOption(id, deleteLocalFile) }
+                    exitMultiSelect()
                 }) {
                     Text("删除")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTaskId = null }) {
+                TextButton(onClick = { deleteTaskIds = null }) {
                     Text("取消")
                 }
             },
@@ -333,6 +558,9 @@ private fun DownloadTaskItem(
     onStatusChange: (DownloadStatus) -> Unit,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onSelectionToggle: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
@@ -353,10 +581,21 @@ private fun DownloadTaskItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (selectionMode) {
+                    Modifier.clickable(enabled = enabled, onClick = onSelectionToggle)
+                } else {
+                    Modifier
+                },
+            )
             .then(if (enabled) Modifier else Modifier.clearAndSetSemantics { }),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            },
         ),
     ) {
         Column(
@@ -408,6 +647,12 @@ private fun DownloadTaskItem(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onSelectionToggle() },
+                    )
+                }
             }
 
             AnimatedVisibility(
@@ -445,17 +690,19 @@ private fun DownloadTaskItem(
                     }
                 }
             }
-            Box(
-                modifier = Modifier.align(Alignment.End),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                TaskActions(
-                    status = task.status,
-                    enabled = enabled,
-                    onStatusChange = onStatusChange,
-                    onOpen = onOpen,
-                    onDelete = onDelete,
-                )
+            if (!selectionMode) {
+                Box(
+                    modifier = Modifier.align(Alignment.End),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    TaskActions(
+                        status = task.status,
+                        enabled = enabled,
+                        onStatusChange = onStatusChange,
+                        onOpen = onOpen,
+                        onDelete = onDelete,
+                    )
+                }
             }
         }
     }
@@ -623,6 +870,20 @@ private fun statusLabel(status: DownloadStatus): String = when (status) {
     DownloadStatus.SUCCESS -> "已完成"
     DownloadStatus.FAILED -> "失败"
     DownloadStatus.CANCELLED -> "已取消"
+}
+
+internal fun filterDownloadTasks(
+    tasks: List<DownloadTask>,
+    query: String,
+): List<DownloadTask> {
+    val normalizedQuery = query.trim()
+    if (normalizedQuery.isEmpty()) return tasks
+    return tasks.filter { task ->
+        task.fileName.contains(normalizedQuery, ignoreCase = true) ||
+            task.remotePath.contains(normalizedQuery, ignoreCase = true) ||
+            task.relativePath.contains(normalizedQuery, ignoreCase = true) ||
+            statusLabel(task.status).contains(normalizedQuery, ignoreCase = true)
+    }
 }
 
 private fun statusIcon(status: DownloadStatus) = when (status) {

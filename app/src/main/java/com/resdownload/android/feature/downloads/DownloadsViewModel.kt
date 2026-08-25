@@ -26,6 +26,65 @@ import com.resdownload.android.domain.model.DownloadTask
 import com.resdownload.android.domain.model.FileNode
 import com.resdownload.android.service.DownloadQueueController
 
+internal data class DeferredDownloadPermissionWork(
+    val downloads: List<Pair<FileNode, String>>,
+    val retryIds: List<String>,
+    val startPending: Boolean,
+)
+
+internal class DownloadPermissionQueue {
+    private val downloads = mutableListOf<Pair<FileNode, String>>()
+    private val retryIds = linkedSetOf<String>()
+    private var startPending = false
+
+    @Synchronized
+    fun deferDownload(file: FileNode, relativePath: String): Boolean {
+        val shouldRequestPermission = isEmpty()
+        val request = file to relativePath
+        if (downloads.none { (queuedFile, queuedPath) ->
+                queuedFile.path == file.path && queuedPath == relativePath
+            }
+        ) {
+            downloads += request
+        }
+        return shouldRequestPermission
+    }
+
+    @Synchronized
+    fun deferRetry(taskId: String): Boolean {
+        val shouldRequestPermission = isEmpty()
+        retryIds += taskId
+        return shouldRequestPermission
+    }
+
+    @Synchronized
+    fun deferStartPending(): Boolean {
+        val shouldRequestPermission = isEmpty()
+        startPending = true
+        return shouldRequestPermission
+    }
+
+    @Synchronized
+    fun take(): DeferredDownloadPermissionWork = DeferredDownloadPermissionWork(
+        downloads = downloads.toList(),
+        retryIds = retryIds.toList(),
+        startPending = startPending,
+    ).also {
+        downloads.clear()
+        retryIds.clear()
+        startPending = false
+    }
+
+    @Synchronized
+    fun clear() {
+        downloads.clear()
+        retryIds.clear()
+        startPending = false
+    }
+
+    private fun isEmpty(): Boolean = downloads.isEmpty() && retryIds.isEmpty() && !startPending
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
@@ -46,6 +105,7 @@ class DownloadsViewModel @Inject constructor(
     val messages = messageChannel.receiveAsFlow()
     private var speedTrackingJob: Job? = null
     private var reconciliationJob: Job? = null
+    private val permissionQueue = DownloadPermissionQueue()
 
     fun startSpeedTracking() {
         if (speedTrackingJob?.isActive == true) return
@@ -79,6 +139,7 @@ class DownloadsViewModel @Inject constructor(
     fun bindOwner(value: String) {
         queueController.activate(value)
         if (ownerId.value == value) return
+        permissionQueue.clear()
         ownerId.value = value
         viewModelScope.launch {
             if (queueController.hasPublicDownloadAccess()) {
@@ -112,6 +173,15 @@ class DownloadsViewModel @Inject constructor(
             }
         }
     }
+
+    internal fun deferPermissionDownload(file: FileNode, relativePath: String): Boolean =
+        permissionQueue.deferDownload(file, relativePath)
+
+    internal fun deferPermissionRetry(taskId: String): Boolean = permissionQueue.deferRetry(taskId)
+
+    internal fun deferPermissionStartPending(): Boolean = permissionQueue.deferStartPending()
+
+    internal fun takeDeferredPermissionWork(): DeferredDownloadPermissionWork = permissionQueue.take()
 
     fun pause(taskId: String) = withOwner { owner ->
         if (!queueController.pause(owner, taskId)) messageChannel.send("任务状态已发生变化")

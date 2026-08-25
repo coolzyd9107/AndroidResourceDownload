@@ -2,13 +2,16 @@ package com.resdownload.android.feature.uploads
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import com.resdownload.android.domain.model.UploadStatus
 import com.resdownload.android.domain.model.UploadTask
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -48,6 +51,216 @@ class UploadsScreenTest {
         composeRule.onNodeWithText("网络连接中断，可重试").assertExists()
         composeRule.onNode(hasContentDescription("重试上传")).assertExists()
         composeRule.onNode(hasContentDescription("删除上传任务")).assertExists()
+    }
+
+    @Test
+    fun searchFiltersTasksAndClearRestoresTheList() {
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(
+                        task("alpha", UploadStatus.SUCCESS),
+                        task("beta", UploadStatus.FAILED),
+                    ),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNode(hasContentDescription("搜索上传任务")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("BETA")
+
+        composeRule.onNodeWithText("beta.bin").assertExists()
+        composeRule.onNodeWithText("alpha.bin").assertDoesNotExist()
+        composeRule.onNodeWithText("1 / 2 个任务").assertExists()
+
+        composeRule.onNode(hasContentDescription("清空搜索")).performClick()
+
+        composeRule.onNodeWithText("alpha.bin").assertExists()
+        composeRule.onNodeWithText("beta.bin").assertExists()
+    }
+
+    @Test
+    fun searchNoMatchUsesDistinctEmptyState() {
+        setScreen(task("alpha", UploadStatus.SUCCESS))
+
+        composeRule.onNode(hasContentDescription("搜索上传任务")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("missing")
+
+        composeRule.onNodeWithText("未找到匹配的上传任务").assertExists()
+    }
+
+    @Test
+    fun adminCanSelectUploadSearchResults() {
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(
+                        task("alpha", UploadStatus.SUCCESS),
+                        task("beta", UploadStatus.FAILED),
+                    ),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+        composeRule.onNode(hasContentDescription("搜索上传任务")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("beta")
+        composeRule.onNode(hasContentDescription("选择上传搜索结果")).performClick()
+
+        composeRule.onNodeWithText("全选").performClick()
+
+        composeRule.onNodeWithText("已选择 1 项").assertExists()
+        composeRule.onNodeWithText("重试").assertExists()
+        composeRule.onNodeWithText("删除").assertExists()
+    }
+
+    @Test
+    fun batchRetryOnlyRetriesSelectedTerminalTasks() {
+        val retried = mutableListOf<String>()
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(
+                        task("failed", UploadStatus.FAILED),
+                        task("success", UploadStatus.SUCCESS),
+                    ),
+                    onRetry = { retried += it },
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("全选").performClick()
+
+        composeRule.onNodeWithText("重试").performClick()
+
+        composeRule.runOnIdle { assertEquals(listOf("failed"), retried) }
+    }
+
+    @Test
+    fun selectedTreeBatchRetriesOnceAndReportsExpandedDeleteCount() {
+        val retried = mutableListOf<String>()
+        val deleted = mutableListOf<String>()
+        val treeTasks = listOf(
+            task(
+                "directory",
+                UploadStatus.FAILED,
+                isDirectory = true,
+                isTreeUpload = true,
+                batchId = "tree",
+            ),
+            task(
+                "child-one",
+                UploadStatus.FAILED,
+                isTreeUpload = true,
+                batchId = "tree",
+            ),
+            task(
+                "child-two",
+                UploadStatus.SUCCESS,
+                isTreeUpload = true,
+                batchId = "tree",
+            ),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = treeTasks,
+                    onRetry = { retried += it },
+                    onCancel = {},
+                    onDelete = { deleted += it },
+                )
+            }
+        }
+        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("全选").performClick()
+
+        composeRule.onNodeWithText("重试").performClick()
+        composeRule.runOnIdle { assertEquals(listOf("directory"), retried) }
+
+        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("全选").performClick()
+        composeRule.onNodeWithText("删除").performClick()
+        composeRule.onNodeWithText("此操作将删除 3 个已结束上传任务，确定继续吗？").assertExists()
+        composeRule.onNodeWithText("确认删除").performClick()
+
+        composeRule.runOnIdle { assertEquals(listOf("directory"), deleted) }
+    }
+
+    @Test
+    fun activeTreeBatchDeletesOnlyExplicitTerminalFiles() {
+        val deleted = mutableListOf<String>()
+        val treeTasks = listOf(
+            task(
+                "directory",
+                UploadStatus.SUCCESS,
+                isDirectory = true,
+                isTreeUpload = true,
+                batchId = "tree",
+            ),
+            task(
+                "terminal-child",
+                UploadStatus.SUCCESS,
+                isTreeUpload = true,
+                batchId = "tree",
+            ),
+            task(
+                "active-child",
+                UploadStatus.RUNNING,
+                isTreeUpload = true,
+                batchId = "tree",
+            ),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = treeTasks,
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = { deleted += it },
+                )
+            }
+        }
+        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("全选").performClick()
+
+        composeRule.onNodeWithText("删除").performClick()
+        composeRule.onNodeWithText("此操作将删除 1 个已结束上传任务，确定继续吗？").assertExists()
+        composeRule.onNodeWithText("确认删除").performClick()
+
+        composeRule.runOnIdle { assertEquals(listOf("terminal-child"), deleted) }
+    }
+
+    @Test
+    fun bulkCancelRemainsGlobalWhileSearchHidesActiveTask() {
+        var cancelled = false
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(
+                        task("visible", UploadStatus.SUCCESS),
+                        task("hidden", UploadStatus.RUNNING),
+                    ),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                    onCancelAll = { cancelled = true },
+                )
+            }
+        }
+        composeRule.onNode(hasContentDescription("搜索上传任务")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("visible")
+        composeRule.onNodeWithText("hidden.bin").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("cancelAllTasks").performClick()
+        composeRule.onNodeWithText("取消全部任务").performClick()
+
+        composeRule.runOnIdle { assertTrue(cancelled) }
     }
 
     @Test
@@ -111,18 +324,21 @@ class UploadsScreenTest {
         uploadedBytes: Long = 0L,
         committing: Boolean = false,
         errorMessage: String? = null,
+        isDirectory: Boolean = false,
+        isTreeUpload: Boolean = false,
+        batchId: String = "batch",
     ) = UploadTask(
         id = id,
         ownerId = "owner",
-        batchId = "batch",
+        batchId = batchId,
         fileName = "$id.bin",
         relativePath = "$id.bin",
         destinationRoot = "/",
         remotePath = "/$id.bin",
         sourceUri = "content://source/$id",
         permissionUri = "content://source/$id",
-        isDirectory = false,
-        isTreeUpload = false,
+        isDirectory = isDirectory,
+        isTreeUpload = isTreeUpload,
         mimeType = null,
         totalBytes = totalBytes,
         uploadedBytes = uploadedBytes,

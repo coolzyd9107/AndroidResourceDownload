@@ -2,6 +2,7 @@ package com.resdownload.android.feature.files
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import java.util.ArrayDeque
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -33,6 +34,102 @@ sealed interface FilesUiState {
     data class Success(override val path: WebDavPath, val files: List<FileNode>) : FilesUiState
     data class Empty(override val path: WebDavPath) : FilesUiState
     data class Error(override val path: WebDavPath, val message: String, val unauthorized: Boolean = false) : FilesUiState
+}
+
+enum class FileSearchScope {
+    ROOT,
+    CURRENT_DIRECTORY,
+}
+
+data class FileSearchRequest(
+    val query: String,
+    val scope: FileSearchScope,
+    val basePath: WebDavPath,
+)
+
+sealed interface FileSearchUiState {
+    data object Idle : FileSearchUiState
+    data class Loading(
+        val request: FileSearchRequest,
+        val scannedDirectories: Int,
+    ) : FileSearchUiState
+    data class Success(
+        val request: FileSearchRequest,
+        val files: List<FileNode>,
+        val incomplete: Boolean,
+    ) : FileSearchUiState
+    data class Empty(
+        val request: FileSearchRequest,
+        val incomplete: Boolean,
+    ) : FileSearchUiState
+    data class Error(
+        val request: FileSearchRequest,
+        val message: String,
+    ) : FileSearchUiState
+}
+
+internal data class RecursiveFileSearchResult(
+    val files: List<FileNode>,
+    val incomplete: Boolean,
+)
+
+internal suspend fun searchFilesRecursively(
+    request: FileSearchRequest,
+    listDirectory: suspend (WebDavPath) -> List<FileNode>,
+    onDirectoryScanned: (Int) -> Unit = {},
+): RecursiveFileSearchResult {
+    require(request.query.isNotBlank())
+    val directories = ArrayDeque<WebDavPath>().apply { add(request.basePath) }
+    val visitedDirectories = mutableSetOf<WebDavPath>()
+    val visitedResources = mutableSetOf<WebDavPath>()
+    val matches = mutableListOf<FileNode>()
+    var incomplete = false
+
+    while (directories.isNotEmpty()) {
+        val directory = directories.removeFirst()
+        if (!visitedDirectories.add(directory)) continue
+        val items = try {
+            listDirectory(directory)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: WebDavException.AuthenticationRequired) {
+            throw error
+        } catch (error: WebDavException.CredentialUnavailable) {
+            throw error
+        } catch (error: WebDavException.Network) {
+            throw error
+        } catch (error: WebDavException.InvalidResponse) {
+            throw error
+        } catch (error: WebDavException.ResponseTooLarge) {
+            throw error
+        } catch (error: Exception) {
+            if (directory == request.basePath) throw error
+            incomplete = true
+            continue
+        }
+        onDirectoryScanned(visitedDirectories.size)
+
+        items.forEach { item ->
+            val itemPath = try {
+                WebDavPath.parseDecoded(item.path)
+            } catch (_: Exception) {
+                incomplete = true
+                return@forEach
+            }
+            val isDirectChild = itemPath.decodedSegments.size == directory.decodedSegments.size + 1 &&
+                itemPath.decodedSegments.dropLast(1) == directory.decodedSegments
+            if (!isDirectChild || !visitedResources.add(itemPath)) {
+                if (!isDirectChild) incomplete = true
+                return@forEach
+            }
+            if (item.name.contains(request.query, ignoreCase = true)) {
+                matches += item
+            }
+            if (item.isDirectory) directories.addLast(itemPath)
+        }
+    }
+
+    return RecursiveFileSearchResult(matches, incomplete)
 }
 
 sealed interface DirectoryPickerState {
@@ -108,16 +205,20 @@ class FilesViewModel @Inject constructor(
     val directoryPickerState: StateFlow<DirectoryPickerState> = _directoryPickerState.asStateFlow()
     private val _previewState = MutableStateFlow<FilePreviewUiState>(FilePreviewUiState.Idle)
     val previewState: StateFlow<FilePreviewUiState> = _previewState.asStateFlow()
+    private val _searchState = MutableStateFlow<FileSearchUiState>(FileSearchUiState.Idle)
+    val searchState: StateFlow<FileSearchUiState> = _searchState.asStateFlow()
     private val messageChannel = Channel<String>(Channel.BUFFERED)
     val messages = messageChannel.receiveAsFlow()
     private var loadJob: Job? = null
     private var mutationJob: Job? = null
     private var directoryPickerJob: Job? = null
     private var previewJob: Job? = null
+    private var searchJob: Job? = null
     private var loadVersion = 0L
     private var mutationVersion = 0L
     private var directoryPickerVersion = 0L
     private var previewVersion = 0L
+    private var searchVersion = 0L
 
     init {
         load(WebDavPath.root())
@@ -166,6 +267,64 @@ class FilesViewModel @Inject constructor(
 
     fun refresh() = load(_state.value.path, isRefresh = true)
 
+    fun search(query: String, scope: FileSearchScope) {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) {
+            cancelSearch()
+            return
+        }
+        val basePath = if (scope == FileSearchScope.ROOT) {
+            WebDavPath.root()
+        } else {
+            _state.value.path
+        }
+        runSearch(FileSearchRequest(normalizedQuery, scope, basePath))
+    }
+
+    fun retrySearch() {
+        val request = _searchState.value.requestOrNull() ?: return
+        runSearch(request)
+    }
+
+    fun cancelSearch() {
+        searchVersion++
+        searchJob?.cancel()
+        _searchState.value = FileSearchUiState.Idle
+    }
+
+    private fun runSearch(request: FileSearchRequest) {
+        val version = ++searchVersion
+        searchJob?.cancel()
+        _searchState.value = FileSearchUiState.Loading(request, scannedDirectories = 0)
+        searchJob = viewModelScope.launch {
+            val result = try {
+                val searchResult = searchFilesRecursively(
+                    request = request,
+                    listDirectory = repository::list,
+                    onDirectoryScanned = { count ->
+                        if (version == searchVersion) {
+                            _searchState.value = FileSearchUiState.Loading(request, count)
+                        }
+                    },
+                )
+                if (searchResult.files.isEmpty()) {
+                    FileSearchUiState.Empty(request, searchResult.incomplete)
+                } else {
+                    FileSearchUiState.Success(
+                        request,
+                        searchResult.files,
+                        searchResult.incomplete,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                FileSearchUiState.Error(request, error.searchMessage())
+            }
+            if (version == searchVersion) _searchState.value = result
+        }
+    }
+
     fun enterMultiSelect() {
         _multiSelectMode.value = true
     }
@@ -181,10 +340,10 @@ class FilesViewModel @Inject constructor(
         }
     }
 
-    fun toggleSelectAll() {
-        val current = _state.value
-        if (current is FilesUiState.Success) {
-            val allPaths = current.files.mapTo(mutableSetOf()) { it.path }
+    fun toggleSelectAll(files: List<FileNode>? = null) {
+        val selectionFiles = files ?: (_state.value as? FilesUiState.Success)?.files
+        if (selectionFiles != null) {
+            val allPaths = selectionFiles.mapTo(mutableSetOf()) { it.path }
             _selectedPaths.value = if (
                 allPaths.isNotEmpty() && allPaths.all(_selectedPaths.value::contains)
             ) {
@@ -195,11 +354,11 @@ class FilesViewModel @Inject constructor(
         }
     }
 
-    fun invertSelection() {
-        val current = _state.value
-        if (current is FilesUiState.Success) {
+    fun invertSelection(files: List<FileNode>? = null) {
+        val selectionFiles = files ?: (_state.value as? FilesUiState.Success)?.files
+        if (selectionFiles != null) {
             val selected = _selectedPaths.value
-            _selectedPaths.value = current.files
+            _selectedPaths.value = selectionFiles
                 .mapTo(mutableSetOf()) { it.path }
                 .filterNotTo(mutableSetOf(), selected::contains)
         }
@@ -745,8 +904,28 @@ class FilesViewModel @Inject constructor(
         else -> "保存失败，请稍后重试"
     }
 
+    private fun Exception.searchMessage(): String = when (this) {
+        is WebDavException.AuthenticationRequired,
+        is WebDavException.CredentialUnavailable,
+        -> "WebDAV 凭据已失效，请重新登录"
+        is WebDavException.PermissionDenied -> "当前账户没有读取搜索目录的权限"
+        is WebDavException.NotFound -> "搜索目录不存在，文件列表可能已变化"
+        is WebDavException.Network -> "网络连接失败，请稍后重试"
+        is WebDavException.ResponseTooLarge -> "目录内容过多，无法完成搜索"
+        is WebDavException.InvalidResponse -> "云端返回的数据无法解析"
+        else -> message?.takeIf(String::isNotBlank) ?: "文件搜索失败"
+    }
+
     private companion object {
         const val MAX_EDITED_TEXT_CHARACTERS = 100_000
         const val TEXT_SAVE_TIMEOUT_MILLIS = 60_000L
     }
+}
+
+private fun FileSearchUiState.requestOrNull(): FileSearchRequest? = when (this) {
+    FileSearchUiState.Idle -> null
+    is FileSearchUiState.Loading -> request
+    is FileSearchUiState.Success -> request
+    is FileSearchUiState.Empty -> request
+    is FileSearchUiState.Error -> request
 }
