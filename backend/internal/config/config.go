@@ -17,6 +17,7 @@ type Config struct {
 	Database            DatabaseConfig   `mapstructure:"database"`
 	JWT                 JWTConfig        `mapstructure:"jwt"`
 	Github              GithubConfig     `mapstructure:"github"`
+	Qq                  QqConfig         `mapstructure:"qq"`
 	Email               EmailConfig      `mapstructure:"email"`
 	WebDAV              WebDAVConfig     `mapstructure:"webdav"`
 	Credential          CredentialConfig `mapstructure:"credential"`
@@ -61,6 +62,12 @@ type GithubConfig struct {
 	StateTTLSeconds          int    `mapstructure:"state-ttl-seconds"`
 	CompletionCodeTTLSeconds int    `mapstructure:"completion-code-ttl-seconds"`
 	Mock                     bool   `mapstructure:"mock"`
+}
+
+type QqConfig struct {
+	AppID       string `mapstructure:"app-id"`
+	MeURL       string `mapstructure:"me-url"`
+	UserInfoURL string `mapstructure:"user-info-url"`
 }
 
 type EmailConfig struct {
@@ -154,6 +161,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("github.state-ttl-seconds", 600)
 	v.SetDefault("github.completion-code-ttl-seconds", 90)
 	v.SetDefault("github.mock", false)
+	v.SetDefault("qq.app-id", "")
+	v.SetDefault("qq.me-url", "https://graph.qq.com/oauth2.0/me")
+	v.SetDefault("qq.user-info-url", "https://graph.qq.com/user/get_user_info")
 	v.SetDefault("email.mode", "console")
 	v.SetDefault("email.otp-ttl-seconds", 300)
 	v.SetDefault("email.otp-max-attempts", 5)
@@ -186,6 +196,7 @@ func bindEnvs(v *viper.Viper) {
 		"jwt.secret", "jwt.access-ttl-seconds", "jwt.refresh-ttl-days", "jwt.issuer",
 		"github.client-id", "github.client-secret", "github.redirect-uri", "github.app-redirect-uri",
 		"github.state-ttl-seconds", "github.completion-code-ttl-seconds", "github.mock",
+		"qq.app-id", "qq.me-url", "qq.user-info-url",
 		"email.mode", "email.otp-ttl-seconds", "email.otp-max-attempts",
 		"email.smtp.host", "email.smtp.port", "email.smtp.username", "email.smtp.password", "email.smtp.from",
 		"webdav.base-url",
@@ -222,6 +233,9 @@ func validate(cfg *Config) error {
 	if cfg.App.Env == "prod" && !cfg.Github.Mock {
 		if cfg.Github.ClientID == "" || cfg.Github.ClientSecret == "" {
 			return fmt.Errorf("config: GitHub client credentials are required in prod")
+		}
+		if cfg.Qq.AppID == "" {
+			return fmt.Errorf("config: qq.app-id is required in prod")
 		}
 		callback, err := url.Parse(cfg.Github.RedirectURI)
 		if err != nil || callback.Scheme != "https" || callback.Host == "" {

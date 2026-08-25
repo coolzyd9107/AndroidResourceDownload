@@ -19,6 +19,7 @@ const (
 	RoleSourceGithubWhitelist RoleSource = "github_whitelist"
 	RoleSourceGithubDefault   RoleSource = "github_default"
 	RoleSourceEmailDomain     RoleSource = "email_domain"
+	RoleSourceQqDefault       RoleSource = "qq_default"
 )
 
 // UserStatus is the lifecycle state of a user account.

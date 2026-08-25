@@ -31,6 +31,7 @@ type Deps struct {
 	Updates     *service.UpdateService
 	Tokens      *service.TokenService
 	GithubOAuth *service.GithubOAuthService
+	Qq          *service.QqAuthService
 }
 
 // RegisterRoutes attaches every endpoint to r.
@@ -40,9 +41,10 @@ func RegisterRoutes(r *gin.Engine, d *Deps) {
 	api := r.Group("/api/v1")
 
 	// Public auth endpoints.
-	authH := handler.NewAuthHandler(d.Auth, d.Limiter, d.Config, d.Logger, d.GithubOAuth)
+	authH := handler.NewAuthHandler(d.Auth, d.Limiter, d.Config, d.Logger, d.Qq, d.GithubOAuth)
 	api.POST("/auth/email/code", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.SendEmailCode)
 	api.POST("/auth/email/login", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.EmailLogin)
+	api.POST("/auth/qq/login", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.QqLogin)
 	api.GET("/auth/github/start", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.GithubStart)
 	api.GET("/auth/github/callback", authH.GithubCallback)
 	api.POST("/auth/github/complete", middleware.RateLimitByKey(d.Limiter, "login_per_ip", clientIP), authH.GithubComplete)

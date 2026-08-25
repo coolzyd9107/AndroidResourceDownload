@@ -100,6 +100,7 @@ func newTestEnvWithLogger(t *testing.T, log *slog.Logger) *testEnv {
 		Updates:     updateSvc,
 		Tokens:      tokens,
 		GithubOAuth: service.NewGithubOAuthService(authSvc, github, repos.OAuthTransactions, &cfg.Github),
+		Qq:          service.NewQqAuthService(authSvc, service.NewQqClient(&cfg.Qq)),
 	})
 
 	return &testEnv{router: r, cfg: cfg, repos: repos, emails: emails}

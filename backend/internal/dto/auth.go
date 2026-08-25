@@ -21,6 +21,14 @@ type EmailLoginRequest struct {
 	DeviceID string `json:"deviceId"`
 }
 
+// QqLoginRequest is the body for POST /api/v1/auth/qq/login. The backend
+// re-validates accessToken/openId with Tencent before issuing a session.
+type QqLoginRequest struct {
+	AccessToken string `json:"accessToken" binding:"required"`
+	OpenID      string `json:"openId" binding:"required"`
+	DeviceID    string `json:"deviceId"`
+}
+
 // RefreshTokenRequest is the body for POST /api/v1/auth/refresh.
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refreshToken" binding:"required"`
