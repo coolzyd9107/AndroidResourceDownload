@@ -143,6 +143,33 @@ class UploadsScreenTest {
     }
 
     @Test
+    fun selectionSearchExcludesUnselectedUploadTasks() {
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(
+                        task("selected", UploadStatus.SUCCESS),
+                        task("unselected", UploadStatus.FAILED),
+                    ),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("selected.bin").performClick()
+        composeRule.onNode(hasContentDescription("在已选上传任务中搜索")).performClick()
+
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("unselected")
+
+        composeRule.onNodeWithText("未找到匹配的上传任务").assertExists()
+        composeRule.onNodeWithText("0 / 1 个已选任务").assertExists()
+        composeRule.onNode(hasContentDescription("返回上传任务选择")).performClick()
+        composeRule.onNodeWithText("已选择 1 项").assertExists()
+    }
+
+    @Test
     fun selectedTreeBatchRetriesOnceAndReportsExpandedDeleteCount() {
         val retried = mutableListOf<String>()
         val deleted = mutableListOf<String>()

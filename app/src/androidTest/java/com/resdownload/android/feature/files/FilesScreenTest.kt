@@ -143,6 +143,28 @@ class FilesScreenTest {
     }
 
     @Test
+    fun selectedFolderSearchIncludesItsDescendantsOnly() {
+        setFilesScreen(Role.ADMIN)
+        composeRule.onNode(hasContentDescription("搜索文件和文件夹")).performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("设计资料")
+        composeRule.onNode(hasContentDescription("执行文件搜索")).performClick()
+        composeRule.onNode(hasContentDescription("选择文件搜索结果")).performClick()
+        composeRule.onNode(
+            hasText("设计资料", substring = true) and
+                hasClickAction() and
+                !hasSetTextAction(),
+        ).performClick()
+        composeRule.onNode(hasContentDescription("在已选文件中搜索")).performClick()
+
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("界面")
+        composeRule.onNode(hasContentDescription("搜索已选文件和文件夹")).performClick()
+
+        composeRule.onNodeWithText("界面规范.pdf").assertExists()
+        composeRule.onNodeWithText("release-notes.txt").assertDoesNotExist()
+        composeRule.onNodeWithText("在 1 个已选项中搜索").assertExists()
+    }
+
+    @Test
     fun submittedFileSearchRerunsAfterStateRestoration() {
         val restorationTester = StateRestorationTester(composeRule)
         restorationTester.setContent {

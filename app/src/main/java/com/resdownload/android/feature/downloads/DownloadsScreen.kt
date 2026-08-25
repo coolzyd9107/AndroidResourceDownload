@@ -117,6 +117,8 @@ fun DownloadsScreen(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var multiSelectMode by rememberSaveable { mutableStateOf(false) }
     var selectedTaskIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    var selectedSearchTaskIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    var hasObservedTasks by remember { mutableStateOf(tasks.isNotEmpty()) }
     SideEffect { onMultiSelectModeChange(multiSelectMode) }
     DisposableEffect(Unit) {
         onDispose { onMultiSelectModeChange(false) }
@@ -125,7 +127,17 @@ fun DownloadsScreen(
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val contentSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val countSpatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
-    val filteredTasks = filterDownloadTasks(tasks, if (searchActive) searchQuery else "")
+    val searchingSelectedTasks = multiSelectMode && searchActive && selectedSearchTaskIds.isNotEmpty()
+    val searchCandidates = if (searchingSelectedTasks) {
+        val candidateIds = selectedSearchTaskIds.toSet()
+        tasks.filter { it.id in candidateIds }
+    } else {
+        tasks
+    }
+    val filteredTasks = filterDownloadTasks(
+        searchCandidates,
+        if (searchActive) searchQuery else "",
+    )
     val normalizedSearchQuery = searchQuery.trim()
     val selectedTaskIdSet = selectedTaskIds.toSet()
     val selectedTasks = tasks.filter { it.id in selectedTaskIdSet }
@@ -177,6 +189,11 @@ fun DownloadsScreen(
     fun exitMultiSelect() {
         multiSelectMode = false
         selectedTaskIds = emptyList()
+        if (selectedSearchTaskIds.isNotEmpty()) {
+            selectedSearchTaskIds = emptyList()
+            searchActive = false
+            searchQuery = ""
+        }
     }
 
     fun toggleTaskSelection(taskId: String) {
@@ -201,25 +218,53 @@ fun DownloadsScreen(
     }
 
     LaunchedEffect(tasks.map(DownloadTask::id)) {
-        val retainedIds = selectedTaskIds.filter { selectedId -> tasks.any { it.id == selectedId } }
-        if (retainedIds != selectedTaskIds) {
-            val hadSelection = selectedTaskIds.isNotEmpty()
-            selectedTaskIds = retainedIds
-            if (hadSelection && retainedIds.isEmpty()) multiSelectMode = false
+        if (tasks.isNotEmpty()) hasObservedTasks = true
+        if (tasks.isNotEmpty() || hasObservedTasks) {
+            val retainedIds = selectedTaskIds.filter { selectedId ->
+                tasks.any { it.id == selectedId }
+            }
+            if (retainedIds != selectedTaskIds) {
+                val hadSelection = selectedTaskIds.isNotEmpty()
+                selectedTaskIds = retainedIds
+                if (hadSelection && retainedIds.isEmpty()) multiSelectMode = false
+            }
+            selectedSearchTaskIds = selectedSearchTaskIds.filter { selectedId ->
+                tasks.any { it.id == selectedId }
+            }
         }
     }
 
-    BackHandler(enabled = searchActive && !multiSelectMode) {
+    BackHandler(enabled = searchActive && (!multiSelectMode || searchingSelectedTasks)) {
         searchActive = false
         searchQuery = ""
+        selectedSearchTaskIds = emptyList()
     }
 
-    BackHandler(enabled = multiSelectMode, onBack = ::exitMultiSelect)
+    BackHandler(
+        enabled = multiSelectMode && !searchingSelectedTasks,
+        onBack = ::exitMultiSelect,
+    )
 
     Scaffold(
         modifier = modifier,
         topBar = {
-            if (multiSelectMode) {
+            if (searchingSelectedTasks) {
+                SearchTopAppBar(
+                    query = searchQuery,
+                    placeholder = "在已选下载任务中搜索",
+                    closeContentDescription = "返回下载任务选择",
+                    searchContentDescription = "搜索已选下载任务",
+                    onQueryChange = { searchQuery = it },
+                    onSearch = {},
+                    showSearchAction = false,
+                    onClose = {
+                        searchActive = false
+                        searchQuery = ""
+                        selectedSearchTaskIds = emptyList()
+                    },
+                    subtitle = "${filteredTasks.size} / ${selectedSearchTaskIds.size} 个已选任务",
+                )
+            } else if (multiSelectMode) {
                 TopAppBar(
                     title = { Text("已选择 ${selectedTasks.size} 项") },
                     navigationIcon = {
@@ -227,6 +272,24 @@ fun DownloadsScreen(
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "退出下载任务选择",
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                if (selectedTaskIds.isEmpty()) {
+                                    exitMultiSelect()
+                                } else {
+                                    selectedSearchTaskIds = selectedTaskIds
+                                }
+                                searchQuery = ""
+                                searchActive = true
+                            },
+                        ) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "在已选下载任务中搜索",
                             )
                         }
                     },
@@ -246,6 +309,7 @@ fun DownloadsScreen(
                     onClose = {
                         searchActive = false
                         searchQuery = ""
+                        selectedSearchTaskIds = emptyList()
                     },
                     subtitle = normalizedSearchQuery.takeIf(String::isNotEmpty)?.let {
                         "${filteredTasks.size} / ${tasks.size} 个任务"

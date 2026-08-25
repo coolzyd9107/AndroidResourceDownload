@@ -180,6 +180,33 @@ class DownloadsScreenTest {
     }
 
     @Test
+    fun selectionSearchExcludesUnselectedDownloadTasks() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsScreen(
+                    tasks = listOf(
+                        task("selected", DownloadStatus.SUCCESS),
+                        task("unselected", DownloadStatus.FAILED),
+                    ),
+                    onStatusChange = { _, _ -> },
+                    onOpen = {},
+                    onDelete = {},
+                )
+            }
+        }
+        composeRule.onNode(hasContentDescription("选择下载任务")).performClick()
+        composeRule.onNodeWithText("selected.txt").performClick()
+        composeRule.onNode(hasContentDescription("在已选下载任务中搜索")).performClick()
+
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("unselected")
+
+        composeRule.onNodeWithText("未找到匹配的下载任务").assertExists()
+        composeRule.onNodeWithText("0 / 1 个已选任务").assertExists()
+        composeRule.onNode(hasContentDescription("返回下载任务选择")).performClick()
+        composeRule.onNodeWithText("已选择 1 项").assertExists()
+    }
+
+    @Test
     fun bulkCancelRemainsGlobalWhileSearchHidesActiveTask() {
         var cancelled = false
         composeRule.setContent {

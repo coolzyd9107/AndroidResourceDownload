@@ -39,12 +39,14 @@ sealed interface FilesUiState {
 enum class FileSearchScope {
     ROOT,
     CURRENT_DIRECTORY,
+    SELECTED,
 }
 
 data class FileSearchRequest(
     val query: String,
     val scope: FileSearchScope,
     val basePath: WebDavPath,
+    val selectedFiles: List<FileNode> = emptyList(),
 )
 
 sealed interface FileSearchUiState {
@@ -79,11 +81,27 @@ internal suspend fun searchFilesRecursively(
     onDirectoryScanned: (Int) -> Unit = {},
 ): RecursiveFileSearchResult {
     require(request.query.isNotBlank())
-    val directories = ArrayDeque<WebDavPath>().apply { add(request.basePath) }
+    val directories = ArrayDeque<WebDavPath>()
     val visitedDirectories = mutableSetOf<WebDavPath>()
     val visitedResources = mutableSetOf<WebDavPath>()
     val matches = mutableListOf<FileNode>()
     var incomplete = false
+    if (request.scope == FileSearchScope.SELECTED) {
+        require(request.selectedFiles.isNotEmpty())
+        request.selectedFiles.forEach { file ->
+            val path = try {
+                WebDavPath.parseDecoded(file.path)
+            } catch (_: Exception) {
+                incomplete = true
+                return@forEach
+            }
+            if (!visitedResources.add(path)) return@forEach
+            if (file.name.contains(request.query, ignoreCase = true)) matches += file
+            if (file.isDirectory) directories.addLast(path)
+        }
+    } else {
+        directories.add(request.basePath)
+    }
 
     while (directories.isNotEmpty()) {
         val directory = directories.removeFirst()
@@ -103,7 +121,9 @@ internal suspend fun searchFilesRecursively(
         } catch (error: WebDavException.ResponseTooLarge) {
             throw error
         } catch (error: Exception) {
-            if (directory == request.basePath) throw error
+            if (request.scope != FileSearchScope.SELECTED && directory == request.basePath) {
+                throw error
+            }
             incomplete = true
             continue
         }
@@ -199,6 +219,8 @@ class FilesViewModel @Inject constructor(
     val multiSelectMode: StateFlow<Boolean> = _multiSelectMode.asStateFlow()
     private val _selectedPaths = MutableStateFlow<Set<String>>(emptySet())
     val selectedPaths: StateFlow<Set<String>> = _selectedPaths.asStateFlow()
+    private val _selectedFiles = MutableStateFlow<Map<String, FileNode>>(emptyMap())
+    val selectedFiles: StateFlow<Map<String, FileNode>> = _selectedFiles.asStateFlow()
     private val _mutationState = MutableStateFlow<FileMutationState>(FileMutationState.Idle)
     val mutationState: StateFlow<FileMutationState> = _mutationState.asStateFlow()
     private val _directoryPickerState = MutableStateFlow<DirectoryPickerState>(DirectoryPickerState.Idle)
@@ -273,12 +295,28 @@ class FilesViewModel @Inject constructor(
             cancelSearch()
             return
         }
-        val basePath = if (scope == FileSearchScope.ROOT) {
-            WebDavPath.root()
-        } else {
-            _state.value.path
+        val basePath = when (scope) {
+            FileSearchScope.ROOT -> WebDavPath.root()
+            FileSearchScope.CURRENT_DIRECTORY -> _state.value.path
+            FileSearchScope.SELECTED -> return
         }
         runSearch(FileSearchRequest(normalizedQuery, scope, basePath))
+    }
+
+    fun searchSelected(query: String, selectedFiles: List<FileNode>) {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty() || selectedFiles.isEmpty()) {
+            cancelSearch()
+            return
+        }
+        runSearch(
+            FileSearchRequest(
+                query = normalizedQuery,
+                scope = FileSearchScope.SELECTED,
+                basePath = _state.value.path,
+                selectedFiles = selectedFiles,
+            ),
+        )
     }
 
     fun retrySearch() {
@@ -331,45 +369,56 @@ class FilesViewModel @Inject constructor(
 
     fun exitMultiSelect() {
         _multiSelectMode.value = false
-        _selectedPaths.value = emptySet()
+        updateSelection(emptyMap())
     }
 
     fun toggleSelection(path: String) {
-        _selectedPaths.value = _selectedPaths.value.toMutableSet().apply {
-            if (contains(path)) remove(path) else add(path)
-        }
+        val file = _selectedFiles.value[path]
+            ?: (_state.value as? FilesUiState.Success)?.files?.firstOrNull { it.path == path }
+            ?: (_searchState.value as? FileSearchUiState.Success)?.files?.firstOrNull {
+                it.path == path
+            }
+            ?: return
+        toggleSelection(file)
+    }
+
+    fun toggleSelection(file: FileNode) {
+        val selected = _selectedFiles.value.toMutableMap()
+        if (selected.remove(file.path) == null) selected[file.path] = file
+        updateSelection(selected)
     }
 
     fun toggleSelectAll(files: List<FileNode>? = null) {
         val selectionFiles = files ?: (_state.value as? FilesUiState.Success)?.files
         if (selectionFiles != null) {
-            val allPaths = selectionFiles.mapTo(mutableSetOf()) { it.path }
-            _selectedPaths.value = if (
-                allPaths.isNotEmpty() && allPaths.all(_selectedPaths.value::contains)
-            ) {
-                emptySet()
+            val selected = _selectedFiles.value.toMutableMap()
+            val allSelected = selectionFiles.isNotEmpty() &&
+                selectionFiles.all { it.path in selected }
+            if (allSelected) {
+                selectionFiles.forEach { selected.remove(it.path) }
             } else {
-                allPaths
+                selectionFiles.forEach { selected[it.path] = it }
             }
+            updateSelection(selected)
         }
     }
 
     fun invertSelection(files: List<FileNode>? = null) {
         val selectionFiles = files ?: (_state.value as? FilesUiState.Success)?.files
         if (selectionFiles != null) {
-            val selected = _selectedPaths.value
-            _selectedPaths.value = selectionFiles
-                .mapTo(mutableSetOf()) { it.path }
-                .filterNotTo(mutableSetOf(), selected::contains)
+            val selected = _selectedFiles.value.toMutableMap()
+            selectionFiles.forEach { file ->
+                if (selected.remove(file.path) == null) selected[file.path] = file
+            }
+            updateSelection(selected)
         }
     }
 
-    fun getSelectedFiles(): List<FileNode> {
-        val current = _state.value
-        val selected = _selectedPaths.value
-        return if (current is FilesUiState.Success) {
-            current.files.filter { it.path in selected }
-        } else emptyList()
+    fun getSelectedFiles(): List<FileNode> = _selectedFiles.value.values.toList()
+
+    private fun updateSelection(selected: Map<String, FileNode>) {
+        _selectedFiles.value = selected
+        _selectedPaths.value = selected.keys
     }
 
     fun batchDelete(files: List<FileNode>) {
@@ -464,17 +513,28 @@ class FilesViewModel @Inject constructor(
 
     private suspend fun listFilesRecursive(path: WebDavPath): List<FileNode> {
         val result = mutableListOf<FileNode>()
-        try {
-            val items = repository.list(path)
-            for (item in items) {
-                if (item.isDirectory) {
-                    result.addAll(listFilesRecursive(WebDavPath.parseDecoded(item.path)))
-                } else {
-                    result.add(item)
-                }
+        val directories = ArrayDeque<WebDavPath>().apply { add(path) }
+        val visitedDirectories = mutableSetOf<WebDavPath>()
+        val visitedResources = mutableSetOf<WebDavPath>()
+        while (directories.isNotEmpty()) {
+            val directory = directories.removeFirst()
+            if (!visitedDirectories.add(directory)) continue
+            val items = try {
+                repository.list(directory)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                continue
             }
-        } catch (_: Exception) {
-            // 跳过无法访问的子目录
+            items.forEach { item ->
+                val itemPath = runCatching { WebDavPath.parseDecoded(item.path) }.getOrNull()
+                    ?: return@forEach
+                val isDirectChild = itemPath.decodedSegments.size ==
+                    directory.decodedSegments.size + 1 &&
+                    itemPath.decodedSegments.dropLast(1) == directory.decodedSegments
+                if (!isDirectChild || !visitedResources.add(itemPath)) return@forEach
+                if (item.isDirectory) directories.addLast(itemPath) else result += item
+            }
         }
         return result
     }

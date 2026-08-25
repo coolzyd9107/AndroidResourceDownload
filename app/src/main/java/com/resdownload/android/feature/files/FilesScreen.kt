@@ -1,5 +1,6 @@
 package com.resdownload.android.feature.files
 
+import java.util.ArrayDeque
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
@@ -179,13 +180,15 @@ fun FilesScreen(
         mutableStateOf(FileSearchScope.CURRENT_DIRECTORY)
     }
     var searchSubmitted by rememberSaveable { mutableStateOf(false) }
+    var selectedContentSearchActive by rememberSaveable { mutableStateOf(false) }
     var demoDestinationPath by remember { mutableStateOf(WebDavPath.root()) }
     var demoPreviewState by remember { mutableStateOf<FilePreviewUiState>(FilePreviewUiState.Idle) }
     var demoSearchState by remember { mutableStateOf<FileSearchUiState>(FileSearchUiState.Idle) }
     var demoSearchJob by remember { mutableStateOf<Job?>(null) }
     var demoSearchVersion by remember { mutableIntStateOf(0) }
     var demoMultiSelectMode by remember { mutableStateOf(false) }
-    var demoSelectedPaths by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var demoSelectedFiles by remember { mutableStateOf<Map<String, FileNode>>(emptyMap()) }
+    var selectedSearchRoots by remember { mutableStateOf<List<FileNode>>(emptyList()) }
     val mutationState = viewModel?.mutationState?.collectAsStateWithLifecycle()?.value
         ?: FileMutationState.Idle
     val realDirectoryPickerState = viewModel?.directoryPickerState
@@ -199,8 +202,9 @@ fun FilesScreen(
     val isRefreshing = viewModel?.isRefreshing?.collectAsStateWithLifecycle()?.value ?: false
     val multiSelectMode = viewModel?.multiSelectMode?.collectAsStateWithLifecycle()?.value
         ?: demoMultiSelectMode
-    val selectedPaths = viewModel?.selectedPaths?.collectAsStateWithLifecycle()?.value
-        ?: demoSelectedPaths
+    val selectedFileMap = viewModel?.selectedFiles?.collectAsStateWithLifecycle()?.value
+        ?: demoSelectedFiles
+    val selectedPaths = selectedFileMap.keys
     var batchTransferRequest by remember { mutableStateOf<BatchTransferRequest?>(null) }
     SideEffect {
         onMultiSelectModeChange(isAdmin && multiSelectMode)
@@ -214,7 +218,8 @@ fun FilesScreen(
             showCreateDirectoryDialog = false
             showUploadMenu = false
             demoMultiSelectMode = false
-            demoSelectedPaths = emptySet()
+            demoSelectedFiles = emptyMap()
+            selectedSearchRoots = emptyList()
             viewModel?.dismissDestinationPicker()
             viewModel?.exitMultiSelect()
         }
@@ -246,14 +251,29 @@ fun FilesScreen(
             return
         }
         searchSubmitted = true
+        val selectedRoots = selectedSearchRoots
+        val effectiveScope = if (multiSelectMode && selectedRoots.isNotEmpty()) {
+            FileSearchScope.SELECTED
+        } else {
+            scope
+        }
         if (viewModel != null) {
-            viewModel.search(normalizedQuery, scope)
+            if (effectiveScope == FileSearchScope.SELECTED) {
+                viewModel.searchSelected(normalizedQuery, selectedRoots)
+            } else {
+                viewModel.search(normalizedQuery, effectiveScope)
+            }
             return
         }
         val request = FileSearchRequest(
             query = normalizedQuery,
-            scope = scope,
-            basePath = if (scope == FileSearchScope.ROOT) WebDavPath.root() else activePath,
+            scope = effectiveScope,
+            basePath = if (effectiveScope == FileSearchScope.ROOT) WebDavPath.root() else activePath,
+            selectedFiles = if (effectiveScope == FileSearchScope.SELECTED) {
+                selectedRoots
+            } else {
+                emptyList()
+            },
         )
         val version = ++demoSearchVersion
         demoSearchJob?.cancel()
@@ -293,6 +313,8 @@ fun FilesScreen(
         cancelSearchResults()
         searchQuery = ""
         searchActive = false
+        selectedSearchRoots = emptyList()
+        selectedContentSearchActive = false
     }
 
     fun enterFileMultiSelect() {
@@ -307,32 +329,34 @@ fun FilesScreen(
     fun exitFileMultiSelect() {
         if (viewModel == null) {
             demoMultiSelectMode = false
-            demoSelectedPaths = emptySet()
+            demoSelectedFiles = emptyMap()
         } else {
             viewModel.exitMultiSelect()
         }
     }
 
-    fun toggleFileSelection(path: String) {
+    fun toggleFileSelection(file: FileNode) {
         if (!isAdmin) return
         if (viewModel == null) {
-            demoSelectedPaths = demoSelectedPaths.toMutableSet().apply {
-                if (!add(path)) remove(path)
+            demoSelectedFiles = demoSelectedFiles.toMutableMap().apply {
+                if (remove(file.path) == null) this[file.path] = file
             }
         } else {
-            viewModel.toggleSelection(path)
+            viewModel.toggleSelection(file)
         }
     }
 
     fun toggleAllFileSelections(files: List<FileNode>) {
         if (!isAdmin) return
         if (viewModel == null) {
-            val paths = files.mapTo(mutableSetOf(), FileNode::path)
-            demoSelectedPaths = if (paths.isNotEmpty() && paths.all(demoSelectedPaths::contains)) {
-                emptySet()
+            val selected = demoSelectedFiles.toMutableMap()
+            val allSelected = files.isNotEmpty() && files.all { it.path in selected }
+            if (allSelected) {
+                files.forEach { selected.remove(it.path) }
             } else {
-                paths
+                files.forEach { selected[it.path] = it }
             }
+            demoSelectedFiles = selected
         } else {
             viewModel.toggleSelectAll(files)
         }
@@ -341,19 +365,61 @@ fun FilesScreen(
     fun invertFileSelections(files: List<FileNode>) {
         if (!isAdmin) return
         if (viewModel == null) {
-            demoSelectedPaths = files.mapTo(mutableSetOf(), FileNode::path)
-                .filterNotTo(mutableSetOf(), demoSelectedPaths::contains)
+            demoSelectedFiles = demoSelectedFiles.toMutableMap().apply {
+                files.forEach { file ->
+                    if (remove(file.path) == null) this[file.path] = file
+                }
+            }
         } else {
             viewModel.invertSelection(files)
         }
     }
 
     val rawSearchState = realSearchState ?: demoSearchState
+    val activeSearchRequest = when (rawSearchState) {
+        FileSearchUiState.Idle -> null
+        is FileSearchUiState.Loading -> rawSearchState.request
+        is FileSearchUiState.Success -> rawSearchState.request
+        is FileSearchUiState.Empty -> rawSearchState.request
+        is FileSearchUiState.Error -> rawSearchState.request
+    }
+    val selectedContentRoots = selectedSearchRoots.takeIf(List<FileNode>::isNotEmpty)
+        ?: activeSearchRequest?.selectedFiles.orEmpty()
+    val searchingSelectedContent = multiSelectMode &&
+        (selectedContentSearchActive ||
+            selectedContentRoots.isNotEmpty() ||
+            activeSearchRequest?.scope == FileSearchScope.SELECTED)
+    LaunchedEffect(activeSearchRequest) {
+        if (
+            selectedSearchRoots.isEmpty() &&
+            activeSearchRequest?.scope == FileSearchScope.SELECTED
+        ) {
+            selectedSearchRoots = activeSearchRequest.selectedFiles
+        }
+    }
+    LaunchedEffect(
+        selectedContentSearchActive,
+        activeSearchRequest,
+        selectedSearchRoots,
+        multiSelectMode,
+    ) {
+        if (
+            selectedContentSearchActive &&
+            activeSearchRequest?.scope != FileSearchScope.SELECTED &&
+            selectedSearchRoots.isEmpty()
+        ) {
+            selectedContentSearchActive = false
+            searchSubmitted = false
+            searchQuery = ""
+            searchActive = false
+        }
+    }
     LaunchedEffect(searchActive, searchSubmitted, rawSearchState) {
         if (
             searchActive &&
             searchSubmitted &&
             searchQuery.isNotBlank() &&
+            (!selectedContentSearchActive || selectedSearchRoots.isNotEmpty()) &&
             rawSearchState == FileSearchUiState.Idle
         ) {
             submitFileSearch(searchQuery, selectedSearchScope)
@@ -425,7 +491,7 @@ fun FilesScreen(
     } else {
         displayedFiles
     }
-    val selectedFiles = selectableFiles.filter { it.path in selectedPaths }
+    val selectedFiles = selectedFileMap.values.toList()
     val allDisplayedFilesSelected = selectableFiles.isNotEmpty() &&
         selectableFiles.all { it.path in selectedPaths }
     var folderHistory by remember { mutableStateOf<List<FilePaneState>>(emptyList()) }
@@ -496,11 +562,11 @@ fun FilesScreen(
         }
     }
 
-    BackHandler(enabled = multiSelectMode) {
+    BackHandler(enabled = multiSelectMode && !searchingSelectedContent) {
         exitFileMultiSelect()
     }
 
-    BackHandler(enabled = searchActive && !multiSelectMode) {
+    BackHandler(enabled = searchActive && (!multiSelectMode || searchingSelectedContent)) {
         closeFileSearch()
     }
 
@@ -537,7 +603,27 @@ fun FilesScreen(
                         clip = predictiveBackInProgress
                     },
                 topBar = {
-                    if (multiSelectMode && isAdmin) {
+                    if (searchActive && searchingSelectedContent) {
+                        SearchTopAppBar(
+                            query = searchQuery,
+                            placeholder = "在已选内容中搜索",
+                            closeContentDescription = "返回文件选择",
+                            searchContentDescription = "搜索已选文件和文件夹",
+                            onQueryChange = { query ->
+                                searchQuery = query
+                                cancelSearchResults()
+                            },
+                            onSearch = {
+                                submitFileSearch(searchQuery, FileSearchScope.SELECTED)
+                            },
+                            onClose = ::closeFileSearch,
+                            subtitle = when (val current = searchState) {
+                                is FileSearchUiState.Loading ->
+                                    "已选 ${selectedContentRoots.size} 项 · 已扫描 ${current.scannedDirectories} 个目录"
+                                else -> "在 ${selectedContentRoots.size} 个已选项中搜索"
+                            },
+                        )
+                    } else if (multiSelectMode && isAdmin) {
                         TopAppBar(
                             title = { Text("已选择 ${selectedPaths.size} 项") },
                             navigationIcon = {
@@ -545,6 +631,28 @@ fun FilesScreen(
                                     Icon(
                                         Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "取消选择",
+                                    )
+                                }
+                            },
+                            actions = {
+                                IconButton(
+                                    onClick = {
+                                        if (selectedFiles.isEmpty()) {
+                                            selectedSearchRoots = emptyList()
+                                            selectedContentSearchActive = false
+                                            exitFileMultiSelect()
+                                        } else {
+                                            selectedSearchRoots = selectedFiles
+                                            selectedContentSearchActive = true
+                                        }
+                                        cancelSearchResults()
+                                        searchQuery = ""
+                                        searchActive = true
+                                    },
+                                ) {
+                                    Icon(
+                                        Icons.Default.Search,
+                                        contentDescription = "在已选文件中搜索",
                                     )
                                 }
                             },
@@ -683,6 +791,7 @@ fun FilesScreen(
                         MultiSelectBottomBar(
                             allSelected = allDisplayedFilesSelected,
                             hasSelection = selectedPaths.isNotEmpty(),
+                            selectionControlsEnabled = !searchingSelectedContent,
                             onToggleSelectAll = { toggleAllFileSelections(selectableFiles) },
                             onInvertSelection = { invertFileSelections(selectableFiles) },
                             onMove = {
@@ -711,16 +820,33 @@ fun FilesScreen(
                             },
                             onDownload = {
                                 val selected = selectedFiles
+                                var demoFolderHadFiles = false
                                 selected.forEach { item ->
                                     if (item.isDirectory) {
-                                        viewModel?.downloadFolder(item) { fileNode, relativePath ->
-                                            onDownload(fileNode, relativePath)
+                                        if (viewModel == null) {
+                                            val entries = demoFolderDownloadEntries(item)
+                                            if (entries.isNotEmpty()) demoFolderHadFiles = true
+                                            entries.forEach { (fileNode, relativePath) ->
+                                                onDownload(fileNode, relativePath)
+                                            }
+                                        } else {
+                                            viewModel.downloadFolder(item) { fileNode, relativePath ->
+                                                onDownload(fileNode, relativePath)
+                                            }
                                         }
                                     } else {
                                         onDownload(item, "")
                                     }
                                 }
-                                if (selected.isNotEmpty()) onMessage("已加入下载任务")
+                                if (viewModel != null && selected.isNotEmpty()) {
+                                    onMessage("已加入下载任务")
+                                } else if (
+                                    selected.any(FileNode::isDirectory) &&
+                                    !demoFolderHadFiles
+                                ) {
+                                    onMessage("所选文件夹中没有可下载文件")
+                                }
+                                if (searchActive) closeFileSearch()
                                 exitFileMultiSelect()
                             },
                             onDelete = {
@@ -819,12 +945,14 @@ fun FilesScreen(
                                 viewModel.retrySearch()
                             }
                         },
-                        multiSelectMode = multiSelectMode,
+                        multiSelectMode = multiSelectMode && !searchingSelectedContent,
                         selectedPaths = selectedPaths,
                         onManage = { file -> if (isAdmin) selectedFile = file },
                         onFileClick = { file ->
-                            if (multiSelectMode) {
-                                toggleFileSelection(file.path)
+                            if (searchingSelectedContent) {
+                                selectedFile = file
+                            } else if (multiSelectMode) {
+                                toggleFileSelection(file)
                             } else if (file.isDirectory) {
                                 closeFileSearch()
                                 folderHistory = emptyList()
@@ -838,9 +966,9 @@ fun FilesScreen(
                             }
                         },
                         onFileLongClick = { file ->
-                            if (isAdmin && !multiSelectMode) {
+                            if (isAdmin && !multiSelectMode && !searchingSelectedContent) {
                                 enterFileMultiSelect()
-                                toggleFileSelection(file.path)
+                                toggleFileSelection(file)
                             }
                         },
                     )
@@ -924,7 +1052,7 @@ fun FilesScreen(
                                     onManage = { if (isAdmin) selectedFile = it },
                                     onFileClick = { file ->
                                         if (multiSelectMode) {
-                                            toggleFileSelection(file.path)
+                                            toggleFileSelection(file)
                                         } else if (file.isDirectory) {
                                             folderHistory = (folderHistory + filePaneState).takeLast(12)
                                             if (viewModel == null) {
@@ -940,7 +1068,7 @@ fun FilesScreen(
                                         if (isAdmin && !multiSelectMode) {
                                             onMultiSelectModeChange(true)
                                             enterFileMultiSelect()
-                                            toggleFileSelection(file.path)
+                                            toggleFileSelection(file)
                                         }
                                     },
                                 )
@@ -974,7 +1102,17 @@ fun FilesScreen(
                 selectedFile = null
             },
             onDownloadFolder = {
-                viewModel?.downloadFolder(file) { fileNode, relativePath -> onDownload(fileNode, relativePath) }
+                if (viewModel == null) {
+                    val entries = demoFolderDownloadEntries(file)
+                    entries.forEach { (fileNode, relativePath) ->
+                        onDownload(fileNode, relativePath)
+                    }
+                    if (entries.isEmpty()) onMessage("此文件夹中没有可下载文件")
+                } else {
+                    viewModel.downloadFolder(file) { fileNode, relativePath ->
+                        onDownload(fileNode, relativePath)
+                    }
+                }
                 selectedFile = null
             },
             onRename = {
@@ -1277,6 +1415,7 @@ private sealed interface FilePaneContent {
 private fun MultiSelectBottomBar(
     allSelected: Boolean,
     hasSelection: Boolean,
+    selectionControlsEnabled: Boolean = true,
     onToggleSelectAll: () -> Unit,
     onInvertSelection: () -> Unit,
     onMove: () -> Unit,
@@ -1292,12 +1431,14 @@ private fun MultiSelectBottomBar(
         MultiSelectAction(
             icon = if (allSelected) Icons.Default.Deselect else Icons.Default.SelectAll,
             label = if (allSelected) "取消全选" else "全选",
+            enabled = selectionControlsEnabled,
             onClick = onToggleSelectAll,
             modifier = Modifier.weight(1f),
         )
         MultiSelectAction(
             icon = Icons.Default.FlipToBack,
             label = "反选",
+            enabled = selectionControlsEnabled,
             onClick = onInvertSelection,
             modifier = Modifier.weight(1f),
         )
@@ -1469,6 +1610,41 @@ private fun fileStateForPath(path: String): ContentState<List<FileNode>> =
         }
     }
 
+internal fun demoFolderDownloadEntries(folder: FileNode): List<Pair<FileNode, String>> {
+    if (!folder.isDirectory) return emptyList()
+    val root = runCatching { WebDavPath.parseDecoded(folder.path) }.getOrNull()
+        ?: return emptyList()
+    val directories = ArrayDeque<WebDavPath>().apply { add(root) }
+    val visitedDirectories = mutableSetOf<WebDavPath>()
+    val visitedResources = mutableSetOf<WebDavPath>()
+    val result = mutableListOf<Pair<FileNode, String>>()
+    while (directories.isNotEmpty()) {
+        val directory = directories.removeFirst()
+        if (!visitedDirectories.add(directory)) continue
+        mockFilesForPath(directory.toString()).orEmpty().forEach { item ->
+            val itemPath = runCatching { WebDavPath.parseDecoded(item.path) }.getOrNull()
+                ?: return@forEach
+            val isDirectChild = itemPath.decodedSegments.size ==
+                directory.decodedSegments.size + 1 &&
+                itemPath.decodedSegments.dropLast(1) == directory.decodedSegments
+            if (!isDirectChild || !visitedResources.add(itemPath)) return@forEach
+            if (item.isDirectory) {
+                directories.addLast(itemPath)
+            } else {
+                val relativeFull = item.path.removePrefix(folder.path.trimEnd('/')).trimStart('/')
+                val subdirectory = relativeFull.substringBeforeLast('/', "")
+                val relativePath = if (subdirectory.isEmpty()) {
+                    folder.name
+                } else {
+                    "${folder.name}/$subdirectory"
+                }
+                result += item to relativePath
+            }
+        }
+    }
+    return result
+}
+
 @Composable
 private fun FileSearchContent(
     state: FileSearchUiState,
@@ -1559,6 +1735,7 @@ private fun FileSearchContent(
 private fun FileSearchScope.label(): String = when (this) {
     FileSearchScope.ROOT -> "整个云盘"
     FileSearchScope.CURRENT_DIRECTORY -> "当前目录"
+    FileSearchScope.SELECTED -> "已选内容"
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)

@@ -155,6 +155,7 @@ class FilesViewModelTest {
         viewModel.toggleSelectAll(searchResults)
 
         assertEquals(searchResults.mapTo(mutableSetOf(), FileNode::path), viewModel.selectedPaths.value)
+        assertEquals(searchResults, viewModel.getSelectedFiles())
     }
 
     @Test
@@ -225,6 +226,51 @@ class FilesViewModelTest {
         )
         assertFalse(state.incomplete)
         assertEquals("/", state.request.basePath.toString())
+    }
+
+    @Test
+    fun selectedSearchIncludesSelectedFilesAndDirectoryDescendantsOnly() = runTest(dispatcher) {
+        val requestedPaths = mutableListOf<String>()
+        val request = FileSearchRequest(
+            query = "target",
+            scope = FileSearchScope.SELECTED,
+            basePath = WebDavPath.root(),
+            selectedFiles = listOf(
+                FileNode("selected", "/selected", isDirectory = true),
+                FileNode("target-root.txt", "/target-root.txt", isDirectory = false),
+            ),
+        )
+
+        val result = searchFilesRecursively(
+            request = request,
+            listDirectory = { path ->
+                requestedPaths += path.toString()
+                when (path.toString()) {
+                    "/selected" -> listOf(
+                        FileNode("nested", "/selected/nested", isDirectory = true),
+                        FileNode("target-one.txt", "/selected/target-one.txt", isDirectory = false),
+                    )
+                    "/selected/nested" -> listOf(
+                        FileNode(
+                            "deep-target.pdf",
+                            "/selected/nested/deep-target.pdf",
+                            isDirectory = false,
+                        ),
+                    )
+                    else -> error("Unexpected directory $path")
+                }
+            },
+        )
+
+        assertEquals(listOf("/selected", "/selected/nested"), requestedPaths)
+        assertEquals(
+            setOf(
+                "/target-root.txt",
+                "/selected/target-one.txt",
+                "/selected/nested/deep-target.pdf",
+            ),
+            result.files.mapTo(mutableSetOf(), FileNode::path),
+        )
     }
 
     @Test
@@ -304,6 +350,57 @@ class FilesViewModelTest {
         advanceUntilIdle()
 
         assertEquals(FileSearchUiState.Idle, viewModel.searchState.value)
+    }
+
+    @Test
+    fun folderDownloadRejectsSiblingAndCycleEntries() = runTest(dispatcher) {
+        val downloaded = mutableListOf<Pair<String, String>>()
+        val viewModel = FilesViewModel(
+            FakeFileRepository { path ->
+                when (path.toString()) {
+                    "/" -> emptyList()
+                    "/folder" -> listOf(
+                        FileNode("direct.txt", "/folder/direct.txt", isDirectory = false),
+                        FileNode("nested", "/folder/nested", isDirectory = true),
+                        FileNode("outside.txt", "/outside.txt", isDirectory = false),
+                        FileNode("self", "/folder", isDirectory = true),
+                    )
+                    "/folder/nested" -> listOf(
+                        FileNode("deep.txt", "/folder/nested/deep.txt", isDirectory = false),
+                        FileNode("parent", "/folder", isDirectory = true),
+                    )
+                    else -> emptyList()
+                }
+            },
+        )
+        advanceUntilIdle()
+
+        viewModel.downloadFolder(
+            FileNode("folder", "/folder", isDirectory = true),
+        ) { file, relativePath ->
+            downloaded += file.path to relativePath
+        }
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                "/folder/direct.txt" to "folder",
+                "/folder/nested/deep.txt" to "folder/nested",
+            ),
+            downloaded,
+        )
+    }
+
+    @Test
+    fun demoFolderDownloadExpandsFolderContents() {
+        val entries = demoFolderDownloadEntries(
+            FileNode("设计资料", "/设计资料", isDirectory = true),
+        )
+
+        assertEquals(
+            listOf("/设计资料/界面规范.pdf" to "设计资料"),
+            entries.map { (file, relativePath) -> file.path to relativePath },
+        )
     }
 
     @Test
