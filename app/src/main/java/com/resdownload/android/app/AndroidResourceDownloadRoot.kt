@@ -81,8 +81,9 @@ import com.resdownload.android.feature.auth.LoginScreen
 import com.resdownload.android.feature.downloads.DownloadsScreen
 import com.resdownload.android.feature.downloads.DownloadsViewModel
 import com.resdownload.android.feature.files.FilesScreen
+import com.resdownload.android.feature.settings.AboutScreen
+import com.resdownload.android.feature.settings.AboutViewModel
 import com.resdownload.android.feature.settings.SettingsScreen
-import com.resdownload.android.feature.settings.SettingsViewModel
 import com.resdownload.android.feature.settings.ThemeViewModel
 import com.resdownload.android.feature.uploads.UploadsScreen
 import com.resdownload.android.feature.uploads.UploadsViewModel
@@ -90,6 +91,10 @@ import com.resdownload.android.feature.uploads.UploadsViewModel
 private object RootRoute {
     const val Login = "login"
     const val Main = "main"
+}
+
+private object SettingsRoute {
+    const val About = "settings/about"
 }
 
 private const val QQ_PRIVACY_POLICY_URL =
@@ -326,6 +331,12 @@ private fun MainShell(
         scope.launch { snackbarHostState.showSnackbar(message) }
     }
 
+    fun openExternalUrl(url: String): Boolean = runCatching {
+        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
+    }
+        .onFailure { showMessage("无法打开链接") }
+        .isSuccess
+
     fun openShellRoute(route: ShellRoute) {
         navController.navigate(route.route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -425,7 +436,10 @@ private fun MainShell(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            if (!showFilesMultiSelectBar) {
+            if (
+                !showFilesMultiSelectBar &&
+                ShellRoute.values().any { destination -> destination.route == currentRoute }
+            ) {
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     tonalElevation = 0.dp,
@@ -699,13 +713,6 @@ private fun MainShell(
                     fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
                 },
             ) {
-                val settingsViewModel = hiltViewModel<SettingsViewModel>()
-                val noticeState by settingsViewModel.noticeState.collectAsStateWithLifecycle()
-                val updateState by settingsViewModel.updateState.collectAsStateWithLifecycle()
-                LifecycleResumeEffect(settingsViewModel) {
-                    settingsViewModel.refreshNotice()
-                    onPauseOrDispose { }
-                }
                 SettingsScreen(
                     user = user,
                     themeMode = themeSettings.themeMode,
@@ -717,19 +724,40 @@ private fun MainShell(
                     onThemeSeedColorChange = onSeedColorChange,
                     onThemeSchemeVariantChange = onSchemeVariantChange,
                     onResetThemeColor = onResetSeedColor,
-                    noticeState = noticeState,
-                    onRetryNotice = settingsViewModel::refreshNotice,
-                    updateState = updateState,
-                    onCheckUpdate = settingsViewModel::checkForUpdate,
-                    onDismissUpdate = settingsViewModel::dismissUpdateResult,
-                    onOpenUpdateUrl = { url ->
-                        runCatching {
-                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
+                    onOpenAbout = {
+                        navController.navigate(SettingsRoute.About) {
+                            launchSingleTop = true
                         }
-                            .onFailure { showMessage("无法打开下载链接") }
-                            .isSuccess
                     },
                     onLogout = onLogout,
+                )
+            }
+            composable(
+                route = SettingsRoute.About,
+                enterTransition = {
+                    fadeIn(tabEffectsSpec) +
+                        slideInHorizontally(tabOffsetSpec) { width -> tabDirection * width / 8 }
+                },
+                exitTransition = {
+                    fadeOut(tabEffectsSpec) +
+                        slideOutHorizontally(tabOffsetSpec) { width -> tabDirection * width / 8 }
+                },
+            ) {
+                val aboutViewModel = hiltViewModel<AboutViewModel>()
+                val noticeState by aboutViewModel.noticeState.collectAsStateWithLifecycle()
+                val updateState by aboutViewModel.updateState.collectAsStateWithLifecycle()
+                LifecycleResumeEffect(aboutViewModel) {
+                    aboutViewModel.refreshNotice()
+                    onPauseOrDispose { }
+                }
+                AboutScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    noticeState = noticeState,
+                    onRetryNotice = aboutViewModel::refreshNotice,
+                    updateState = updateState,
+                    onCheckUpdate = aboutViewModel::checkForUpdate,
+                    onDismissUpdate = aboutViewModel::dismissUpdateResult,
+                    onOpenUrl = ::openExternalUrl,
                 )
             }
         }

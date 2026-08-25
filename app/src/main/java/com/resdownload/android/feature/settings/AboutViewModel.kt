@@ -35,7 +35,7 @@ sealed interface UpdateUiState {
 }
 
 @HiltViewModel
-class SettingsViewModel @Inject constructor(
+class AboutViewModel @Inject constructor(
     private val noticeRepository: NoticeRepository,
     private val updateRepository: UpdateRepository,
 ) : ViewModel() {

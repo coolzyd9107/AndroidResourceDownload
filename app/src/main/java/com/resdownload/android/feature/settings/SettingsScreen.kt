@@ -34,7 +34,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Close
@@ -44,7 +43,6 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SettingsBrightness
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -53,7 +51,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -86,7 +83,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import com.resdownload.android.BuildConfig
 import com.resdownload.android.core.theme.DEFAULT_THEME_SEED_ARGB
 import com.resdownload.android.core.theme.ThemeMode
 import com.resdownload.android.core.theme.ThemeSeedPreset
@@ -117,17 +113,10 @@ fun SettingsScreen(
     onThemeSeedColorChange: (Int) -> Unit = {},
     onThemeSchemeVariantChange: (ThemeSchemeVariant) -> Unit = {},
     onResetThemeColor: () -> Unit = {},
-    noticeState: NoticeUiState = NoticeUiState.Loading,
-    onRetryNotice: () -> Unit = {},
-    updateState: UpdateUiState = UpdateUiState.Idle,
-    onCheckUpdate: () -> Unit = {},
-    onDismissUpdate: () -> Unit = {},
-    onOpenUpdateUrl: (String) -> Boolean = { false },
+    onOpenAbout: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showAbout by rememberSaveable { mutableStateOf(false) }
-    var showNotice by rememberSaveable { mutableStateOf(false) }
     var showLogout by rememberSaveable { mutableStateOf(false) }
     var showCustomColor by rememberSaveable { mutableStateOf(false) }
     var showSchemePicker by rememberSaveable { mutableStateOf(false) }
@@ -266,155 +255,11 @@ fun SettingsScreen(
                 )
             }
             ListItem(
-                headlineContent = { Text("公告") },
-                supportingContent = {
-                    Text(
-                        when (noticeState) {
-                            NoticeUiState.Loading -> "正在获取最新公告"
-                            is NoticeUiState.Content -> "查看最新公告"
-                            NoticeUiState.Empty -> "暂无公告"
-                            NoticeUiState.Error -> "获取失败"
-                        },
-                    )
-                },
-                leadingContent = { SettingsIcon(Icons.Default.Campaign) },
-                modifier = Modifier.clickable { showNotice = true },
-            )
-            ListItem(
-                headlineContent = { Text("检查更新") },
-                supportingContent = {
-                    Text(
-                        when (val state = updateState) {
-                            UpdateUiState.Idle -> "当前版本 ${BuildConfig.VERSION_NAME}"
-                            UpdateUiState.Checking -> "正在检查更新"
-                            is UpdateUiState.Available -> "发现新版本 ${state.latestVersion}"
-                            is UpdateUiState.UpToDate -> "当前版本 ${state.currentVersion}"
-                            is UpdateUiState.Error -> "检查失败"
-                        },
-                    )
-                },
-                leadingContent = { SettingsIcon(Icons.Default.SystemUpdate) },
-                trailingContent = if (updateState == UpdateUiState.Checking) {
-                    {
-                        LoadingIndicator(modifier = Modifier.size(24.dp))
-                    }
-                } else {
-                    null
-                },
-                modifier = Modifier.clickable(
-                    enabled = updateState != UpdateUiState.Checking,
-                    onClick = onCheckUpdate,
-                ),
-            )
-            ListItem(
                 headlineContent = { Text("关于") },
-                supportingContent = { Text("版本与开源信息") },
+                supportingContent = { Text("开发者、公告与版本信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
-                modifier = Modifier.clickable { showAbout = true },
+                modifier = Modifier.clickable(onClick = onOpenAbout),
             )
-        }
-    }
-
-    if (showNotice) {
-        AlertDialog(
-            onDismissRequest = { showNotice = false },
-            title = { Text("公告") },
-            text = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    when (val state = noticeState) {
-                        NoticeUiState.Loading -> Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            LoadingIndicator(modifier = Modifier.size(24.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text("正在获取最新公告")
-                        }
-                        is NoticeUiState.Content -> Text(state.text)
-                        NoticeUiState.Empty -> Text("暂无公告")
-                        NoticeUiState.Error -> Text("公告获取失败，请检查网络后重试。")
-                    }
-                }
-            },
-            confirmButton = {
-                if (noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty) {
-                    TextButton(onClick = onRetryNotice) { Text("重试") }
-                } else {
-                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
-                }
-            },
-            dismissButton = if (
-                noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty
-            ) {
-                {
-                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
-                }
-            } else {
-                null
-            },
-        )
-    }
-
-    if (showAbout) {
-        AlertDialog(
-            onDismissRequest = { showAbout = false },
-            title = { Text("关于资源下载") },
-            text = {
-                Text("版本 ${BuildConfig.VERSION_NAME}\n用于访问团队文件和管理下载任务。")
-            },
-            confirmButton = {
-                TextButton(onClick = { showAbout = false }) {
-                    Text("确定")
-                }
-            },
-        )
-    }
-
-    if (!showAbout && !showNotice && !showLogout && !showCustomColor && !showSchemePicker) {
-        when (val state = updateState) {
-        is UpdateUiState.Available -> AlertDialog(
-            onDismissRequest = onDismissUpdate,
-            title = { Text("发现新版本") },
-            text = {
-                Text("当前版本 ${state.currentVersion}\n最新版本 ${state.latestVersion}")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (onOpenUpdateUrl(state.updateUrl)) onDismissUpdate()
-                    },
-                ) { Text("下载") }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismissUpdate) { Text("取消") }
-            },
-        )
-        is UpdateUiState.UpToDate -> AlertDialog(
-            onDismissRequest = onDismissUpdate,
-            title = { Text("已是最新版本") },
-            text = { Text("当前版本 ${state.currentVersion}") },
-            confirmButton = {
-                TextButton(onClick = onDismissUpdate) { Text("确定") }
-            },
-        )
-        is UpdateUiState.Error -> AlertDialog(
-            onDismissRequest = onDismissUpdate,
-            title = { Text("检查更新失败") },
-            text = { Text(state.message) },
-            confirmButton = {
-                TextButton(onClick = onCheckUpdate) { Text("重试") }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismissUpdate) { Text("取消") }
-            },
-        )
-        UpdateUiState.Idle,
-        UpdateUiState.Checking,
-            -> Unit
         }
     }
 
@@ -435,8 +280,6 @@ fun SettingsScreen(
             },
         )
     }
-
-
     if (showCustomColor) {
         CustomThemeColorDialog(
             initialSeedColorArgb = themeSeedColorArgb,
@@ -817,7 +660,7 @@ private fun ThemeToneSlider(
 }
 
 @Composable
-private fun SettingsIcon(
+internal fun SettingsIcon(
     imageVector: ImageVector,
 ) {
     Surface(
