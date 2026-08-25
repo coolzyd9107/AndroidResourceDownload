@@ -84,6 +84,7 @@ import com.resdownload.android.feature.files.FilesScreen
 import com.resdownload.android.feature.settings.AboutScreen
 import com.resdownload.android.feature.settings.AboutViewModel
 import com.resdownload.android.feature.settings.SettingsScreen
+import com.resdownload.android.feature.settings.SettingsViewModel
 import com.resdownload.android.feature.settings.ThemeViewModel
 import com.resdownload.android.feature.uploads.UploadsScreen
 import com.resdownload.android.feature.uploads.UploadsViewModel
@@ -713,6 +714,12 @@ private fun MainShell(
                     fadeOut(tabEffectsSpec) + scaleOut(tabSpatialSpec, targetScale = 0.98f)
                 },
             ) {
+                val settingsViewModel = hiltViewModel<SettingsViewModel>()
+                val noticeState by settingsViewModel.noticeState.collectAsStateWithLifecycle()
+                LifecycleResumeEffect(settingsViewModel) {
+                    settingsViewModel.refreshNotice()
+                    onPauseOrDispose { }
+                }
                 SettingsScreen(
                     user = user,
                     themeMode = themeSettings.themeMode,
@@ -724,6 +731,8 @@ private fun MainShell(
                     onThemeSeedColorChange = onSeedColorChange,
                     onThemeSchemeVariantChange = onSchemeVariantChange,
                     onResetThemeColor = onResetSeedColor,
+                    noticeState = noticeState,
+                    onRetryNotice = settingsViewModel::refreshNotice,
                     onOpenAbout = {
                         navController.navigate(SettingsRoute.About) {
                             launchSingleTop = true
@@ -744,16 +753,9 @@ private fun MainShell(
                 },
             ) {
                 val aboutViewModel = hiltViewModel<AboutViewModel>()
-                val noticeState by aboutViewModel.noticeState.collectAsStateWithLifecycle()
                 val updateState by aboutViewModel.updateState.collectAsStateWithLifecycle()
-                LifecycleResumeEffect(aboutViewModel) {
-                    aboutViewModel.refreshNotice()
-                    onPauseOrDispose { }
-                }
                 AboutScreen(
                     onNavigateBack = { navController.popBackStack() },
-                    noticeState = noticeState,
-                    onRetryNotice = aboutViewModel::refreshNotice,
                     updateState = updateState,
                     onCheckUpdate = aboutViewModel::checkForUpdate,
                     onDismissUpdate = aboutViewModel::dismissUpdateResult,

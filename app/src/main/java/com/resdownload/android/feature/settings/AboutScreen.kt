@@ -1,16 +1,14 @@
 package com.resdownload.android.feature.settings
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,7 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -40,17 +37,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -59,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.resdownload.android.BuildConfig
+import com.resdownload.android.R
 
 internal const val FRONTEND_DEVELOPER_URL = "https://github.com/coolzyd9107"
 internal const val BACKEND_DEVELOPER_URL = "https://github.com/zhuzhuzihan"
@@ -71,23 +68,18 @@ private const val BACKEND_AVATAR_URL =
     "https://avatars.githubusercontent.com/u/68634388?v=4"
 
 @OptIn(
-    ExperimentalLayoutApi::class,
     ExperimentalMaterial3Api::class,
     ExperimentalMaterial3ExpressiveApi::class,
 )
 @Composable
 fun AboutScreen(
     onNavigateBack: () -> Unit,
-    noticeState: NoticeUiState = NoticeUiState.Loading,
-    onRetryNotice: () -> Unit = {},
     updateState: UpdateUiState = UpdateUiState.Idle,
     onCheckUpdate: () -> Unit = {},
     onDismissUpdate: () -> Unit = {},
     onOpenUrl: (String) -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
-    var showNotice by rememberSaveable { mutableStateOf(false) }
-
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -113,30 +105,18 @@ fun AboutScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState()),
         ) {
+            AppIdentity(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            )
             DeveloperSection(
                 onOpenUrl = onOpenUrl,
-                modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp),
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
             Text(
                 text = "应用信息",
                 modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
                 style = MaterialTheme.typography.titleMediumEmphasized,
                 color = MaterialTheme.colorScheme.primary,
-            )
-            ListItem(
-                headlineContent = { Text("公告") },
-                supportingContent = {
-                    Text(
-                        when (noticeState) {
-                            NoticeUiState.Loading -> "正在获取最新公告"
-                            is NoticeUiState.Content -> "查看最新公告"
-                            NoticeUiState.Empty -> "暂无公告"
-                            NoticeUiState.Error -> "获取失败"
-                        },
-                    )
-                },
-                leadingContent = { SettingsIcon(Icons.Default.Campaign) },
-                modifier = Modifier.clickable { showNotice = true },
             )
             ListItem(
                 headlineContent = { Text("检查更新") },
@@ -176,96 +156,88 @@ fun AboutScreen(
         }
     }
 
-    if (showNotice) {
-        AlertDialog(
-            onDismissRequest = { showNotice = false },
-            title = { Text("公告") },
+    when (val state = updateState) {
+        is UpdateUiState.Available -> AlertDialog(
+            onDismissRequest = onDismissUpdate,
+            title = { Text("发现新版本") },
             text = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    when (val state = noticeState) {
-                        NoticeUiState.Loading -> Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            LoadingIndicator(modifier = Modifier.size(24.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text("正在获取最新公告")
-                        }
-                        is NoticeUiState.Content -> Text(state.text)
-                        NoticeUiState.Empty -> Text("暂无公告")
-                        NoticeUiState.Error -> Text("公告获取失败，请检查网络后重试。")
-                    }
-                }
+                Text("当前版本 ${state.currentVersion}\n最新版本 ${state.latestVersion}")
             },
             confirmButton = {
-                if (noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty) {
-                    TextButton(onClick = onRetryNotice) { Text("重试") }
-                } else {
-                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
-                }
+                TextButton(
+                    onClick = {
+                        if (onOpenUrl(state.updateUrl)) onDismissUpdate()
+                    },
+                ) { Text("下载") }
             },
-            dismissButton = if (
-                noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty
-            ) {
-                {
-                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
-                }
-            } else {
-                null
+            dismissButton = {
+                TextButton(onClick = onDismissUpdate) { Text("取消") }
             },
         )
+        is UpdateUiState.UpToDate -> AlertDialog(
+            onDismissRequest = onDismissUpdate,
+            title = { Text("已是最新版本") },
+            text = { Text("当前版本 ${state.currentVersion}") },
+            confirmButton = {
+                TextButton(onClick = onDismissUpdate) { Text("确定") }
+            },
+        )
+        is UpdateUiState.Error -> AlertDialog(
+            onDismissRequest = onDismissUpdate,
+            title = { Text("检查更新失败") },
+            text = { Text(state.message) },
+            confirmButton = {
+                TextButton(onClick = onCheckUpdate) { Text("重试") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissUpdate) { Text("取消") }
+            },
+        )
+        UpdateUiState.Idle,
+        UpdateUiState.Checking,
+            -> Unit
     }
+}
 
-    if (!showNotice) {
-        when (val state = updateState) {
-            is UpdateUiState.Available -> AlertDialog(
-                onDismissRequest = onDismissUpdate,
-                title = { Text("发现新版本") },
-                text = {
-                    Text("当前版本 ${state.currentVersion}\n最新版本 ${state.latestVersion}")
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            if (onOpenUrl(state.updateUrl)) onDismissUpdate()
-                        },
-                    ) { Text("下载") }
-                },
-                dismissButton = {
-                    TextButton(onClick = onDismissUpdate) { Text("取消") }
-                },
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AppIdentity(modifier: Modifier = Modifier) {
+    val appName = stringResource(R.string.app_name)
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Surface(
+            modifier = Modifier.size(88.dp),
+            shape = CircleShape,
+            color = colorResource(R.color.launcher_background),
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_launcher_foreground),
+                contentDescription = "$appName 应用图标",
+                modifier = Modifier.fillMaxSize(),
             )
-            is UpdateUiState.UpToDate -> AlertDialog(
-                onDismissRequest = onDismissUpdate,
-                title = { Text("已是最新版本") },
-                text = { Text("当前版本 ${state.currentVersion}") },
-                confirmButton = {
-                    TextButton(onClick = onDismissUpdate) { Text("确定") }
-                },
+        }
+        Text(
+            text = appName,
+            style = MaterialTheme.typography.headlineSmallEmphasized,
+        )
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+            Text(
+                text = "v${BuildConfig.VERSION_NAME}",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                style = MaterialTheme.typography.labelLargeEmphasized,
             )
-            is UpdateUiState.Error -> AlertDialog(
-                onDismissRequest = onDismissUpdate,
-                title = { Text("检查更新失败") },
-                text = { Text(state.message) },
-                confirmButton = {
-                    TextButton(onClick = onCheckUpdate) { Text("重试") }
-                },
-                dismissButton = {
-                    TextButton(onClick = onDismissUpdate) { Text("取消") }
-                },
-            )
-            UpdateUiState.Idle,
-            UpdateUiState.Checking,
-                -> Unit
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DeveloperSection(
     onOpenUrl: (String) -> Boolean,
@@ -276,7 +248,7 @@ private fun DeveloperSection(
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
+        Column(modifier = Modifier.padding(vertical = 6.dp)) {
             DeveloperRow(
                 username = "coolzyd9107",
                 responsibility = "前端开发者",
@@ -287,7 +259,7 @@ private fun DeveloperSection(
                 onOpenUrl = onOpenUrl,
             )
             HorizontalDivider(
-                modifier = Modifier.padding(vertical = 20.dp),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 color = MaterialTheme.colorScheme.outlineVariant,
             )
             DeveloperRow(
@@ -303,7 +275,7 @@ private fun DeveloperSection(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DeveloperRow(
     username: String,
@@ -322,12 +294,20 @@ private fun DeveloperRow(
             .build()
     }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp)
+            .clip(MaterialTheme.shapes.small)
+            .clickable(role = Role.Button) { onOpenUrl(profileUrl) }
+            .semantics {
+                contentDescription = "打开 $username 的 GitHub 主页"
+            }
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
             modifier = Modifier
-                .size(72.dp)
+                .size(56.dp)
                 .semantics { contentDescription = "$username 的 GitHub 头像" },
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.primaryContainer,
@@ -341,59 +321,27 @@ private fun DeveloperRow(
                 error = { DefaultDeveloperAvatar() },
             )
         }
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(14.dp))
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 text = username,
-                style = MaterialTheme.typography.titleLargeEmphasized,
+                style = MaterialTheme.typography.titleMediumEmphasized,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            Surface(
+                shape = CircleShape,
+                color = roleContainerColor,
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = roleContainerColor,
-                ) {
-                    Text(
-                        text = responsibility,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        color = roleContentColor,
-                        style = MaterialTheme.typography.labelLargeEmphasized,
-                    )
-                }
-                Surface(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable(role = Role.Button) { onOpenUrl(profileUrl) }
-                        .semantics {
-                            contentDescription = "打开 $username 的 GitHub 主页"
-                        },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = "GitHub",
-                            style = MaterialTheme.typography.labelLargeEmphasized,
-                        )
-                    }
-                }
+                Text(
+                    text = responsibility,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = roleContentColor,
+                    style = MaterialTheme.typography.labelLargeEmphasized,
+                )
             }
         }
     }

@@ -37,11 +37,30 @@ class SettingsScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("公告").assertDoesNotExist()
+        composeRule.onNodeWithText("公告").assertExists()
         composeRule.onNodeWithText("检查更新").assertDoesNotExist()
         composeRule.onNodeWithText("关于").performClick()
 
         composeRule.runOnIdle { assertTrue(opened) }
+    }
+
+    @Test
+    fun noticeItemOpensNoticeContent() {
+        composeRule.setContent {
+            MaterialTheme {
+                SettingsScreen(
+                    user = testUser,
+                    themeMode = ThemeMode.SYSTEM,
+                    onThemeModeChange = {},
+                    noticeState = NoticeUiState.Content("测试公告正文"),
+                    onLogout = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("公告").performClick()
+
+        composeRule.onNodeWithText("测试公告正文").assertExists()
     }
 
     @Test

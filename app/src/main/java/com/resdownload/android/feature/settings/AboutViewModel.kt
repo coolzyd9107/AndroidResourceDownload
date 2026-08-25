@@ -10,17 +10,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import com.resdownload.android.BuildConfig
-import com.resdownload.android.data.notice.NoticeRepository
 import com.resdownload.android.data.update.UpdateManifest
 import com.resdownload.android.data.update.UpdateRepository
 import com.resdownload.android.data.update.compareAppVersions
-
-sealed interface NoticeUiState {
-    data object Loading : NoticeUiState
-    data class Content(val text: String) : NoticeUiState
-    data object Empty : NoticeUiState
-    data object Error : NoticeUiState
-}
 
 sealed interface UpdateUiState {
     data object Idle : UpdateUiState
@@ -36,33 +28,11 @@ sealed interface UpdateUiState {
 
 @HiltViewModel
 class AboutViewModel @Inject constructor(
-    private val noticeRepository: NoticeRepository,
     private val updateRepository: UpdateRepository,
 ) : ViewModel() {
-    private val _noticeState = MutableStateFlow<NoticeUiState>(NoticeUiState.Loading)
-    val noticeState = _noticeState.asStateFlow()
     private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
     val updateState = _updateState.asStateFlow()
-    private var loadJob: Job? = null
     private var updateJob: Job? = null
-
-    init {
-        refreshNotice()
-    }
-
-    fun refreshNotice() {
-        if (loadJob?.isActive == true) return
-        loadJob = viewModelScope.launch {
-            _noticeState.value = NoticeUiState.Loading
-            _noticeState.value = try {
-                noticeRepository.load()?.let(NoticeUiState::Content) ?: NoticeUiState.Empty
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                NoticeUiState.Error
-            }
-        }
-    }
 
     fun checkForUpdate() {
         if (updateJob?.isActive == true) return

@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Close
@@ -51,6 +52,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -113,10 +115,13 @@ fun SettingsScreen(
     onThemeSeedColorChange: (Int) -> Unit = {},
     onThemeSchemeVariantChange: (ThemeSchemeVariant) -> Unit = {},
     onResetThemeColor: () -> Unit = {},
+    noticeState: NoticeUiState = NoticeUiState.Loading,
+    onRetryNotice: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var showNotice by rememberSaveable { mutableStateOf(false) }
     var showLogout by rememberSaveable { mutableStateOf(false) }
     var showCustomColor by rememberSaveable { mutableStateOf(false) }
     var showSchemePicker by rememberSaveable { mutableStateOf(false) }
@@ -255,12 +260,71 @@ fun SettingsScreen(
                 )
             }
             ListItem(
+                headlineContent = { Text("公告") },
+                supportingContent = {
+                    Text(
+                        when (noticeState) {
+                            NoticeUiState.Loading -> "正在获取最新公告"
+                            is NoticeUiState.Content -> "查看最新公告"
+                            NoticeUiState.Empty -> "暂无公告"
+                            NoticeUiState.Error -> "获取失败"
+                        },
+                    )
+                },
+                leadingContent = { SettingsIcon(Icons.Default.Campaign) },
+                modifier = Modifier.clickable { showNotice = true },
+            )
+            ListItem(
                 headlineContent = { Text("关于") },
-                supportingContent = { Text("开发者、公告与版本信息") },
+                supportingContent = { Text("开发者、开源与版本信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
                 modifier = Modifier.clickable(onClick = onOpenAbout),
             )
         }
+    }
+
+    if (showNotice) {
+        AlertDialog(
+            onDismissRequest = { showNotice = false },
+            title = { Text("公告") },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    when (val state = noticeState) {
+                        NoticeUiState.Loading -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            LoadingIndicator(modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("正在获取最新公告")
+                        }
+                        is NoticeUiState.Content -> Text(state.text)
+                        NoticeUiState.Empty -> Text("暂无公告")
+                        NoticeUiState.Error -> Text("公告获取失败，请检查网络后重试。")
+                    }
+                }
+            },
+            confirmButton = {
+                if (noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty) {
+                    TextButton(onClick = onRetryNotice) { Text("重试") }
+                } else {
+                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
+                }
+            },
+            dismissButton = if (
+                noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty
+            ) {
+                {
+                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
+                }
+            } else {
+                null
+            },
+        )
     }
 
     if (showLogout) {

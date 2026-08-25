@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.resdownload.android.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -16,12 +17,13 @@ class AboutScreenTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun noticeItemOpensNoticeContent() {
-        setAbout(noticeState = NoticeUiState.Content("测试公告正文"))
+    fun appIdentityShowsIconNameAndVersion() {
+        setAbout()
 
-        composeRule.onNodeWithText("公告").performClick()
-
-        composeRule.onNodeWithText("测试公告正文").assertExists()
+        composeRule.onNodeWithContentDescription("资源云盘 应用图标").assertExists()
+        composeRule.onNodeWithText("资源云盘").assertExists()
+        composeRule.onNodeWithText("v${BuildConfig.VERSION_NAME}").assertExists()
+        composeRule.onNodeWithText("公告").assertDoesNotExist()
     }
 
     @Test
@@ -127,6 +129,7 @@ class AboutScreenTest {
             .performClick()
         composeRule.onNodeWithContentDescription("打开 zhuzhuzihan 的 GitHub 主页")
             .performClick()
+        composeRule.onNodeWithText("GitHub").assertDoesNotExist()
 
         composeRule.runOnIdle {
             assertEquals(
@@ -159,7 +162,6 @@ class AboutScreenTest {
 
     private fun setAbout(
         onNavigateBack: () -> Unit = {},
-        noticeState: NoticeUiState = NoticeUiState.Loading,
         updateState: UpdateUiState = UpdateUiState.Idle,
         onCheckUpdate: () -> Unit = {},
         onDismissUpdate: () -> Unit = {},
@@ -169,7 +171,6 @@ class AboutScreenTest {
             MaterialTheme {
                 AboutScreen(
                     onNavigateBack = onNavigateBack,
-                    noticeState = noticeState,
                     updateState = updateState,
                     onCheckUpdate = onCheckUpdate,
                     onDismissUpdate = onDismissUpdate,
