@@ -26,6 +26,7 @@ const (
 	CodeInvalidEmailCode      = 10005
 	CodeEmailCodeExpired      = 10006
 	CodeGithubAuthFailed      = 10007
+	CodeQqAuthFailed          = 10008
 	CodeCredentialNotFound    = 20001
 	CodeCredentialExpired     = 20002
 	CodeCredentialInvalid     = 20003
@@ -74,6 +75,7 @@ var (
 	ErrInvalidEmailCode      = New(http.StatusUnauthorized, CodeInvalidEmailCode, "invalid_email_code")
 	ErrEmailCodeExpired      = New(http.StatusUnauthorized, CodeEmailCodeExpired, "email_code_expired")
 	ErrGithubAuthFailed      = New(http.StatusUnauthorized, CodeGithubAuthFailed, "github_auth_failed")
+	ErrQqAuthFailed          = New(http.StatusUnauthorized, CodeQqAuthFailed, "qq_auth_failed")
 	ErrCredentialNotFound    = New(http.StatusNotFound, CodeCredentialNotFound, "credential_not_found")
 	ErrCredentialExpired     = New(http.StatusGone, CodeCredentialExpired, "credential_expired")
 	ErrCredentialInvalid     = New(http.StatusBadRequest, CodeCredentialInvalid, "credential_invalid")

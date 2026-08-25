@@ -38,6 +38,8 @@ make run-sqlite
 | `GITHUB_CLIENT_SECRET` | _empty_ | GitHub OAuth |
 | `GITHUB_REDIRECT_URI` | _required_ | 后端 HTTPS callback，例如 `/api/v1/auth/github/callback` |
 | `GITHUB_APP_REDIRECT_URI` | `link.mczihan.androidresourcedownload://oauth/callback` | callback 完成后返回 App 的固定 URI |
+| `QQ_APP_ID` | _empty_ | QQ 互联 AppID；`POST /api/v1/auth/qq/login` 用它向 `graph.qq.com` 复核客户端上报的 access token 与 OpenID |
+| `QQ_ME_URL` / `QQ_USER_INFO_URL` | graph.qq.com 对应端点 | 仅测试时覆盖 |
 | `WEBDAV_BASE_URL` | `https://dav.example.com` | WebDAV 服务地址 |
 | `WEBDAV_READONLY_USERNAME` / `WEBDAV_READONLY_PASSWORD` | _empty_ | 普通用户凭据 |
 | `WEBDAV_ADMIN_USERNAME` / `WEBDAV_ADMIN_PASSWORD` | _empty_ | 管理员凭据 |

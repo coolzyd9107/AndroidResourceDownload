@@ -18,6 +18,7 @@ import (
 // AuthHandler exposes the /auth/* endpoints.
 type AuthHandler struct {
 	auth        *service.AuthService
+	qq          *service.QqAuthService
 	githubOAuth *service.GithubOAuthService
 	limiter     any
 	cfg         *config.Config
@@ -27,8 +28,8 @@ type AuthHandler struct {
 // NewAuthHandler constructs an AuthHandler. The limiter argument is
 // accepted so future per-route limits can be added without changing the
 // constructor signature.
-func NewAuthHandler(auth *service.AuthService, limiter any, cfg *config.Config, log *slog.Logger, githubOAuth ...*service.GithubOAuthService) *AuthHandler {
-	h := &AuthHandler{auth: auth, limiter: limiter, cfg: cfg, log: log}
+func NewAuthHandler(auth *service.AuthService, limiter any, cfg *config.Config, log *slog.Logger, qq *service.QqAuthService, githubOAuth ...*service.GithubOAuthService) *AuthHandler {
+	h := &AuthHandler{auth: auth, limiter: limiter, cfg: cfg, log: log, qq: qq}
 	if len(githubOAuth) > 0 {
 		h.githubOAuth = githubOAuth[0]
 	}
@@ -61,6 +62,26 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 	result, err := h.auth.EmailLogin(c.Request.Context(), req.Email, req.Code, req.DeviceID)
 	if err != nil {
 		logRequestError(h.log, c, "email_login", err)
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
+// QqLogin handles POST /api/v1/auth/qq/login.
+func (h *AuthHandler) QqLogin(c *gin.Context) {
+	if h.qq == nil {
+		response.Fail(c, response.ErrQqAuthFailed)
+		return
+	}
+	var req dto.QqLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeBadRequest(c, 0, "invalid_request")
+		return
+	}
+	result, err := h.qq.Login(c.Request.Context(), req.AccessToken, req.OpenID, req.DeviceID)
+	if err != nil {
+		logRequestError(h.log, c, "qq_login", err)
 		response.Fail(c, err)
 		return
 	}

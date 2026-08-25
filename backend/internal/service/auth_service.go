@@ -243,8 +243,10 @@ func (s *AuthService) Me(userID string) (*dto.UserDTO, error) {
 	if u == nil {
 		return nil, response.ErrUnauthorized
 	}
-	loginType := "GITHUB"
-	if u.GithubID == nil {
+	loginType := "QQ"
+	if u.GithubID != nil {
+		loginType = "GITHUB"
+	} else if u.Email != nil {
 		loginType = "EMAIL"
 	}
 	return &dto.UserDTO{
