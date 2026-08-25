@@ -232,6 +232,9 @@ func validate(cfg *Config) error {
 	if cfg.Github.StateTTLSeconds <= 0 || cfg.Github.CompletionCodeTTLSeconds <= 0 {
 		return fmt.Errorf("config: github OAuth TTLs must be > 0")
 	}
+	if cfg.Github.AppRedirectURI != androidOAuthCallbackURI {
+		return fmt.Errorf("config: github.app-redirect-uri must be %s", androidOAuthCallbackURI)
+	}
 	if cfg.App.Env == "prod" && !cfg.Github.Mock {
 		if cfg.Github.ClientID == "" || cfg.Github.ClientSecret == "" {
 			return fmt.Errorf("config: GitHub client credentials are required in prod")
@@ -242,9 +245,6 @@ func validate(cfg *Config) error {
 		callback, err := url.Parse(cfg.Github.RedirectURI)
 		if err != nil || callback.Scheme != "https" || callback.Host == "" {
 			return fmt.Errorf("config: github.redirect-uri must be an absolute HTTPS URL in prod")
-		}
-		if cfg.Github.AppRedirectURI != androidOAuthCallbackURI {
-			return fmt.Errorf("config: github.app-redirect-uri does not match the Android callback")
 		}
 	}
 	return nil
