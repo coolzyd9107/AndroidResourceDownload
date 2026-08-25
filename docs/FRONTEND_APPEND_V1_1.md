@@ -55,7 +55,7 @@ WebDAV `401` 只允许一次：失效当前 credential generation，单飞重新
 
 ## 后续阶段
 
-GitHub OAuth callback 由后端 HTTPS 接收，后端只通过 App deep link 返回短期一次性 code；App 以 PKCE verifier 兑换会话 token。QQ 登录仅在用户同意隐私政策且已安装支持 SSO 的手机 QQ 时，通过官方 Android OpenSDK 拉起 QQ App，不提供 H5 登录入口；SDK 返回的 provider token 和 OpenID 立即交给后端校验并换取应用会话。随后 App 再请求短期 WebDAV 凭据。URL 中禁止放应用 access/refresh token、WebDAV 地址、账号或密码。
+GitHub OAuth callback 由后端 HTTPS 接收，后端只通过 App deep link 返回短期一次性 code；App 以 PKCE verifier 兑换会话 token。QQ 登录仅在用户同意隐私政策且已安装支持 SSO 的手机 QQ 或 TIM 时，通过官方 Android OpenSDK 拉起对应客户端，不提供 H5 登录入口；SDK 返回的 provider token 和 OpenID 立即交给后端校验并换取应用会话。随后 App 再请求短期 WebDAV 凭据。URL 中禁止放应用 access/refresh token、WebDAV 地址、账号或密码。
 
 下载 Room 仅持久化任务所有者、远程安全路径、进度、状态和续传校验信息；上传 Room 另行持久化任务所有者、批次、远端路径、SAF `content://` 来源 URI、进度和状态。WebDAV 地址、用户名、密码及短期解析 URL 均不进入数据库。下载前台服务按用户串行执行队列，文件先写入应用内部目录的 `.part`，仅在强 ETag 或原始 Last-Modified 匹配且 `206 Content-Range` 有效时追加，完成后通过 FileProvider 打开。
 

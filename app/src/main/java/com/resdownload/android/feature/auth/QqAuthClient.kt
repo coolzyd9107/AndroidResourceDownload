@@ -3,6 +3,7 @@ package com.resdownload.android.feature.auth
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -72,7 +73,7 @@ class QqAuthClient @Inject constructor(
         clearProviderStorage()
     }
 
-    /** Returns an error message, or null after the QQ client was launched. */
+    /** Returns an error message, or null after the QQ or TIM client was launched. */
     fun launch(activity: Activity): String? {
         if (!pending.compareAndSet(false, true)) return "QQ 登录正在进行"
         if (!validAppId(BuildConfig.QQ_APP_ID)) return failLaunch("QQ AppID 配置无效")
@@ -90,17 +91,17 @@ class QqAuthClient @Inject constructor(
         } ?: return failLaunch("QQ 登录组件初始化失败")
         tencent = instance
 
-        if (!instance.isQQInstalled(context)) {
-            return failLaunch("未安装手机 QQ，请安装后重试")
+        if (!hasInstalledAuthClient()) {
+            return failLaunch("未安装手机 QQ 或 TIM，请安装后重试")
         }
         if (!instance.isSupportSSOLogin(activity)) {
-            return failLaunch("当前手机 QQ 版本不支持授权登录，请升级后重试")
+            return failLaunch("当前 QQ 或 TIM 版本不支持授权登录，请升级后重试")
         }
         val webLoginForced = runCatching {
             QqSdkConfig.a(context, BuildConfig.QQ_APP_ID).b(QQ_WEB_LOGIN_CONFIG)
         }.getOrDefault(true)
         if (webLoginForced || !hasNativeAuthActivity()) {
-            return failLaunch("当前环境无法使用手机 QQ 客户端授权")
+            return failLaunch("当前环境无法使用 QQ 或 TIM 客户端授权")
         }
 
         clearProviderSession()
@@ -108,11 +109,11 @@ class QqAuthClient @Inject constructor(
         val launchMode = try {
             instance.login(activity, QQ_SCOPE, listener, false)
         } catch (_: Exception) {
-            return failLaunch("无法拉起手机 QQ")
+            return failLaunch("无法拉起 QQ 或 TIM")
         }
         return when (launchMode) {
-            LOGIN_FAILED -> failLaunch("无法拉起手机 QQ")
-            LOGIN_H5 -> failLaunch("当前环境无法使用手机 QQ 授权")
+            LOGIN_FAILED -> failLaunch("无法拉起 QQ 或 TIM")
+            LOGIN_H5 -> failLaunch("当前环境无法使用 QQ 或 TIM 客户端授权")
             else -> null
         }
     }
@@ -167,9 +168,23 @@ class QqAuthClient @Inject constructor(
             .commit()
     }.getOrDefault(false)
 
-    private fun hasNativeAuthActivity(): Boolean = Intent()
-        .setClassName(QQ_PACKAGE, QQ_AUTH_ACTIVITY)
-        .resolveActivity(context.packageManager) != null
+    private fun hasInstalledAuthClient(): Boolean = AUTH_CLIENT_PACKAGES.any(::isPackageInstalled)
+
+    @Suppress("DEPRECATION")
+    private fun isPackageInstalled(packageName: String): Boolean = try {
+        context.packageManager.getPackageInfo(packageName, 0)
+        true
+    } catch (_: PackageManager.NameNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
+    }
+
+    private fun hasNativeAuthActivity(): Boolean = AUTH_CLIENT_PACKAGES.any { packageName ->
+        Intent()
+            .setClassName(packageName, QQ_AUTH_ACTIVITY)
+            .resolveActivity(context.packageManager) != null
+    }
 
     private fun JSONObject.toCredential(): QqCredential? {
         if (optInt("ret", -1) != 0) return null
@@ -194,6 +209,8 @@ class QqAuthClient @Inject constructor(
         const val QQ_TOKEN_PREFERENCES = "token_info_file"
         const val QQ_WEB_LOGIN_CONFIG = "C_LoginWeb"
         const val QQ_PACKAGE = "com.tencent.mobileqq"
+        const val TIM_PACKAGE = "com.tencent.tim"
         const val QQ_AUTH_ACTIVITY = "com.tencent.open.agent.AgentActivity"
+        val AUTH_CLIENT_PACKAGES = listOf(QQ_PACKAGE, TIM_PACKAGE)
     }
 }
