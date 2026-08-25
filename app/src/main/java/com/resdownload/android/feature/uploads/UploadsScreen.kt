@@ -1,6 +1,8 @@
 package com.resdownload.android.feature.uploads
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -24,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -32,7 +33,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -51,7 +51,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -89,6 +88,8 @@ import com.resdownload.android.core.ui.EmptyPane
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
 import com.resdownload.android.core.ui.SelectionBottomBar
+import com.resdownload.android.core.ui.TaskActionIconButton
+import com.resdownload.android.core.ui.taskLongPress
 import com.resdownload.android.domain.model.UploadStatus
 import com.resdownload.android.domain.model.UploadTask
 
@@ -334,16 +335,6 @@ fun UploadsScreen(
                             "${filteredTasks.size} / ${tasks.size} 个任务"
                         else -> null
                     },
-                    additionalActions = {
-                        if (filteredTasks.isNotEmpty()) {
-                            IconButton(onClick = { multiSelectMode = true }) {
-                                Icon(
-                                    Icons.Default.Checklist,
-                                    contentDescription = "选择上传搜索结果",
-                                )
-                            }
-                        }
-                    },
                 )
             } else {
                 TopAppBar(
@@ -365,14 +356,6 @@ fun UploadsScreen(
                     actions = {
                         IconButton(onClick = { searchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = "搜索上传任务")
-                        }
-                        if (tasks.isNotEmpty()) {
-                            IconButton(onClick = { multiSelectMode = true }) {
-                                Icon(
-                                    Icons.Default.Checklist,
-                                    contentDescription = "选择上传任务",
-                                )
-                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -494,6 +477,10 @@ fun UploadsScreen(
                             selectionMode = multiSelectMode,
                             selected = task.id in selectedTaskIdSet,
                             onSelectionToggle = { toggleTaskSelection(task.id) },
+                            onLongSelect = {
+                                multiSelectMode = true
+                                selectedTaskIds = (selectedTaskIds + task.id).distinct()
+                            },
                             enabled = isTargetContent,
                             modifier = Modifier
                                 .animateItem(
@@ -580,7 +567,7 @@ fun UploadsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun UploadTaskItem(
     task: UploadTask,
@@ -591,6 +578,7 @@ private fun UploadTaskItem(
     selectionMode: Boolean,
     selected: Boolean,
     onSelectionToggle: () -> Unit,
+    onLongSelect: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
@@ -613,7 +601,11 @@ private fun UploadTaskItem(
             .fillMaxWidth()
             .then(
                 if (selectionMode) {
-                    Modifier.clickable(enabled = enabled, onClick = onSelectionToggle)
+                    Modifier.clickable(
+                        enabled = enabled,
+                        onClickLabel = "切换任务选择",
+                        onClick = onSelectionToggle,
+                    )
                 } else {
                     Modifier
                 },
@@ -632,6 +624,16 @@ private fun UploadTaskItem(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .taskLongPress(
+                        enabled = enabled && !selectionMode,
+                        label = "选择上传任务",
+                        onLongPress = onLongSelect,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -710,6 +712,7 @@ private fun UploadTaskItem(
             }
 
             StatusBadge(task)
+            }
             if (!selectionMode) {
                 Box(
                     modifier = Modifier.align(Alignment.End),
@@ -721,6 +724,7 @@ private fun UploadTaskItem(
                         onRetry = onRetry,
                         onCancel = onCancel,
                         onDelete = onDelete,
+                        onLongSelect = onLongSelect,
                     )
                 }
             }
@@ -747,30 +751,46 @@ private fun TaskActions(
     onRetry: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
+    onLongSelect: () -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         when (task.status) {
             UploadStatus.PENDING, UploadStatus.RUNNING -> {
                 if (!task.isDirectory && !task.committing) {
-                    IconButton(onClick = onCancel, enabled = enabled) {
+                    TaskActionIconButton(
+                        onClick = onCancel,
+                        onLongPress = onLongSelect,
+                        clickLabel = "取消上传",
+                        longClickLabel = "选择上传任务",
+                        enabled = enabled,
+                    ) {
                         Icon(Icons.Default.Cancel, contentDescription = "取消上传")
                     }
                 }
             }
             UploadStatus.FAILED, UploadStatus.CANCELLED -> {
-                FilledTonalIconButton(onClick = onRetry, enabled = enabled) {
+                TaskActionIconButton(
+                    onClick = onRetry,
+                    onLongPress = onLongSelect,
+                    clickLabel = "重试上传",
+                    longClickLabel = "选择上传任务",
+                    enabled = enabled,
+                    tonal = true,
+                ) {
                     Icon(Icons.Default.Refresh, contentDescription = "重试上传")
                 }
                 AnimatedDeleteIconButton(
                     onDelete = onDelete,
                     contentDescription = "删除上传任务",
                     enabled = enabled,
+                    onLongSelect = onLongSelect,
                 )
             }
             UploadStatus.SUCCESS -> AnimatedDeleteIconButton(
                 onDelete = onDelete,
                 contentDescription = "删除上传记录",
                 enabled = enabled,
+                onLongSelect = onLongSelect,
             )
         }
     }
@@ -782,6 +802,7 @@ private fun AnimatedDeleteIconButton(
     onDelete: () -> Unit,
     contentDescription: String,
     enabled: Boolean,
+    onLongSelect: () -> Unit,
 ) {
     var deleting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -795,8 +816,11 @@ private fun AnimatedDeleteIconButton(
         animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
         label = "uploadDeleteRotation",
     )
-    IconButton(
+    TaskActionIconButton(
         enabled = enabled && !deleting,
+        onLongPress = onLongSelect,
+        clickLabel = contentDescription,
+        longClickLabel = "选择上传任务",
         onClick = {
             deleting = true
             onDelete()

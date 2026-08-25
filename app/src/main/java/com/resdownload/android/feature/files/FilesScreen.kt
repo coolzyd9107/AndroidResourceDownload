@@ -82,6 +82,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -220,6 +221,7 @@ fun FilesScreen(
             demoMultiSelectMode = false
             demoSelectedFiles = emptyMap()
             selectedSearchRoots = emptyList()
+            selectedContentSearchActive = false
             viewModel?.dismissDestinationPicker()
             viewModel?.exitMultiSelect()
         }
@@ -259,9 +261,17 @@ fun FilesScreen(
         }
         if (viewModel != null) {
             if (effectiveScope == FileSearchScope.SELECTED) {
-                viewModel.searchSelected(normalizedQuery, selectedRoots)
+                viewModel.searchSelected(
+                    normalizedQuery,
+                    selectedRoots,
+                    includeUploadTemporary = isAdmin,
+                )
             } else {
-                viewModel.search(normalizedQuery, effectiveScope)
+                viewModel.search(
+                    normalizedQuery,
+                    effectiveScope,
+                    includeUploadTemporary = isAdmin,
+                )
             }
             return
         }
@@ -274,6 +284,7 @@ fun FilesScreen(
             } else {
                 emptyList()
             },
+            includeUploadTemporary = isAdmin,
         )
         val version = ++demoSearchVersion
         demoSearchJob?.cancel()
@@ -286,9 +297,16 @@ fun FilesScreen(
                         mockFilesForPath(path.toString())
                             ?: throw IllegalStateException("暂时无法加载 ${path}")
                     },
-                    onDirectoryScanned = { count ->
+                    onProgress = { progress ->
                         if (version == demoSearchVersion) {
-                            demoSearchState = FileSearchUiState.Loading(request, count)
+                            demoSearchState = FileSearchUiState.Loading(
+                                request = request,
+                                scannedDirectories = progress.scannedDirectories,
+                                files = progress.files,
+                                incomplete = progress.incomplete,
+                                progressVersion = progress.progressVersion,
+                                visibleFileCount = progress.visibleFileCount,
+                            )
                         }
                     },
                 )
@@ -383,6 +401,21 @@ fun FilesScreen(
         is FileSearchUiState.Empty -> rawSearchState.request
         is FileSearchUiState.Error -> rawSearchState.request
     }
+    LaunchedEffect(isAdmin, activeSearchRequest) {
+        val request = activeSearchRequest
+        if (!isAdmin && request?.includeUploadTemporary == true) {
+            if (request.scope == FileSearchScope.SELECTED) {
+                closeFileSearch()
+                exitFileMultiSelect()
+            } else {
+                val query = request.query
+                cancelSearchResults()
+                searchQuery = query
+                searchActive = true
+                submitFileSearch(query, request.scope)
+            }
+        }
+    }
     val selectedContentRoots = selectedSearchRoots.takeIf(List<FileNode>::isNotEmpty)
         ?: activeSearchRequest?.selectedFiles.orEmpty()
     val searchingSelectedContent = multiSelectMode &&
@@ -425,17 +458,7 @@ fun FilesScreen(
             submitFileSearch(searchQuery, selectedSearchScope)
         }
     }
-    val searchState = when (rawSearchState) {
-        is FileSearchUiState.Success -> {
-            val visibleFiles = rawSearchState.files.filter { isAdmin || !it.isUploadTemporary }
-            if (visibleFiles.isEmpty()) {
-                FileSearchUiState.Empty(rawSearchState.request, rawSearchState.incomplete)
-            } else {
-                rawSearchState.copy(files = visibleFiles)
-            }
-        }
-        else -> rawSearchState
-    }
+    val searchState = rawSearchState
     val directoryPickerState = if (
         viewModel == null && (transferRequest != null || batchTransferRequest != null)
     ) {
@@ -487,7 +510,14 @@ fun FilesScreen(
     }
     val displayedFiles = (filePaneState.content as? FilePaneContent.Files)?.value.orEmpty()
     val selectableFiles = if (searchActive) {
-        (searchState as? FileSearchUiState.Success)?.files.orEmpty()
+        when (searchState) {
+            is FileSearchUiState.Loading -> fixedPrefixView(
+                searchState.files,
+                searchState.visibleFileCount,
+            )
+            is FileSearchUiState.Success -> searchState.files
+            else -> emptyList()
+        }
     } else {
         displayedFiles
     }
@@ -1645,6 +1675,17 @@ internal fun demoFolderDownloadEntries(folder: FileNode): List<Pair<FileNode, St
     return result
 }
 
+internal fun <T> fixedPrefixView(source: List<T>, count: Int): List<T> =
+    object : AbstractList<T>() {
+        override val size: Int = count.coerceIn(0, source.size)
+
+        override fun get(index: Int): T {
+            if (index !in 0 until size) throw IndexOutOfBoundsException("index=$index, size=$size")
+            return source[index]
+        }
+    }
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileSearchContent(
     state: FileSearchUiState,
@@ -1663,21 +1704,73 @@ private fun FileSearchContent(
             icon = Icons.Default.Search,
             modifier = modifier,
         )
-        is FileSearchUiState.Loading -> Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            CircularProgressIndicator()
-            Text(
-                text = if (state.scannedDirectories == 0) {
-                    "正在准备搜索"
-                } else {
-                    "正在搜索，已扫描 ${state.scannedDirectories} 个目录"
-                },
-                modifier = Modifier.padding(top = 16.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        is FileSearchUiState.Loading -> if (state.files.isEmpty()) {
+            Column(
+                modifier = modifier,
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                LoadingIndicator()
+                Text(
+                    text = if (state.scannedDirectories == 0) {
+                        "正在准备搜索"
+                    } else {
+                        "正在搜索，已扫描 ${state.scannedDirectories} 个目录"
+                    },
+                    modifier = Modifier.padding(top = 16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            Column(modifier = modifier) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        LoadingIndicator(modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "仍在搜索",
+                                style = MaterialTheme.typography.labelLargeEmphasized,
+                            )
+                            Text(
+                                text = "已找到 ${state.visibleFileCount} 项 · 已扫描 ${state.scannedDirectories} 个目录",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+                if (state.incomplete) {
+                    Text(
+                        text = "部分目录无法访问，当前结果可能不完整",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                FileList(
+                    files = state.files,
+                    onFileClick = onFileClick,
+                    modifier = Modifier.weight(1f),
+                    isAdmin = isAdmin,
+                    multiSelectMode = multiSelectMode,
+                    selectedPaths = selectedPaths,
+                    onManage = onManage,
+                    onFileLongClick = onFileLongClick,
+                    showPath = true,
+                    reserveAdminActionSpace = false,
+                    visibleCount = state.visibleFileCount,
+                )
+            }
         }
         is FileSearchUiState.Empty -> EmptyPane(
             message = if (state.incomplete) {
@@ -1752,6 +1845,7 @@ private fun FileList(
     onFileLongClick: (FileNode) -> Unit = {},
     showPath: Boolean = false,
     reserveAdminActionSpace: Boolean = true,
+    visibleCount: Int = files.size,
 ) {
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
@@ -1765,7 +1859,11 @@ private fun FileList(
         ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        items(files, key = { it.path }) { file ->
+        items(
+            count = visibleCount.coerceAtMost(files.size),
+            key = { index -> files[index].path },
+        ) { index ->
+            val file = files[index]
             val isSelected = file.path in selectedPaths
             ListItem(
                 headlineContent = {

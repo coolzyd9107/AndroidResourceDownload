@@ -229,6 +229,50 @@ class FilesViewModelTest {
     }
 
     @Test
+    fun searchPublishesMatchesBeforeDirectoryScanCompletes() = runTest(dispatcher) {
+        val nestedResult = CompletableDeferred<List<FileNode>>()
+        var rootCalls = 0
+        val viewModel = FilesViewModel(
+            FakeFileRepository { path ->
+                when (path.toString()) {
+                    "/" -> {
+                        rootCalls++
+                        if (rootCalls == 1) {
+                            emptyList()
+                        } else {
+                            listOf(
+                                FileNode("match-one.txt", "/match-one.txt", isDirectory = false),
+                                FileNode("nested", "/nested", isDirectory = true),
+                            )
+                        }
+                    }
+                    "/nested" -> nestedResult.await()
+                    else -> emptyList()
+                }
+            },
+        )
+        runCurrent()
+
+        viewModel.search("match", FileSearchScope.ROOT)
+        runCurrent()
+
+        val partial = viewModel.searchState.value as FileSearchUiState.Loading
+        assertEquals(listOf("/match-one.txt"), partial.files.map(FileNode::path))
+        assertEquals(1, partial.scannedDirectories)
+
+        nestedResult.complete(
+            listOf(FileNode("match-two.txt", "/nested/match-two.txt", isDirectory = false)),
+        )
+        advanceUntilIdle()
+
+        val complete = viewModel.searchState.value as FileSearchUiState.Success
+        assertEquals(
+            listOf("/match-one.txt", "/nested/match-two.txt"),
+            complete.files.map(FileNode::path),
+        )
+    }
+
+    @Test
     fun selectedSearchIncludesSelectedFilesAndDirectoryDescendantsOnly() = runTest(dispatcher) {
         val requestedPaths = mutableListOf<String>()
         val request = FileSearchRequest(
@@ -401,6 +445,16 @@ class FilesViewModelTest {
             listOf("/设计资料/界面规范.pdf" to "设计资料"),
             entries.map { (file, relativePath) -> file.path to relativePath },
         )
+    }
+
+    @Test
+    fun fixedPrefixViewRemainsValidWhenSearchListGrows() {
+        val source = mutableListOf("first")
+        val prefix = fixedPrefixView(source, count = 1)
+
+        source += "second"
+
+        assertEquals(listOf("first"), prefix.toList())
     }
 
     @Test

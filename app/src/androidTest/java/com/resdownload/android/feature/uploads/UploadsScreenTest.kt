@@ -4,10 +4,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
 import com.resdownload.android.domain.model.UploadStatus
 import com.resdownload.android.domain.model.UploadTask
 import org.junit.Assert.assertFalse
@@ -109,9 +111,7 @@ class UploadsScreenTest {
         }
         composeRule.onNode(hasContentDescription("搜索上传任务")).performClick()
         composeRule.onNode(hasSetTextAction()).performTextReplacement("beta")
-        composeRule.onNode(hasContentDescription("选择上传搜索结果")).performClick()
-
-        composeRule.onNodeWithText("全选").performClick()
+        composeRule.onNodeWithText("beta.bin").performTouchInput { longClick() }
 
         composeRule.onNodeWithText("已选择 1 项").assertExists()
         composeRule.onNodeWithText("重试").assertExists()
@@ -134,12 +134,33 @@ class UploadsScreenTest {
                 )
             }
         }
-        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("failed.bin").performTouchInput { longClick() }
         composeRule.onNodeWithText("全选").performClick()
 
         composeRule.onNodeWithText("重试").performClick()
 
         composeRule.runOnIdle { assertEquals(listOf("failed"), retried) }
+    }
+
+    @Test
+    fun longPressingTaskActionSelectsWithoutRunningAction() {
+        val retried = mutableListOf<String>()
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(task("failed", UploadStatus.FAILED)),
+                    onRetry = { retried += it },
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNode(hasContentDescription("重试上传")).performTouchInput { longClick() }
+
+        composeRule.onNodeWithText("已选择 1 项").assertExists()
+        composeRule.onNode(hasContentDescription("选择上传任务")).assertDoesNotExist()
+        composeRule.runOnIdle { assertTrue(retried.isEmpty()) }
     }
 
     @Test
@@ -157,8 +178,7 @@ class UploadsScreenTest {
                 )
             }
         }
-        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
-        composeRule.onNodeWithText("selected.bin").performClick()
+        composeRule.onNodeWithText("selected.bin").performTouchInput { longClick() }
         composeRule.onNode(hasContentDescription("在已选上传任务中搜索")).performClick()
 
         composeRule.onNode(hasSetTextAction()).performTextReplacement("unselected")
@@ -204,13 +224,13 @@ class UploadsScreenTest {
                 )
             }
         }
-        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("directory.bin").performTouchInput { longClick() }
         composeRule.onNodeWithText("全选").performClick()
 
         composeRule.onNodeWithText("重试").performClick()
         composeRule.runOnIdle { assertEquals(listOf("directory"), retried) }
 
-        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("directory.bin").performTouchInput { longClick() }
         composeRule.onNodeWithText("全选").performClick()
         composeRule.onNodeWithText("删除").performClick()
         composeRule.onNodeWithText("此操作将删除 3 个已结束上传任务，确定继续吗？").assertExists()
@@ -253,7 +273,7 @@ class UploadsScreenTest {
                 )
             }
         }
-        composeRule.onNode(hasContentDescription("选择上传任务")).performClick()
+        composeRule.onNodeWithText("directory.bin").performTouchInput { longClick() }
         composeRule.onNodeWithText("全选").performClick()
 
         composeRule.onNodeWithText("删除").performClick()

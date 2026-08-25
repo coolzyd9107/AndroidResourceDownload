@@ -4,10 +4,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
 import com.resdownload.android.domain.model.DownloadStatus
 import com.resdownload.android.domain.model.DownloadTask
 import org.junit.Assert.assertFalse
@@ -144,9 +146,7 @@ class DownloadsScreenTest {
         }
         composeRule.onNode(hasContentDescription("搜索下载任务")).performClick()
         composeRule.onNode(hasSetTextAction()).performTextReplacement("beta")
-        composeRule.onNode(hasContentDescription("选择下载搜索结果")).performClick()
-
-        composeRule.onNodeWithText("全选").performClick()
+        composeRule.onNodeWithText("beta.txt").performTouchInput { longClick() }
 
         composeRule.onNodeWithText("已选择 1 项").assertExists()
         composeRule.onNodeWithText("继续").assertExists()
@@ -169,7 +169,7 @@ class DownloadsScreenTest {
                 )
             }
         }
-        composeRule.onNode(hasContentDescription("选择下载任务")).performClick()
+        composeRule.onNodeWithText("running.txt").performTouchInput { longClick() }
         composeRule.onNodeWithText("全选").performClick()
 
         composeRule.onNodeWithText("暂停").performClick()
@@ -177,6 +177,27 @@ class DownloadsScreenTest {
         composeRule.runOnIdle {
             assertEquals(listOf("running" to DownloadStatus.PAUSED), changes)
         }
+    }
+
+    @Test
+    fun longPressingTaskActionSelectsWithoutRunningAction() {
+        val changes = mutableListOf<Pair<String, DownloadStatus>>()
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsScreen(
+                    tasks = listOf(task("running", DownloadStatus.RUNNING)),
+                    onStatusChange = { id, status -> changes += id to status },
+                    onOpen = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNode(hasContentDescription("暂停下载")).performTouchInput { longClick() }
+
+        composeRule.onNodeWithText("已选择 1 项").assertExists()
+        composeRule.onNode(hasContentDescription("选择下载任务")).assertDoesNotExist()
+        composeRule.runOnIdle { assertTrue(changes.isEmpty()) }
     }
 
     @Test
@@ -194,8 +215,7 @@ class DownloadsScreenTest {
                 )
             }
         }
-        composeRule.onNode(hasContentDescription("选择下载任务")).performClick()
-        composeRule.onNodeWithText("selected.txt").performClick()
+        composeRule.onNodeWithText("selected.txt").performTouchInput { longClick() }
         composeRule.onNode(hasContentDescription("在已选下载任务中搜索")).performClick()
 
         composeRule.onNode(hasSetTextAction()).performTextReplacement("unselected")

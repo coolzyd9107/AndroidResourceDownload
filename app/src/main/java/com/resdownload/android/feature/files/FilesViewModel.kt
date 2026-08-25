@@ -3,6 +3,7 @@ package com.resdownload.android.feature.files
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.util.ArrayDeque
+import java.util.Collections
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import com.resdownload.android.data.file.FileRepository
 import com.resdownload.android.data.file.TextEncodingException
 import com.resdownload.android.domain.model.FileNode
@@ -47,6 +49,7 @@ data class FileSearchRequest(
     val scope: FileSearchScope,
     val basePath: WebDavPath,
     val selectedFiles: List<FileNode> = emptyList(),
+    val includeUploadTemporary: Boolean = true,
 )
 
 sealed interface FileSearchUiState {
@@ -54,6 +57,10 @@ sealed interface FileSearchUiState {
     data class Loading(
         val request: FileSearchRequest,
         val scannedDirectories: Int,
+        val files: List<FileNode> = emptyList(),
+        val incomplete: Boolean = false,
+        val progressVersion: Int = 0,
+        val visibleFileCount: Int = 0,
     ) : FileSearchUiState
     data class Success(
         val request: FileSearchRequest,
@@ -75,17 +82,40 @@ internal data class RecursiveFileSearchResult(
     val incomplete: Boolean,
 )
 
+internal data class RecursiveFileSearchProgress(
+    val scannedDirectories: Int,
+    val files: List<FileNode>,
+    val incomplete: Boolean,
+    val progressVersion: Int,
+    val visibleFileCount: Int,
+)
+
 internal suspend fun searchFilesRecursively(
     request: FileSearchRequest,
     listDirectory: suspend (WebDavPath) -> List<FileNode>,
-    onDirectoryScanned: (Int) -> Unit = {},
+    onProgress: (RecursiveFileSearchProgress) -> Unit = {},
 ): RecursiveFileSearchResult {
     require(request.query.isNotBlank())
     val directories = ArrayDeque<WebDavPath>()
     val visitedDirectories = mutableSetOf<WebDavPath>()
     val visitedResources = mutableSetOf<WebDavPath>()
     val matches = mutableListOf<FileNode>()
+    val publishedMatches: List<FileNode> = Collections.unmodifiableList(matches)
     var incomplete = false
+    var progressVersion = 0
+    suspend fun publishProgress() {
+        progressVersion++
+        onProgress(
+            RecursiveFileSearchProgress(
+                scannedDirectories = visitedDirectories.size,
+                files = publishedMatches,
+                incomplete = incomplete,
+                progressVersion = progressVersion,
+                visibleFileCount = matches.size,
+            ),
+        )
+        yield()
+    }
     if (request.scope == FileSearchScope.SELECTED) {
         require(request.selectedFiles.isNotEmpty())
         request.selectedFiles.forEach { file ->
@@ -93,10 +123,17 @@ internal suspend fun searchFilesRecursively(
                 WebDavPath.parseDecoded(file.path)
             } catch (_: Exception) {
                 incomplete = true
+                publishProgress()
                 return@forEach
             }
             if (!visitedResources.add(path)) return@forEach
-            if (file.name.contains(request.query, ignoreCase = true)) matches += file
+            if (
+                (request.includeUploadTemporary || !file.isUploadTemporary) &&
+                file.name.contains(request.query, ignoreCase = true)
+            ) {
+                matches += file
+                publishProgress()
+            }
             if (file.isDirectory) directories.addLast(path)
         }
     } else {
@@ -125,31 +162,40 @@ internal suspend fun searchFilesRecursively(
                 throw error
             }
             incomplete = true
+            publishProgress()
             continue
         }
-        onDirectoryScanned(visitedDirectories.size)
+        publishProgress()
 
         items.forEach { item ->
             val itemPath = try {
                 WebDavPath.parseDecoded(item.path)
             } catch (_: Exception) {
                 incomplete = true
+                publishProgress()
                 return@forEach
             }
             val isDirectChild = itemPath.decodedSegments.size == directory.decodedSegments.size + 1 &&
                 itemPath.decodedSegments.dropLast(1) == directory.decodedSegments
             if (!isDirectChild || !visitedResources.add(itemPath)) {
-                if (!isDirectChild) incomplete = true
+                if (!isDirectChild) {
+                    incomplete = true
+                    publishProgress()
+                }
                 return@forEach
             }
-            if (item.name.contains(request.query, ignoreCase = true)) {
+            if (
+                (request.includeUploadTemporary || !item.isUploadTemporary) &&
+                item.name.contains(request.query, ignoreCase = true)
+            ) {
                 matches += item
+                publishProgress()
             }
             if (item.isDirectory) directories.addLast(itemPath)
         }
     }
 
-    return RecursiveFileSearchResult(matches, incomplete)
+    return RecursiveFileSearchResult(matches.toList(), incomplete)
 }
 
 sealed interface DirectoryPickerState {
@@ -289,7 +335,11 @@ class FilesViewModel @Inject constructor(
 
     fun refresh() = load(_state.value.path, isRefresh = true)
 
-    fun search(query: String, scope: FileSearchScope) {
+    fun search(
+        query: String,
+        scope: FileSearchScope,
+        includeUploadTemporary: Boolean = true,
+    ) {
         val normalizedQuery = query.trim()
         if (normalizedQuery.isEmpty()) {
             cancelSearch()
@@ -300,10 +350,21 @@ class FilesViewModel @Inject constructor(
             FileSearchScope.CURRENT_DIRECTORY -> _state.value.path
             FileSearchScope.SELECTED -> return
         }
-        runSearch(FileSearchRequest(normalizedQuery, scope, basePath))
+        runSearch(
+            FileSearchRequest(
+                query = normalizedQuery,
+                scope = scope,
+                basePath = basePath,
+                includeUploadTemporary = includeUploadTemporary,
+            ),
+        )
     }
 
-    fun searchSelected(query: String, selectedFiles: List<FileNode>) {
+    fun searchSelected(
+        query: String,
+        selectedFiles: List<FileNode>,
+        includeUploadTemporary: Boolean = true,
+    ) {
         val normalizedQuery = query.trim()
         if (normalizedQuery.isEmpty() || selectedFiles.isEmpty()) {
             cancelSearch()
@@ -315,6 +376,7 @@ class FilesViewModel @Inject constructor(
                 scope = FileSearchScope.SELECTED,
                 basePath = _state.value.path,
                 selectedFiles = selectedFiles,
+                includeUploadTemporary = includeUploadTemporary,
             ),
         )
     }
@@ -339,9 +401,16 @@ class FilesViewModel @Inject constructor(
                 val searchResult = searchFilesRecursively(
                     request = request,
                     listDirectory = repository::list,
-                    onDirectoryScanned = { count ->
+                    onProgress = { progress ->
                         if (version == searchVersion) {
-                            _searchState.value = FileSearchUiState.Loading(request, count)
+                            _searchState.value = FileSearchUiState.Loading(
+                                request = request,
+                                scannedDirectories = progress.scannedDirectories,
+                                files = progress.files,
+                                incomplete = progress.incomplete,
+                                progressVersion = progress.progressVersion,
+                                visibleFileCount = progress.visibleFileCount,
+                            )
                         }
                     },
                 )

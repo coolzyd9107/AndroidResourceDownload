@@ -1,6 +1,8 @@
 package com.resdownload.android.feature.downloads
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -24,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -32,7 +33,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -53,7 +53,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -91,6 +90,8 @@ import com.resdownload.android.core.ui.EmptyPane
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
 import com.resdownload.android.core.ui.SelectionBottomBar
+import com.resdownload.android.core.ui.TaskActionIconButton
+import com.resdownload.android.core.ui.taskLongPress
 import com.resdownload.android.domain.model.DownloadStatus
 import com.resdownload.android.domain.model.DownloadTask
 
@@ -314,16 +315,6 @@ fun DownloadsScreen(
                     subtitle = normalizedSearchQuery.takeIf(String::isNotEmpty)?.let {
                         "${filteredTasks.size} / ${tasks.size} 个任务"
                     },
-                    additionalActions = {
-                        if (filteredTasks.isNotEmpty()) {
-                            IconButton(onClick = { multiSelectMode = true }) {
-                                Icon(
-                                    Icons.Default.Checklist,
-                                    contentDescription = "选择下载搜索结果",
-                                )
-                            }
-                        }
-                    },
                 )
             } else {
                 TopAppBar(
@@ -347,14 +338,6 @@ fun DownloadsScreen(
                     actions = {
                         IconButton(onClick = { searchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = "搜索下载任务")
-                        }
-                        if (tasks.isNotEmpty()) {
-                            IconButton(onClick = { multiSelectMode = true }) {
-                                Icon(
-                                    Icons.Default.Checklist,
-                                    contentDescription = "选择下载任务",
-                                )
-                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -498,6 +481,10 @@ fun DownloadsScreen(
                             selectionMode = multiSelectMode,
                             selected = task.id in selectedTaskIdSet,
                             onSelectionToggle = { toggleTaskSelection(task.id) },
+                            onLongSelect = {
+                                multiSelectMode = true
+                                selectedTaskIds = (selectedTaskIds + task.id).distinct()
+                            },
                             enabled = isTargetContent,
                             modifier = Modifier
                                 .animateItem(
@@ -614,7 +601,7 @@ fun DownloadsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadTaskItem(
     task: DownloadTask,
@@ -625,6 +612,7 @@ private fun DownloadTaskItem(
     selectionMode: Boolean,
     selected: Boolean,
     onSelectionToggle: () -> Unit,
+    onLongSelect: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
@@ -647,7 +635,11 @@ private fun DownloadTaskItem(
             .fillMaxWidth()
             .then(
                 if (selectionMode) {
-                    Modifier.clickable(enabled = enabled, onClick = onSelectionToggle)
+                    Modifier.clickable(
+                        enabled = enabled,
+                        onClickLabel = "切换任务选择",
+                        onClick = onSelectionToggle,
+                    )
                 } else {
                     Modifier
                 },
@@ -666,6 +658,16 @@ private fun DownloadTaskItem(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .taskLongPress(
+                        enabled = enabled && !selectionMode,
+                        label = "选择下载任务",
+                        onLongPress = onLongSelect,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -754,6 +756,7 @@ private fun DownloadTaskItem(
                     }
                 }
             }
+            }
             if (!selectionMode) {
                 Box(
                     modifier = Modifier.align(Alignment.End),
@@ -765,6 +768,7 @@ private fun DownloadTaskItem(
                         onStatusChange = onStatusChange,
                         onOpen = onOpen,
                         onDelete = onDelete,
+                        onLongSelect = onLongSelect,
                     )
                 }
             }
@@ -794,47 +798,69 @@ private fun TaskActions(
     onStatusChange: (DownloadStatus) -> Unit,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onLongSelect: () -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         when (status) {
             DownloadStatus.RUNNING -> {
-                FilledTonalIconButton(
+                TaskActionIconButton(
                     onClick = { onStatusChange(DownloadStatus.PAUSED) },
+                    onLongPress = onLongSelect,
+                    clickLabel = "暂停下载",
+                    longClickLabel = "选择下载任务",
                     enabled = enabled,
+                    tonal = true,
                 ) {
                     Icon(Icons.Default.Pause, contentDescription = "暂停下载")
                 }
-                IconButton(
+                TaskActionIconButton(
                     onClick = { onStatusChange(DownloadStatus.CANCELLED) },
+                    onLongPress = onLongSelect,
+                    clickLabel = "取消下载",
+                    longClickLabel = "选择下载任务",
                     enabled = enabled,
                 ) {
                     Icon(Icons.Default.Cancel, contentDescription = "取消下载")
                 }
             }
-            DownloadStatus.PENDING -> IconButton(
+            DownloadStatus.PENDING -> TaskActionIconButton(
                 onClick = { onStatusChange(DownloadStatus.CANCELLED) },
+                onLongPress = onLongSelect,
+                clickLabel = "取消下载",
+                longClickLabel = "选择下载任务",
                 enabled = enabled,
             ) {
                 Icon(Icons.Default.Cancel, contentDescription = "取消下载")
             }
             DownloadStatus.PAUSED -> {
-                FilledTonalIconButton(
+                TaskActionIconButton(
                     onClick = { onStatusChange(DownloadStatus.RUNNING) },
+                    onLongPress = onLongSelect,
+                    clickLabel = "继续下载",
+                    longClickLabel = "选择下载任务",
                     enabled = enabled,
+                    tonal = true,
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = "继续下载")
                 }
-                IconButton(
+                TaskActionIconButton(
                     onClick = { onStatusChange(DownloadStatus.CANCELLED) },
+                    onLongPress = onLongSelect,
+                    clickLabel = "取消下载",
+                    longClickLabel = "选择下载任务",
                     enabled = enabled,
                 ) {
                     Icon(Icons.Default.Cancel, contentDescription = "取消下载")
                 }
             }
             DownloadStatus.FAILED, DownloadStatus.CANCELLED -> {
-                FilledTonalIconButton(
+                TaskActionIconButton(
                     onClick = { onStatusChange(DownloadStatus.RUNNING) },
+                    onLongPress = onLongSelect,
+                    clickLabel = "重试下载",
+                    longClickLabel = "选择下载任务",
                     enabled = enabled,
+                    tonal = true,
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = "重试下载")
                 }
@@ -842,16 +868,25 @@ private fun TaskActions(
                     onDelete = onDelete,
                     contentDescription = "删除下载任务",
                     enabled = enabled,
+                    onLongSelect = onLongSelect,
                 )
             }
             DownloadStatus.SUCCESS -> {
-                FilledTonalIconButton(onClick = onOpen, enabled = enabled) {
+                TaskActionIconButton(
+                    onClick = onOpen,
+                    onLongPress = onLongSelect,
+                    clickLabel = "打开文件",
+                    longClickLabel = "选择下载任务",
+                    enabled = enabled,
+                    tonal = true,
+                ) {
                     Icon(Icons.Default.FolderOpen, contentDescription = "打开文件")
                 }
                 AnimatedDeleteIconButton(
                     onDelete = onDelete,
                     contentDescription = "删除下载任务和本地文件",
                     enabled = enabled,
+                    onLongSelect = onLongSelect,
                 )
             }
         }
@@ -864,6 +899,7 @@ private fun AnimatedDeleteIconButton(
     onDelete: () -> Unit,
     contentDescription: String,
     enabled: Boolean,
+    onLongSelect: () -> Unit,
 ) {
     var deleting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -878,8 +914,11 @@ private fun AnimatedDeleteIconButton(
         label = "deleteRotation",
     )
 
-    IconButton(
+    TaskActionIconButton(
         enabled = enabled && !deleting,
+        onLongPress = onLongSelect,
+        clickLabel = contentDescription,
+        longClickLabel = "选择下载任务",
         onClick = {
             deleting = true
             onDelete()
