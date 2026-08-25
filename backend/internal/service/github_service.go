@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"link.mczihan/webdavbox-backend/internal/config"
+	"resdownload.com/backend/internal/config"
 )
 
 // GitHubUser is the subset of https://api.github.com/user the backend uses.

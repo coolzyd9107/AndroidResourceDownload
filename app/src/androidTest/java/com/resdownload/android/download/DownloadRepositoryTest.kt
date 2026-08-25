@@ -1,0 +1,134 @@
+package com.resdownload.android.download
+
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.runBlocking
+import com.resdownload.android.data.download.DownloadDatabase
+import com.resdownload.android.data.download.DownloadFileStore
+import com.resdownload.android.data.download.DownloadRepository
+import com.resdownload.android.data.download.DownloadTaskEntity
+import com.resdownload.android.data.download.PublicDownloadStore
+import com.resdownload.android.domain.model.DownloadStatus
+import com.resdownload.android.domain.model.DownloadTask
+import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class DownloadRepositoryTest {
+    private lateinit var context: Context
+    private lateinit var database: DownloadDatabase
+    private lateinit var fileStore: DownloadFileStore
+    private lateinit var publicStore: PublicDownloadStore
+    private lateinit var repository: DownloadRepository
+    private lateinit var privateRoot: File
+
+    @Before
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        database = Room.inMemoryDatabaseBuilder(context, DownloadDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        privateRoot = File(context.cacheDir, "repository-test-${UUID.randomUUID()}")
+        fileStore = DownloadFileStore(privateRoot)
+        publicStore = PublicDownloadStore(context)
+        repository = DownloadRepository(database.downloadTaskDao(), fileStore, publicStore)
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+        privateRoot.deleteRecursively()
+    }
+
+    @Test
+    fun deletingSuccessRemovesPublicFileAndRow() = runBlocking {
+        val task = task(DownloadStatus.SUCCESS)
+        val source = File(context.cacheDir, "${task.id}.txt").apply { writeText("complete") }
+        var publicUri: String? = null
+        try {
+            val stage = publicStore.create(task, task.mimeType)
+            publicUri = stage
+            publicUri = publicStore.write(task, stage, source, task.mimeType)
+            val stored = task.copy(publicUri = publicUri)
+            database.downloadTaskDao().insert(DownloadTaskEntity.fromDomain(stored))
+
+            assertTrue(repository.deleteTerminal(task.ownerId, task.id))
+            assertFalse(publicStore.exists(publicUri))
+            assertNull(database.downloadTaskDao().findById(task.ownerId, task.id))
+            publicUri = null
+        } finally {
+            publicUri?.let { publicStore.delete(it) }
+            source.delete()
+        }
+    }
+
+    @Test
+    fun deletingSuccessWithAlreadyMissingFileRemovesRow() = runBlocking {
+        val task = task(DownloadStatus.SUCCESS)
+        val source = File(context.cacheDir, "${task.id}.txt").apply { writeText("complete") }
+        val stage = publicStore.create(task, task.mimeType)
+        val publicUri = publicStore.write(task, stage, source, task.mimeType)
+        assertTrue(publicStore.delete(publicUri))
+        database.downloadTaskDao().insert(
+            DownloadTaskEntity.fromDomain(task.copy(publicUri = publicUri)),
+        )
+
+        assertTrue(repository.deleteTerminal(task.ownerId, task.id))
+        assertNull(database.downloadTaskDao().findById(task.ownerId, task.id))
+        source.delete()
+        Unit
+    }
+
+    @Test
+    fun deletingFailedTaskCleansPrivateResumeDataAndRow() = runBlocking {
+        val task = task(DownloadStatus.FAILED)
+        fileStore.ensureTaskDirectory(task)
+        fileStore.partialFile(task).writeText("partial")
+        database.downloadTaskDao().insert(DownloadTaskEntity.fromDomain(task))
+
+        assertTrue(repository.deleteTerminal(task.ownerId, task.id))
+        assertFalse(fileStore.partialFile(task).exists())
+        assertNull(database.downloadTaskDao().findById(task.ownerId, task.id))
+    }
+
+    @Test
+    fun removeMissingSuccessfulDeletesOnlyRowsWithoutFiles() = runBlocking {
+        val missing = task(DownloadStatus.SUCCESS).copy(
+            publicUri = "content://media/external_primary/downloads/999999999",
+        )
+        val private = task(DownloadStatus.SUCCESS)
+        fileStore.ensureTaskDirectory(private)
+        fileStore.finalFile(private).writeText("complete")
+        database.downloadTaskDao().insert(DownloadTaskEntity.fromDomain(missing))
+        database.downloadTaskDao().insert(DownloadTaskEntity.fromDomain(private))
+
+        repository.removeMissingSuccessful(missing.ownerId)
+
+        assertNull(database.downloadTaskDao().findById(missing.ownerId, missing.id))
+        assertTrue(database.downloadTaskDao().findById(private.ownerId, private.id) != null)
+    }
+
+    private fun task(status: DownloadStatus): DownloadTask {
+        val id = UUID.randomUUID().toString()
+        return DownloadTask(
+            id = id,
+            ownerId = "owner",
+            fileName = "$id.txt",
+            remotePath = "/$id.txt",
+            storageName = "$id.txt",
+            mimeType = "text/plain",
+            status = status,
+            createdAt = 1L,
+            updatedAt = 1L,
+        )
+    }
+}

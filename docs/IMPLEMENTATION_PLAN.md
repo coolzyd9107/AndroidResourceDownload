@@ -6,7 +6,7 @@
 
 已确定的工程决策：
 
-- Android 包名：`link.mczihan.androidResourceDownload`。
+- Android 包名：`com.resdownload.android`。
 - 最低支持 Android 8.1（API 27）。
 - 先实现 Mock 后端与 Repository 替身，稳定 UI 状态、导航和领域接口后，再接入真实认证、WebDAV 与更新服务。
 - GitHub Actions 对所有事件执行 Release lint、单元测试和无签名打包；仅在 `main` 上通过受保护的 `release` Environment 注入正式签名并构建 Release APK。
@@ -29,7 +29,7 @@
 
 **目标**
 
-建立包名为 `link.mczihan.androidResourceDownload` 的单应用 Android 工程，接入 Kotlin、Compose、Material 3、依赖注入、导航、日志与主题基础能力，并以 Mock 数据呈现最小可导航界面。
+建立包名为 `com.resdownload.android` 的单应用 Android 工程，接入 Kotlin、Compose、Material 3、依赖注入、导航、日志与主题基础能力，并以 Mock 数据呈现最小可导航界面。
 
 **交付物**
 

@@ -12,16 +12,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"link.mczihan/webdavbox-backend/internal/app"
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/middleware"
-	"link.mczihan/webdavbox-backend/internal/pkg/crypto"
-	"link.mczihan/webdavbox-backend/internal/pkg/jwt"
-	"link.mczihan/webdavbox-backend/internal/pkg/logger"
-	"link.mczihan/webdavbox-backend/internal/pkg/validator"
-	"link.mczihan/webdavbox-backend/internal/ratelimit"
-	"link.mczihan/webdavbox-backend/internal/repository"
-	"link.mczihan/webdavbox-backend/internal/service"
+	"resdownload.com/backend/internal/app"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/middleware"
+	"resdownload.com/backend/internal/pkg/crypto"
+	"resdownload.com/backend/internal/pkg/jwt"
+	"resdownload.com/backend/internal/pkg/logger"
+	"resdownload.com/backend/internal/pkg/validator"
+	"resdownload.com/backend/internal/ratelimit"
+	"resdownload.com/backend/internal/repository"
+	"resdownload.com/backend/internal/service"
 )
 
 func main() {

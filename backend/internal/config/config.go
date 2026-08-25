@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+const androidOAuthCallbackURI = "com.resdownload.android://oauth/callback"
+
 // Config is the fully parsed runtime configuration.
 type Config struct {
 	App                 AppConfig        `mapstructure:"app"`
@@ -157,7 +159,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("github.client-id", "")
 	v.SetDefault("github.client-secret", "")
 	v.SetDefault("github.redirect-uri", "https://api.example.com/api/v1/auth/github/callback")
-	v.SetDefault("github.app-redirect-uri", "link.mczihan.androidresourcedownload://oauth/callback")
+	v.SetDefault("github.app-redirect-uri", androidOAuthCallbackURI)
 	v.SetDefault("github.state-ttl-seconds", 600)
 	v.SetDefault("github.completion-code-ttl-seconds", 90)
 	v.SetDefault("github.mock", false)
@@ -182,8 +184,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("update.secret", "change-me-too-32-bytes")
 	v.SetDefault("update.ttl-seconds", 300)
 	v.SetDefault("ratelimit.enabled", true)
-	v.SetDefault("allowed-email-domains", []string{"qq.com", "mczihan.link"})
-	v.SetDefault("admin-email-domains", []string{"mczihan.link"})
+	v.SetDefault("allowed-email-domains", []string{"qq.com"})
+	v.SetDefault("admin-email-domains", []string{})
 	v.SetDefault("user-email-domains", []string{"qq.com"})
 }
 
@@ -241,7 +243,7 @@ func validate(cfg *Config) error {
 		if err != nil || callback.Scheme != "https" || callback.Host == "" {
 			return fmt.Errorf("config: github.redirect-uri must be an absolute HTTPS URL in prod")
 		}
-		if cfg.Github.AppRedirectURI != "link.mczihan.androidresourcedownload://oauth/callback" {
+		if cfg.Github.AppRedirectURI != androidOAuthCallbackURI {
 			return fmt.Errorf("config: github.app-redirect-uri does not match the Android callback")
 		}
 	}

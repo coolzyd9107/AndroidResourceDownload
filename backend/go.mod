@@ -1,4 +1,4 @@
-module link.mczihan/webdavbox-backend
+module resdownload.com/backend
 
 go 1.25.0
 

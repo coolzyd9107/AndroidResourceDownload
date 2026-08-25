@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"link.mczihan/webdavbox-backend/internal/model"
+	"resdownload.com/backend/internal/model"
 )
 
 // IdentityRepo persists auth_identities.

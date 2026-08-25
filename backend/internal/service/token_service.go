@@ -9,9 +9,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"link.mczihan/webdavbox-backend/internal/model"
-	"link.mczihan/webdavbox-backend/internal/pkg/jwt"
-	"link.mczihan/webdavbox-backend/internal/repository"
+	"resdownload.com/backend/internal/model"
+	"resdownload.com/backend/internal/pkg/jwt"
+	"resdownload.com/backend/internal/repository"
 )
 
 // TokenService signs and verifies access / refresh tokens.

@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/model"
-	"link.mczihan/webdavbox-backend/internal/pkg/jwt"
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
-	"link.mczihan/webdavbox-backend/internal/repository"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/model"
+	"resdownload.com/backend/internal/pkg/jwt"
+	"resdownload.com/backend/internal/pkg/response"
+	"resdownload.com/backend/internal/repository"
 )
 
 const (

@@ -3,7 +3,7 @@ package repository
 import (
 	"gorm.io/gorm"
 
-	"link.mczihan/webdavbox-backend/internal/model"
+	"resdownload.com/backend/internal/model"
 )
 
 // UpdateLogRepo persists update_url_logs.

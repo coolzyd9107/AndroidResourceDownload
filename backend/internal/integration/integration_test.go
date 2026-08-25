@@ -22,15 +22,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"link.mczihan/webdavbox-backend/internal/app"
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/middleware"
-	"link.mczihan/webdavbox-backend/internal/model"
-	"link.mczihan/webdavbox-backend/internal/pkg/crypto"
-	"link.mczihan/webdavbox-backend/internal/pkg/jwt"
-	"link.mczihan/webdavbox-backend/internal/ratelimit"
-	"link.mczihan/webdavbox-backend/internal/repository"
-	"link.mczihan/webdavbox-backend/internal/service"
+	"resdownload.com/backend/internal/app"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/middleware"
+	"resdownload.com/backend/internal/model"
+	"resdownload.com/backend/internal/pkg/crypto"
+	"resdownload.com/backend/internal/pkg/jwt"
+	"resdownload.com/backend/internal/ratelimit"
+	"resdownload.com/backend/internal/repository"
+	"resdownload.com/backend/internal/service"
 )
 
 // testEnv wires a complete backend against a temporary SQLite DB.
@@ -62,6 +62,8 @@ func newTestEnvWithLogger(t *testing.T, log *slog.Logger) *testEnv {
 	t.Setenv("UPDATE_URL_SECRET", "test-update-secret-32-bytes-aaaaaa")
 	t.Setenv("EMAIL_MODE", "console")
 	t.Setenv("GITHUB_MOCK", "true")
+	t.Setenv("ALLOWED_EMAIL_DOMAINS", "qq.com,admin.example.com")
+	t.Setenv("ADMIN_EMAIL_DOMAINS", "admin.example.com")
 	t.Setenv("SERVER_PORT", "0")
 
 	cfg, err := config.Load("")
@@ -205,10 +207,10 @@ func TestEmailLoginHappyPath(t *testing.T) {
 func TestEmailLoginAdmin(t *testing.T) {
 	env := newTestEnv(t)
 
-	_, _ = env.doJSON(t, http.MethodPost, "/api/v1/auth/email/code", map[string]string{"email": "admin@mczihan.link"}, "")
-	otp := readLatestOTPCode(t, env, "admin@mczihan.link")
+	_, _ = env.doJSON(t, http.MethodPost, "/api/v1/auth/email/code", map[string]string{"email": "admin@admin.example.com"}, "")
+	otp := readLatestOTPCode(t, env, "admin@admin.example.com")
 	code, body := env.doJSON(t, http.MethodPost, "/api/v1/auth/email/login", map[string]any{
-		"email": "admin@mczihan.link", "code": otp,
+		"email": "admin@admin.example.com", "code": otp,
 	}, "")
 	require.Equal(t, http.StatusOK, code)
 	data := body["data"].(map[string]any)

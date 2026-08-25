@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"link.mczihan/webdavbox-backend/internal/pkg/logger"
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
+	"resdownload.com/backend/internal/pkg/logger"
+	"resdownload.com/backend/internal/pkg/response"
 )
 
 const (

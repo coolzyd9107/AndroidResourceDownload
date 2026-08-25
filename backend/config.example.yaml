@@ -24,7 +24,7 @@ github:
   client-id: ""
   client-secret: ""
   redirect-uri: https://api.example.com/api/v1/auth/github/callback
-  app-redirect-uri: link.mczihan.androidresourcedownload://oauth/callback
+  app-redirect-uri: com.resdownload.android://oauth/callback
   state-ttl-seconds: 600
   completion-code-ttl-seconds: 90
   mock: false
@@ -62,9 +62,7 @@ update:
 
 allowed-email-domains:
   - qq.com
-  - mczihan.link
-admin-email-domains:
-  - mczihan.link
+admin-email-domains: []
 user-email-domains:
   - qq.com
 

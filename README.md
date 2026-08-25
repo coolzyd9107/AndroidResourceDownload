@@ -47,6 +47,8 @@
 
 本地签名构建使用 `ANDROID_KEYSTORE_PATH` 指向 keystore 文件，并同时设置 `ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 和 `ANDROID_KEY_PASSWORD`；`ANDROID_KEYSTORE_BASE64` 仅供 CI 解码使用。
 
+后端由 **Backend CI** 在测试通过后使用 `backend/go.mod` 声明的 Go 版本交叉编译。每次运行会上传 `backend-server-linux-amd64` 和 `backend-server-linux-arm64` 两个 artifact，压缩包内为可直接部署的静态 `server` 二进制。
+
 远程 CI 是项目的编译与合并门禁，本工作流不要求本地编译。Android 项目脚手架、`gradlew` 和 `app` 模块提交后，工作流才具备实际构建输入。
 
 ## 可选的本地环境

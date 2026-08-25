@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
+	"resdownload.com/backend/internal/pkg/response"
 )
 
 // Health returns a static "ok" payload. Useful for docker-compose health

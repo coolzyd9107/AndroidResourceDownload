@@ -17,9 +17,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/model"
-	"link.mczihan/webdavbox-backend/internal/repository"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/model"
+	"resdownload.com/backend/internal/repository"
 )
 
 func main() {

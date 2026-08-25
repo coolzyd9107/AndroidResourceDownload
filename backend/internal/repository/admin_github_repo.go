@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"link.mczihan/webdavbox-backend/internal/model"
+	"resdownload.com/backend/internal/model"
 )
 
 // AdminGithubRepo persists admin_github_users.

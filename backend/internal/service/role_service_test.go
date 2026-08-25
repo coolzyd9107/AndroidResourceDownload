@@ -5,11 +5,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"link.mczihan/webdavbox-backend/internal/model"
+	"resdownload.com/backend/internal/model"
 )
 
 func TestRoleService(t *testing.T) {
-	s := NewRoleService([]string{"qq.com"}, []string{"mczihan.link"})
+	s := NewRoleService([]string{"qq.com"}, []string{"admin.example.com"})
 
 	cases := []struct {
 		email string
@@ -18,8 +18,8 @@ func TestRoleService(t *testing.T) {
 	}{
 		{"user@qq.com", model.RoleUser, true},
 		{"User@QQ.com", model.RoleUser, true},
-		{"admin@mczihan.link", model.RoleAdmin, true},
-		{"admin@mczihan.link ", model.RoleAdmin, true},
+		{"admin@admin.example.com", model.RoleAdmin, true},
+		{"admin@admin.example.com ", model.RoleAdmin, true},
 		{"hacker@gmail.com", "", false},
 		{"invalid", "", false},
 		{"", "", false},
@@ -33,8 +33,8 @@ func TestRoleService(t *testing.T) {
 }
 
 func TestRoleServiceAllowed(t *testing.T) {
-	s := NewRoleService([]string{"qq.com"}, []string{"mczihan.link"})
+	s := NewRoleService([]string{"qq.com"}, []string{"admin.example.com"})
 	assert.True(t, s.Allowed("u@qq.com"))
-	assert.True(t, s.Allowed("a@mczihan.link"))
+	assert.True(t, s.Allowed("a@admin.example.com"))
 	assert.False(t, s.Allowed("x@x.com"))
 }

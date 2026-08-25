@@ -3,8 +3,8 @@ package middleware
 import (
 	"github.com/gin-gonic/gin"
 
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
-	"link.mczihan/webdavbox-backend/internal/ratelimit"
+	"resdownload.com/backend/internal/pkg/response"
+	"resdownload.com/backend/internal/ratelimit"
 )
 
 // RateLimitByKey applies the given rule to the key returned by keyFn. If

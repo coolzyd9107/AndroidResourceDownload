@@ -3,8 +3,8 @@ package service
 import (
 	"time"
 
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/model"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/model"
 )
 
 // webdavCfgAdapter implements WebDAVConfigProvider from the loaded config.

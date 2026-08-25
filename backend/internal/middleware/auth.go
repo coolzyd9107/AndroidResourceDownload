@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"link.mczihan/webdavbox-backend/internal/pkg/jwt"
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
+	"resdownload.com/backend/internal/pkg/jwt"
+	"resdownload.com/backend/internal/pkg/response"
 )
 
 // Auth enforces a valid Bearer access token. On success, the user id and

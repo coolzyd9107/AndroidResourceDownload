@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val appPackageName = "com.resdownload.android"
 val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
 val releaseKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
@@ -24,7 +25,7 @@ require(releaseSigningValues.all { it.isNullOrBlank() } || releaseSigningConfigu
 }
 
 android {
-    namespace = "link.mczihan.androidResourceDownload"
+    namespace = appPackageName
     compileSdk = 36
 
     val apiBaseUrl = providers.gradleProperty("apiBaseUrl")
@@ -44,7 +45,7 @@ android {
     fun buildConfigString(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     defaultConfig {
-        applicationId = "link.mczihan.androidResourceDownload"
+        applicationId = appPackageName
         minSdk = 27
         targetSdk = 37
         versionCode = 8
@@ -52,9 +53,11 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        manifestPlaceholders["oauthCallbackScheme"] = appPackageName
         manifestPlaceholders["qqAuthScheme"] = "tencent$qqAppId"
         buildConfigField("String", "API_BASE_URL", buildConfigString(apiBaseUrl))
         buildConfigField("boolean", "DEMO_MODE", demoMode.toString())
+        buildConfigField("String", "OAUTH_CALLBACK_SCHEME", buildConfigString(appPackageName))
         buildConfigField("String", "QQ_APP_ID", buildConfigString(qqAppId))
     }
 

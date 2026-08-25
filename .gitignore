@@ -17,6 +17,7 @@ captures/
 
 # Backend artifacts
 backend/bin/
+backend/dist/
 backend/data/*.db
 backend/data/*.db-journal
 backend/.env

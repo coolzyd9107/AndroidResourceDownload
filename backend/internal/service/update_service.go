@@ -8,10 +8,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"link.mczihan/webdavbox-backend/internal/dto"
-	"link.mczihan/webdavbox-backend/internal/model"
-	"link.mczihan/webdavbox-backend/internal/pkg/crypto"
-	"link.mczihan/webdavbox-backend/internal/repository"
+	"resdownload.com/backend/internal/dto"
+	"resdownload.com/backend/internal/model"
+	"resdownload.com/backend/internal/pkg/crypto"
+	"resdownload.com/backend/internal/repository"
 )
 
 // UpdateService prepares and resolves encrypted update URLs.

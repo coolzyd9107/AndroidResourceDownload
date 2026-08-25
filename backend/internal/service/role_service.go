@@ -6,7 +6,7 @@ package service
 import (
 	"strings"
 
-	"link.mczihan/webdavbox-backend/internal/model"
+	"resdownload.com/backend/internal/model"
 )
 
 // RoleService maps emails / identities to roles per 后端.md §6.

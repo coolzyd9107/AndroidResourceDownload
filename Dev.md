@@ -95,7 +95,7 @@
 | 角色 | 邮箱规则 | 说明 |
 |---|---|---|
 | 普通用户 | `@qq.com` | 只读访问文件 |
-| 管理员 | `@mczihan.link` | 可读、可写、可管理文件 |
+| 管理员 | GitHub 白名单或配置的管理员邮箱域名 | 可读、可写、可管理文件 |
 | 未登录用户 | 无 | 仅可访问登录页 |
 
 ---
@@ -132,9 +132,9 @@
 3. 用户授权 GitHub
 4. GitHub 回调后端 redirect uri
 5. 后端获取 GitHub 用户邮箱
-6. 后端判断邮箱后缀：
+6. 后端根据 GitHub 白名单和邮箱域名配置判断角色：
+   - GitHub 白名单或 `ADMIN_EMAIL_DOMAINS` 命中：管理员
    - `@qq.com`：普通用户
-   - `@mczihan.link`：管理员
    - 其他：拒绝登录
 7. 后端签发 App 自己的 token
 8. App 登录成功，进入主页
@@ -158,7 +158,7 @@
 
 - 仅允许以下邮箱后缀登录：
   - `@qq.com`
-  - `@mczihan.link`
+  - `ADMIN_EMAIL_DOMAINS` 中显式配置的域名
 - 非允许后缀直接拒绝
 - GitHub 登录必须能获取到符合规则的邮箱
 - 首次登录自动创建用户
@@ -1461,7 +1461,7 @@ Response：
   "user": {
     "id": "u_456",
     "name": "管理员",
-    "email": "admin@mczihan.link",
+    "email": "admin@admin.example.com",
     "role": "ADMIN",
     "avatarUrl": null
   }
@@ -1631,7 +1631,7 @@ Response：
 - GitHub 登录成功
 - Email 登录成功
 - `@qq.com` 登录为普通用户
-- `@mczihan.link` 登录为管理员
+- 配置的管理员邮箱域名登录为管理员
 - 其他邮箱拒绝登录
 - token 过期自动刷新
 - 登出后无法访问主页

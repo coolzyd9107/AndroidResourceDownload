@@ -14,10 +14,10 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/model"
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
-	"link.mczihan/webdavbox-backend/internal/repository"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/model"
+	"resdownload.com/backend/internal/pkg/response"
+	"resdownload.com/backend/internal/repository"
 )
 
 // EmailService generates, stores, and verifies OTP codes.

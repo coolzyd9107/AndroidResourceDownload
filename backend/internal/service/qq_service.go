@@ -14,10 +14,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/dto"
-	"link.mczihan/webdavbox-backend/internal/model"
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/dto"
+	"resdownload.com/backend/internal/model"
+	"resdownload.com/backend/internal/pkg/response"
 )
 
 // QqProfile carries the optional display data Tencent returns per user.

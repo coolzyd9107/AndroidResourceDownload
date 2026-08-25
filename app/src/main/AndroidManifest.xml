@@ -42,7 +42,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="link.mczihan.androidresourcedownload"
+                    android:scheme="${oauthCallbackScheme}"
                     android:host="oauth"
                     android:path="/callback" />
             </intent-filter>

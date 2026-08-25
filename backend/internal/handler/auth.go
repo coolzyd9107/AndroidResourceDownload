@@ -8,11 +8,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/dto"
-	"link.mczihan/webdavbox-backend/internal/middleware"
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
-	"link.mczihan/webdavbox-backend/internal/service"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/dto"
+	"resdownload.com/backend/internal/middleware"
+	"resdownload.com/backend/internal/pkg/response"
+	"resdownload.com/backend/internal/service"
 )
 
 // AuthHandler exposes the /auth/* endpoints.

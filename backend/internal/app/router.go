@@ -9,13 +9,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/handler"
-	"link.mczihan/webdavbox-backend/internal/middleware"
-	"link.mczihan/webdavbox-backend/internal/pkg/jwt"
-	"link.mczihan/webdavbox-backend/internal/pkg/response"
-	"link.mczihan/webdavbox-backend/internal/ratelimit"
-	"link.mczihan/webdavbox-backend/internal/service"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/handler"
+	"resdownload.com/backend/internal/middleware"
+	"resdownload.com/backend/internal/pkg/jwt"
+	"resdownload.com/backend/internal/pkg/response"
+	"resdownload.com/backend/internal/ratelimit"
+	"resdownload.com/backend/internal/service"
 )
 
 // Deps is the bag of collaborators every handler needs. Built in main and

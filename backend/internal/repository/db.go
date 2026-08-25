@@ -12,8 +12,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"link.mczihan/webdavbox-backend/internal/config"
-	"link.mczihan/webdavbox-backend/internal/model"
+	"resdownload.com/backend/internal/config"
+	"resdownload.com/backend/internal/model"
 )
 
 // Open returns a *gorm.DB initialised for the configured driver.
