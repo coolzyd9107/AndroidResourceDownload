@@ -1,11 +1,20 @@
 package com.resdownload.android.data.update
 
+import com.resdownload.android.data.publiccontent.UPDATE_MANIFEST_URL
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UpdateRepositoryTest {
+    @Test
+    fun usesManifestFromCurrentRepository() {
+        assertEquals(
+            "https://raw.githubusercontent.com/zhuzhuzihan/AndroidResourceDownload/main/latest_version.txt",
+            UPDATE_MANIFEST_URL,
+        )
+    }
+
     @Test
     fun parsesVersionAndHttpsUpdateUrl() {
         val manifest = parseUpdateManifest(

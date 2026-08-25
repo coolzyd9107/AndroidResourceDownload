@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import com.resdownload.android.data.publiccontent.awaitResponse
 import com.resdownload.android.data.publiccontent.decodeText
+import com.resdownload.android.data.publiccontent.NOTICE_URL
 import com.resdownload.android.data.publiccontent.readBoundedBytes
 import com.resdownload.android.di.PublicHttpClient
 import okhttp3.OkHttpClient
@@ -37,7 +38,6 @@ class NoticeRepository @Inject constructor(
         val response = client.newCall(request).awaitResponse()
         return withContext(Dispatchers.IO) {
             response.use {
-                if (it.code == 404) return@use null
                 if (!it.isSuccessful) throw IOException("Notice request failed: ${it.code}")
                 val bytes = it.body?.readBoundedBytes(MAX_NOTICE_BYTES)
                     ?: throw IOException("Notice is too large")
@@ -52,8 +52,6 @@ class NoticeRepository @Inject constructor(
 
     private companion object {
         const val MAX_NOTICE_BYTES = 64 * 1024
-        const val NOTICE_URL =
-            "https://raw.githubusercontent.com/resdownload/AndroidResourceDownload/main/notice.txt"
     }
 }
 

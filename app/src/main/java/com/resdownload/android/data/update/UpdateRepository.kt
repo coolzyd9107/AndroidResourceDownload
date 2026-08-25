@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import com.resdownload.android.data.publiccontent.awaitResponse
 import com.resdownload.android.data.publiccontent.decodeText
 import com.resdownload.android.data.publiccontent.readBoundedBytes
+import com.resdownload.android.data.publiccontent.UPDATE_MANIFEST_URL
 import com.resdownload.android.di.PublicHttpClient
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -24,7 +25,7 @@ class UpdateRepository @Inject constructor(
 ) {
     suspend fun load(): UpdateManifest {
         val request = Request.Builder()
-            .url(MANIFEST_URL)
+            .url(UPDATE_MANIFEST_URL)
             .header("Cache-Control", "no-cache")
             .build()
         val response = client.newCall(request).awaitResponse()
@@ -41,8 +42,6 @@ class UpdateRepository @Inject constructor(
 
     private companion object {
         const val MAX_MANIFEST_BYTES = 8 * 1024
-        const val MANIFEST_URL =
-            "https://raw.githubusercontent.com/resdownload/AndroidResourceDownload/main/latest_version.txt"
     }
 }
 
