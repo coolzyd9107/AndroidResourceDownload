@@ -143,49 +143,95 @@ fun LoginScreen(
             }
 
             Spacer(Modifier.size(12.dp))
-            Button(
-                onClick = {
-                    if (agreementAccepted) onGithubLogin() else showAgreementError = true
-                },
-                shapes = ButtonDefaults.shapes(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = ButtonDefaults.MediumContainerHeight),
-                enabled = !busy,
-                contentPadding = ButtonDefaults.MediumContentPadding,
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_github),
-                    contentDescription = null,
-                    modifier = Modifier.size(ButtonDefaults.MediumIconSize),
-                )
-                Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
-                Text(
-                    text = "使用 GitHub 登录",
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                )
-            }
-            FilledTonalButton(
-                onClick = {
-                    if (agreementAccepted) onQqLogin() else showAgreementError = true
-                },
-                shapes = ButtonDefaults.shapes(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = ButtonDefaults.MediumContainerHeight),
-                enabled = !busy,
-                contentPadding = ButtonDefaults.MediumContentPadding,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_qq),
-                    contentDescription = null,
-                    modifier = Modifier.size(ButtonDefaults.MediumIconSize),
-                )
-                Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
-                Text(
-                    text = "使用 QQ 登录",
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                )
+                Button(
+                    onClick = {
+                        if (agreementAccepted) onGithubLogin() else showAgreementError = true
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = ButtonDefaults.MediumContainerHeight),
+                    enabled = !busy,
+                    contentPadding = ButtonDefaults.MediumContentPadding,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_github),
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.MediumIconSize),
+                    )
+                    Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
+                    Text(
+                        text = "使用 GitHub 登录",
+                        style = MaterialTheme.typography.labelLargeEmphasized,
+                    )
+                }
+                FilledTonalButton(
+                    onClick = {
+                        if (agreementAccepted) onQqLogin() else showAgreementError = true
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = ButtonDefaults.MediumContainerHeight),
+                    enabled = !busy,
+                    contentPadding = ButtonDefaults.MediumContentPadding,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_qq),
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.MediumIconSize),
+                    )
+                    Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
+                    Text(
+                        text = "使用 QQ 登录",
+                        style = MaterialTheme.typography.labelLargeEmphasized,
+                    )
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    color = agreementContainerColor,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = agreementAccepted,
+                                role = SemanticsRole.Checkbox,
+                                onValueChange = ::updateAgreement,
+                            )
+                            .padding(horizontal = 24.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = agreementAccepted,
+                            onCheckedChange = null,
+                        )
+                        Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
+                        Text(
+                            text = "我已阅读并同意",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        TextButton(
+                            onClick = { showPolicy = true },
+                            shapes = ButtonDefaults.shapes(),
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = "用户协议与隐私政策",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
 
             AnimatedVisibility(
@@ -201,48 +247,6 @@ fun LoginScreen(
                 exit = fadeOut(visibilityEffectsSpec) + shrinkVertically(visibilitySpatialSpec),
             ) {
                 message?.let { InlineMessage(it) }
-            }
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-                color = agreementContainerColor,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .toggleable(
-                            value = agreementAccepted,
-                            role = SemanticsRole.Checkbox,
-                            onValueChange = ::updateAgreement,
-                        )
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(
-                        checked = agreementAccepted,
-                        onCheckedChange = null,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "我已阅读并同意",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    TextButton(
-                        onClick = { showPolicy = true },
-                        shapes = ButtonDefaults.shapes(),
-                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
-                    ) {
-                        Text(
-                            text = "用户协议与隐私政策",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
             }
             AnimatedVisibility(
                 visible = showAgreementError,
