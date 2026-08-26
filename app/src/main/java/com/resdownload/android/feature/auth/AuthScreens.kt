@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -29,11 +29,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -83,6 +81,10 @@ fun LoginScreen(
     val backgroundColor = MaterialTheme.colorScheme.background
     val neutralOverlay = if (backgroundColor.luminance() < 0.5f) Color.White else Color.Black
     val agreementContainerColor = neutralOverlay.copy(alpha = 0.04f).compositeOver(backgroundColor)
+    val githubButtonColors = ButtonDefaults.buttonColors()
+    val qqButtonColors = ButtonDefaults.filledTonalButtonColors()
+    val actionContainerHeight = 68.dp
+    val actionContainerSpacing = 12.dp
 
     LaunchedEffect(policyAccepted) {
         agreementAccepted = policyAccepted
@@ -145,54 +147,99 @@ fun LoginScreen(
             Spacer(Modifier.size(12.dp))
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(actionContainerSpacing),
             ) {
-                Button(
-                    onClick = {
-                        if (agreementAccepted) onGithubLogin() else showAgreementError = true
-                    },
-                    shapes = ButtonDefaults.shapes(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = ButtonDefaults.MediumContainerHeight),
-                    enabled = !busy,
-                    contentPadding = ButtonDefaults.MediumContentPadding,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(actionContainerSpacing),
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_github),
-                        contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.MediumIconSize),
-                    )
-                    Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
-                    Text(
-                        text = "使用 GitHub 登录",
-                        style = MaterialTheme.typography.labelLargeEmphasized,
-                    )
-                }
-                FilledTonalButton(
-                    onClick = {
-                        if (agreementAccepted) onQqLogin() else showAgreementError = true
-                    },
-                    shapes = ButtonDefaults.shapes(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = ButtonDefaults.MediumContainerHeight),
-                    enabled = !busy,
-                    contentPadding = ButtonDefaults.MediumContentPadding,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_qq),
-                        contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.MediumIconSize),
-                    )
-                    Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
-                    Text(
-                        text = "使用 QQ 登录",
-                        style = MaterialTheme.typography.labelLargeEmphasized,
-                    )
+                    Surface(
+                        onClick = {
+                            if (agreementAccepted) onGithubLogin() else showAgreementError = true
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(actionContainerHeight),
+                        enabled = !busy,
+                        shape = MaterialTheme.shapes.large,
+                        color = if (busy) {
+                            githubButtonColors.disabledContainerColor
+                        } else {
+                            githubButtonColors.containerColor
+                        },
+                        contentColor = if (busy) {
+                            githubButtonColors.disabledContentColor
+                        } else {
+                            githubButtonColors.contentColor
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_github),
+                                contentDescription = null,
+                                modifier = Modifier.size(ButtonDefaults.MediumIconSize),
+                            )
+                            Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
+                            Text(
+                                text = "GitHub 登录",
+                                style = MaterialTheme.typography.labelLargeEmphasized,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Surface(
+                        onClick = {
+                            if (agreementAccepted) onQqLogin() else showAgreementError = true
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(actionContainerHeight),
+                        enabled = !busy,
+                        shape = MaterialTheme.shapes.large,
+                        color = if (busy) {
+                            qqButtonColors.disabledContainerColor
+                        } else {
+                            qqButtonColors.containerColor
+                        },
+                        contentColor = if (busy) {
+                            qqButtonColors.disabledContentColor
+                        } else {
+                            qqButtonColors.contentColor
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_qq),
+                                contentDescription = null,
+                                modifier = Modifier.size(ButtonDefaults.MediumIconSize),
+                            )
+                            Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
+                            Text(
+                                text = "QQ 登录",
+                                style = MaterialTheme.typography.labelLargeEmphasized,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(actionContainerHeight),
                     shape = MaterialTheme.shapes.large,
                     color = agreementContainerColor,
                 ) {
