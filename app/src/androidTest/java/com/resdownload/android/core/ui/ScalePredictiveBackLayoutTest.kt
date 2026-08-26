@@ -30,6 +30,7 @@ class ScalePredictiveBackLayoutTest {
         composeRule.runOnIdle { fixture.dispatcher.onBackPressed() }
 
         composeRule.waitUntil(timeoutMillis = 3_000) { !fixture.foregroundVisible }
+        composeRule.waitUntil(timeoutMillis = 3_000) { fixture.backFinished }
         composeRule.onNodeWithTag("scaleBackBackground").assertIsDisplayed()
         composeRule.onNodeWithTag("scaleBackForeground").assertDoesNotExist()
     }
@@ -52,6 +53,7 @@ class ScalePredictiveBackLayoutTest {
         composeRule.waitForIdle()
 
         assertFalse(fixture.backCommitted)
+        assertFalse(fixture.backFinished)
         composeRule.onNodeWithTag("scaleBackForeground").assertIsDisplayed()
     }
 
@@ -85,6 +87,7 @@ class ScalePredictiveBackLayoutTest {
                         fixture.backCommitted = true
                         fixture.foregroundVisible = false
                     },
+                    onBackFinished = { fixture.backFinished = true },
                     contentKey = fixture.foregroundVisible,
                     keepBackgroundComposed = true,
                     background = { modifier ->
@@ -106,5 +109,6 @@ private class ScaleBackFixture {
     lateinit var dispatcher: OnBackPressedDispatcher
     var foregroundVisible by mutableStateOf(true)
     var backCommitted by mutableStateOf(false)
+    var backFinished by mutableStateOf(false)
     var backgroundBackCount by mutableStateOf(0)
 }

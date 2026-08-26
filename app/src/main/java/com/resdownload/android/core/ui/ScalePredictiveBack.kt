@@ -65,6 +65,7 @@ internal fun scaleBackExitDirection(swipeEdge: Int): Float =
 internal fun ScalePredictiveBackLayout(
     enabled: Boolean,
     onBack: () -> Unit,
+    onBackFinished: () -> Unit = {},
     modifier: Modifier = Modifier,
     contentKey: Any? = Unit,
     keepBackgroundComposed: Boolean = false,
@@ -85,6 +86,7 @@ internal fun ScalePredictiveBackLayout(
     var settleJob by remember { mutableStateOf<Job?>(null) }
     val animationScope = rememberCoroutineScope()
     val currentOnBack by rememberUpdatedState(onBack)
+    val currentOnBackFinished by rememberUpdatedState(onBackFinished)
     val currentContentKey by rememberUpdatedState(contentKey)
     val onBackPressedDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
 
@@ -147,7 +149,6 @@ internal fun ScalePredictiveBackLayout(
                         gestureGeneration == generation &&
                         currentContentKey == gestureContentKey
                     ) {
-                        inProgress = false
                         currentOnBack()
                         committed = true
                         var contentChangeFrames = 0
@@ -158,8 +159,19 @@ internal fun ScalePredictiveBackLayout(
                             withFrameNanos { }
                             contentChangeFrames++
                         }
-                        if (currentContentKey != gestureContentKey) {
+                        val contentChanged = currentContentKey != gestureContentKey
+                        if (contentChanged) {
+                            // Keep the outgoing layer off-screen until the destination has composed.
                             withFrameNanos { }
+                        }
+                        if (gestureGeneration == generation) {
+                            inProgress = false
+                        }
+                        // Let the destination frame replace the transition layers before cleanup.
+                        withFrameNanos { }
+                        currentOnBackFinished()
+                        if (contentChanged) {
+                            // Apply the background-to-destination handoff before replaying another Back.
                             while (finishingBackCollectors > 0) {
                                 withFrameNanos { }
                             }

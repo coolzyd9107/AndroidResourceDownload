@@ -126,7 +126,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import coil.compose.SubcomposeAsyncImage
@@ -150,8 +149,6 @@ import com.resdownload.android.domain.model.Role
 import com.resdownload.android.domain.model.previewFormat
 import com.resdownload.android.domain.webdav.WebDavPath
 import com.resdownload.android.domain.webdav.strongEntityTagOrNull
-
-private const val PREDICTIVE_FOLDER_TRANSITION_TIMEOUT_MILLIS = 300L
 
 private data class PredictiveFolderTransition(
     val source: WebDavPath,
@@ -534,6 +531,8 @@ fun FilesScreen(
     var predictiveFolderTransition by remember {
         mutableStateOf<PredictiveFolderTransition?>(null)
     }
+    var cachedNavigationPane by remember { mutableStateOf<FilePaneState?>(null) }
+    val predictiveFolderHandoff = predictiveFolderTransition?.destination == activePath
     val parentPath = activePath.decodedSegments
         .takeIf { it.isNotEmpty() }
         ?.dropLast(1)
@@ -546,14 +545,20 @@ fun FilesScreen(
                 FilePaneState(parent, FilePaneContent.Loading)
             }
     }
-    LaunchedEffect(filePaneState.path, predictiveFolderTransition) {
-        val pendingTransition = predictiveFolderTransition ?: return@LaunchedEffect
-        if (filePaneState.path != pendingTransition.source) {
-            predictiveFolderTransition = null
-        } else {
-            delay(PREDICTIVE_FOLDER_TRANSITION_TIMEOUT_MILLIS)
-            if (predictiveFolderTransition == pendingTransition) {
-                predictiveFolderTransition = null
+    val visibleFilePaneState = cachedNavigationPane?.takeIf { cachedPane ->
+        cachedPane.path == filePaneState.path && filePaneState.content is FilePaneContent.Loading
+    } ?: filePaneState
+    val frozenBackPreview = predictiveFolderTransition?.let { transition ->
+        cachedNavigationPane?.takeIf { it.path == transition.destination }
+    }
+    LaunchedEffect(activePath, filePaneState, predictiveFolderTransition) {
+        if (predictiveFolderTransition == null) {
+            val cachedPane = cachedNavigationPane
+            val leftCachedPath = cachedPane?.path != activePath
+            val finishedCachedLoad = cachedPane?.path == filePaneState.path &&
+                filePaneState.content !is FilePaneContent.Loading
+            if (cachedPane != null && (leftCachedPath || finishedCachedLoad)) {
+                cachedNavigationPane = null
             }
         }
     }
@@ -592,6 +597,7 @@ fun FilesScreen(
             enabled = folderPredictiveBackEnabled,
             onBack = {
                 parentPath?.let { destination ->
+                    cachedNavigationPane = parentPreviewState
                     predictiveFolderTransition = PredictiveFolderTransition(
                         source = activePath,
                         destination = destination,
@@ -599,11 +605,13 @@ fun FilesScreen(
                     navigateToParent(destination)
                 }
             },
+            onBackFinished = { predictiveFolderTransition = null },
             contentKey = activePath,
             background = { backgroundModifier ->
-                parentPreviewState?.let { preview ->
+                (frozenBackPreview ?: parentPreviewState)?.let { preview ->
                     FolderBackPreview(
                         pane = preview,
+                        isAdmin = isAdmin,
                         modifier = backgroundModifier,
                     )
                 }
@@ -742,12 +750,16 @@ fun FilesScreen(
                                 AnimatedContent(
                                     targetState = displayedPath,
                                     transitionSpec = {
-                                        (fadeIn(folderEffectsSpec) +
-                                            slideInVertically(folderSpatialSpec) { it / 2 })
-                                            .togetherWith(
-                                                fadeOut(folderEffectsSpec) +
-                                                    slideOutVertically(folderSpatialSpec) { -it / 2 },
-                                            )
+                                        if (predictiveFolderHandoff) {
+                                            EnterTransition.None.togetherWith(ExitTransition.None)
+                                        } else {
+                                            (fadeIn(folderEffectsSpec) +
+                                                slideInVertically(folderSpatialSpec) { it / 2 })
+                                                .togetherWith(
+                                                    fadeOut(folderEffectsSpec) +
+                                                        slideOutVertically(folderSpatialSpec) { -it / 2 },
+                                                )
+                                        }
                                     },
                                     label = "filePath",
                                 ) { path ->
@@ -761,8 +773,16 @@ fun FilesScreen(
                             navigationIcon = {
                                 AnimatedVisibility(
                                     visible = !activePath.isRoot,
-                                    enter = fadeIn(folderEffectsSpec) + scaleIn(folderScaleSpec),
-                                    exit = fadeOut(folderEffectsSpec) + scaleOut(folderScaleSpec),
+                                    enter = if (predictiveFolderHandoff) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(folderEffectsSpec) + scaleIn(folderScaleSpec)
+                                    },
+                                    exit = if (predictiveFolderHandoff) {
+                                        ExitTransition.None
+                                    } else {
+                                        fadeOut(folderEffectsSpec) + scaleOut(folderScaleSpec)
+                                    },
                                 ) {
                                     IconButton(onClick = navigateUp) {
                                         Icon(
@@ -983,7 +1003,7 @@ fun FilesScreen(
                     )
                 } else {
                     AnimatedContent(
-                        targetState = filePaneState,
+                        targetState = visibleFilePaneState,
                         contentKey = { pane -> pane.path to pane.content::class },
                         transitionSpec = {
                             if (
@@ -1023,7 +1043,7 @@ fun FilesScreen(
                             .fillMaxSize(),
                         label = "folderContent",
                     ) { pane ->
-                        val isTargetContent = pane == filePaneState
+                        val isTargetContent = pane == visibleFilePaneState
                         val contentModifier = if (isTargetContent) {
                             Modifier
                         } else {
@@ -1063,6 +1083,7 @@ fun FilesScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     enabled = isTargetContent,
                                     isAdmin = isAdmin,
+                                    animateItems = !predictiveFolderHandoff,
                                     multiSelectMode = multiSelectMode,
                                     selectedPaths = selectedPaths,
                                     onManage = { if (isAdmin) selectedFile = it },
@@ -1070,7 +1091,9 @@ fun FilesScreen(
                                         if (multiSelectMode) {
                                             toggleFileSelection(file)
                                         } else if (file.isDirectory) {
-                                            folderHistory = (folderHistory + filePaneState).takeLast(12)
+                                            folderHistory = (
+                                                folderHistory + visibleFilePaneState
+                                            ).takeLast(12)
                                             if (viewModel == null) {
                                                 currentPath = file.path
                                             } else {
@@ -1541,6 +1564,7 @@ private fun MultiSelectAction(
 @Composable
 private fun FolderBackPreview(
     pane: FilePaneState,
+    isAdmin: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -1565,10 +1589,37 @@ private fun FolderBackPreview(
                         }
                     }
                 },
+                actions = {
+                    IconButton(onClick = {}) {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                    }
+                    IconButton(onClick = {}) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
+        },
+        floatingActionButton = {
+            if (isAdmin) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ExtendedFloatingActionButton(
+                        text = { Text("新建文件夹") },
+                        icon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
+                        onClick = {},
+                    )
+                    ExtendedFloatingActionButton(
+                        text = { Text("上传") },
+                        icon = { Icon(Icons.Default.UploadFile, contentDescription = null) },
+                        onClick = {},
+                    )
+                }
+            }
         },
     ) { innerPadding ->
         when (val content = pane.content) {
@@ -1587,6 +1638,8 @@ private fun FolderBackPreview(
                 files = content.value,
                 onFileClick = {},
                 enabled = false,
+                isAdmin = isAdmin,
+                animateItems = false,
                 modifier = Modifier.padding(innerPadding),
             )
         }
@@ -1832,6 +1885,7 @@ private fun FileList(
     showPath: Boolean = false,
     reserveAdminActionSpace: Boolean = true,
     visibleCount: Int = files.size,
+    animateItems: Boolean = true,
 ) {
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
@@ -1942,12 +1996,15 @@ private fun FileList(
                         MaterialTheme.colorScheme.surface
                     },
                 ),
-                modifier = Modifier
-                    .animateItem(
+                modifier = (if (animateItems) {
+                    Modifier.animateItem(
                         fadeInSpec = itemEffectsSpec,
                         placementSpec = itemSpatialSpec,
                         fadeOutSpec = itemEffectsSpec,
                     )
+                } else {
+                    Modifier
+                })
                     .clip(MaterialTheme.shapes.small)
                     .combinedClickable(
                         enabled = enabled,
