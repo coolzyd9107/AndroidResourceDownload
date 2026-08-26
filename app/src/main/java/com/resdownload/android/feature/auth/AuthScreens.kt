@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +58,9 @@ import androidx.compose.ui.unit.dp
 import com.resdownload.android.BuildConfig
 import com.resdownload.android.R
 import com.resdownload.android.core.ui.AppIcon
+
+private val LoginActionContainerHeight = 68.dp
+private val LoginActionContainerSpacing = 12.dp
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -83,8 +87,11 @@ fun LoginScreen(
     )
     val aboutContainerColor = colorScheme.surfaceContainerHigh
     val agreementContainerColor = colorScheme.surfaceContainerLow
-    val actionContainerHeight = 68.dp
-    val actionContainerSpacing = 12.dp
+    val statusMessage = if (showAgreementError) {
+        "请先同意用户协议与隐私政策"
+    } else {
+        message
+    }
 
     fun updateAgreement(accepted: Boolean) {
         agreementAccepted = accepted
@@ -143,11 +150,11 @@ fun LoginScreen(
             Spacer(Modifier.size(12.dp))
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(actionContainerSpacing),
+                verticalArrangement = Arrangement.spacedBy(LoginActionContainerSpacing),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(actionContainerSpacing),
+                    horizontalArrangement = Arrangement.spacedBy(LoginActionContainerSpacing),
                 ) {
                     Surface(
                         onClick = {
@@ -155,7 +162,7 @@ fun LoginScreen(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(actionContainerHeight),
+                            .height(LoginActionContainerHeight),
                         enabled = !busy,
                         shape = MaterialTheme.shapes.large,
                         color = if (busy) {
@@ -196,7 +203,7 @@ fun LoginScreen(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(actionContainerHeight),
+                            .height(LoginActionContainerHeight),
                         enabled = !busy,
                         shape = MaterialTheme.shapes.large,
                         color = if (busy) {
@@ -236,7 +243,7 @@ fun LoginScreen(
                     onClick = onOpenAbout,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(actionContainerHeight),
+                        .height(LoginActionContainerHeight),
                     shape = MaterialTheme.shapes.large,
                     color = aboutContainerColor,
                     contentColor = colorScheme.onSurface,
@@ -263,7 +270,7 @@ fun LoginScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(actionContainerHeight),
+                        .height(LoginActionContainerHeight),
                     shape = MaterialTheme.shapes.large,
                     color = agreementContainerColor,
                     contentColor = colorScheme.onSurface,
@@ -307,25 +314,15 @@ fun LoginScreen(
             }
 
             AnimatedVisibility(
-                visible = busy,
+                visible = busy || statusMessage != null,
                 enter = fadeIn(visibilityEffectsSpec) + expandVertically(visibilitySpatialSpec),
                 exit = fadeOut(visibilityEffectsSpec) + shrinkVertically(visibilitySpatialSpec),
             ) {
-                ProcessingStatus("正在验证身份")
-            }
-            AnimatedVisibility(
-                visible = message != null,
-                enter = fadeIn(visibilityEffectsSpec) + expandVertically(visibilitySpatialSpec),
-                exit = fadeOut(visibilityEffectsSpec) + shrinkVertically(visibilitySpatialSpec),
-            ) {
-                message?.let { InlineMessage(it) }
-            }
-            AnimatedVisibility(
-                visible = showAgreementError,
-                enter = fadeIn(visibilityEffectsSpec) + expandVertically(visibilitySpatialSpec),
-                exit = fadeOut(visibilityEffectsSpec) + shrinkVertically(visibilitySpatialSpec),
-            ) {
-                InlineMessage("请先同意用户协议与隐私政策")
+                if (busy) {
+                    ProcessingStatus("正在验证身份")
+                } else {
+                    statusMessage?.let { InlineMessage(it) }
+                }
             }
         }
     }
@@ -378,27 +375,37 @@ fun LoginScreen(
 @Composable
 private fun ProcessingStatus(text: String) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(LoginActionContainerHeight)
+            .semantics(mergeDescendants = true) { },
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.secondaryContainer,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             LoadingIndicator(
-                modifier = Modifier.size(32.dp),
+                modifier = Modifier.size(ButtonDefaults.MediumIconSize),
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
             Text(
                 text = text,
-                style = MaterialTheme.typography.bodyMediumEmphasized,
+                style = MaterialTheme.typography.labelLargeEmphasized,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun InlineMessage(
     text: String,
@@ -415,21 +422,33 @@ private fun InlineMessage(
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
     }
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(LoginActionContainerHeight)
+            .semantics(mergeDescendants = true) { },
         shape = MaterialTheme.shapes.large,
         color = containerColor,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, contentDescription = null, tint = contentColor)
-            Spacer(Modifier.width(12.dp))
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(ButtonDefaults.MediumIconSize),
+                tint = contentColor,
+            )
+            Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
             Text(
                 text = text,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelLargeEmphasized,
                 color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

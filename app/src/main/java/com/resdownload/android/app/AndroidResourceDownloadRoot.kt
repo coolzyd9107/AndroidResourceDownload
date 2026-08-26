@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -270,7 +271,7 @@ fun AndroidResourceDownloadRoot(
                                 } else {
                                     val authorizationUrl = authViewModel.beginGithub()
                                     if (authorizationUrl != null) {
-                                        if (!context.launchBrowser(authorizationUrl)) {
+                                        if (!context.launchCustomTab(authorizationUrl)) {
                                             authViewModel.reportGithubLaunchFailure()
                                         }
                                     }
@@ -932,6 +933,10 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 
 private fun Context.launchBrowser(url: String): Boolean = runCatching {
     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+}.isSuccess
+
+private fun Context.launchCustomTab(url: String): Boolean = runCatching {
+    CustomTabsIntent.Builder().build().launchUrl(this, Uri.parse(url))
 }.isSuccess
 
 private fun DownloadTask.withMockStatus(status: DownloadStatus): DownloadTask {

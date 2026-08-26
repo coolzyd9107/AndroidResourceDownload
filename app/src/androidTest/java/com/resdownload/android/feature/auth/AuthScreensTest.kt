@@ -28,6 +28,7 @@ class AuthScreensTest {
                     onGithubLogin = { githubLogin = true },
                     onQqLogin = { qqLogin = true },
                     onOpenAbout = { aboutOpened = true },
+                    message = "QQ 登录已取消",
                     onPolicyAccepted = { policyAccepted = true },
                 )
             }
@@ -42,10 +43,13 @@ class AuthScreensTest {
             .fetchSemanticsNode().boundsInRoot
         val agreementBounds = composeRule.onNodeWithText("我已阅读并同意")
             .fetchSemanticsNode().boundsInRoot
+        val statusBounds = composeRule.onNodeWithText("QQ 登录已取消")
+            .fetchSemanticsNode().boundsInRoot
         assertEquals(githubBounds.top, qqBounds.top, 1f)
         assertEquals(githubBounds.height, qqBounds.height, 1f)
         assertEquals(githubBounds.height, aboutBounds.height, 1f)
         assertEquals(githubBounds.height, agreementBounds.height, 1f)
+        assertEquals(githubBounds.height, statusBounds.height, 1f)
         assertEquals(
             qqBounds.left - githubBounds.right,
             aboutBounds.top - githubBounds.bottom,
@@ -54,6 +58,11 @@ class AuthScreensTest {
         assertEquals(
             qqBounds.left - githubBounds.right,
             agreementBounds.top - aboutBounds.bottom,
+            1f,
+        )
+        assertEquals(
+            qqBounds.left - githubBounds.right,
+            statusBounds.top - agreementBounds.bottom,
             1f,
         )
         composeRule.onNodeWithText("我已阅读并同意").assertIsOff()
