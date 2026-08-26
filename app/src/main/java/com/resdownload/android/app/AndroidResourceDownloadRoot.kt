@@ -10,6 +10,9 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -49,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -70,6 +74,7 @@ import com.resdownload.android.core.theme.AndroidResourceDownloadTheme
 import com.resdownload.android.core.theme.ThemeMode
 import com.resdownload.android.core.theme.ThemeSettings
 import com.resdownload.android.core.theme.ThemeSchemeVariant
+import com.resdownload.android.core.ui.ScalePredictiveBackLayout
 import com.resdownload.android.data.mock.initialMockDownloads
 import com.resdownload.android.data.mock.mockTaskForFile
 import com.resdownload.android.domain.model.DownloadStatus
@@ -90,16 +95,13 @@ import com.resdownload.android.feature.settings.AboutViewModel
 import com.resdownload.android.feature.settings.SettingsScreen
 import com.resdownload.android.feature.settings.SettingsViewModel
 import com.resdownload.android.feature.settings.ThemeViewModel
+import com.resdownload.android.feature.settings.UpdateUiState
 import com.resdownload.android.feature.uploads.UploadsScreen
 import com.resdownload.android.feature.uploads.UploadsViewModel
 
 private object RootRoute {
     const val Login = "login"
     const val Main = "main"
-}
-
-private object SettingsRoute {
-    const val About = "settings/about"
 }
 
 private const val QQ_PRIVACY_POLICY_URL =
@@ -123,14 +125,11 @@ private fun shellTransitionDirection(initialRoute: String?, targetRoute: String?
         ShellRoute.Uploads.route -> ShellRoute.Uploads.ordinal
         ShellRoute.Downloads.route -> ShellRoute.Downloads.ordinal
         ShellRoute.Settings.route -> ShellRoute.Settings.ordinal
-        SettingsRoute.About -> ShellRoute.entries.size
         else -> 0
     }
 
     return position(targetRoute).compareTo(position(initialRoute))
 }
-
-private fun isShellRoute(route: String?): Boolean = ShellRoute.entries.any { it.route == route }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -307,6 +306,9 @@ private fun MainShell(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    var showAbout by rememberSaveable(user.id) { mutableStateOf(false) }
+    var predictiveAboutExit by remember { mutableStateOf(false) }
+    var requestedTabTransition by remember { mutableStateOf<Pair<String, String>?>(null) }
     var filesMultiSelectMode by remember { mutableStateOf(false) }
     var transferMultiSelectMode by remember { mutableStateOf(false) }
     val showMultiSelectBar = when (currentRoute) {
@@ -359,12 +361,23 @@ private fun MainShell(
         .onFailure { showMessage("无法打开链接") }
         .isSuccess
 
-    fun openShellRoute(route: ShellRoute): Boolean {
+    fun openShellRoute(route: ShellRoute, animatePop: Boolean = false): Boolean {
         if (navController.currentDestination?.route == route.route) return false
+        val initialRoute = navController.currentDestination?.route ?: return false
+        val transitionRequest = initialRoute to route.route
+        requestedTabTransition = transitionRequest.takeIf { animatePop }
+        showAbout = false
+        predictiveAboutExit = false
         navController.navigate(route.route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
             launchSingleTop = true
             restoreState = true
+        }
+        if (animatePop) {
+            scope.launch {
+                delay(TAB_NAVIGATION_COALESCE_MILLIS)
+                if (requestedTabTransition == transitionRequest) requestedTabTransition = null
+            }
         }
         return true
     }
@@ -372,7 +385,7 @@ private fun MainShell(
     val tabNavigationRequests = remember { Channel<ShellRoute>(Channel.CONFLATED) }
     LaunchedEffect(navController, tabNavigationRequests) {
         for (route in tabNavigationRequests) {
-            if (openShellRoute(route)) delay(TAB_NAVIGATION_COALESCE_MILLIS)
+            if (openShellRoute(route, animatePop = true)) delay(TAB_NAVIGATION_COALESCE_MILLIS)
         }
     }
 
@@ -479,6 +492,7 @@ private fun MainShell(
         bottomBar = {
             if (
                 !showMultiSelectBar &&
+                !showAbout &&
                 ShellRoute.values().any { destination -> destination.route == currentRoute }
             ) {
                 NavigationBar(
@@ -533,18 +547,8 @@ private fun MainShell(
                     initialState.destination.route,
                     targetState.destination.route,
                 )
-                if (
-                    isShellRoute(initialState.destination.route) &&
-                    isShellRoute(targetState.destination.route)
-                ) {
-                    slideInHorizontally(tabOffsetSpec) { width ->
-                        tabDirection * direction * width
-                    }
-                } else {
-                    fadeIn(tabEffectsSpec) +
-                        slideInHorizontally(tabOffsetSpec) { width ->
-                            tabDirection * direction * width / 8
-                        }
+                slideInHorizontally(tabOffsetSpec) { width ->
+                    tabDirection * direction * width
                 }
             },
             exitTransition = {
@@ -552,56 +556,38 @@ private fun MainShell(
                     initialState.destination.route,
                     targetState.destination.route,
                 )
-                if (
-                    isShellRoute(initialState.destination.route) &&
-                    isShellRoute(targetState.destination.route)
-                ) {
-                    slideOutHorizontally(tabOffsetSpec) { width ->
-                        -tabDirection * direction * width
-                    }
-                } else {
-                    fadeOut(tabEffectsSpec) +
-                        slideOutHorizontally(tabOffsetSpec) { width ->
-                            -tabDirection * direction * width / 8
-                        }
+                slideOutHorizontally(tabOffsetSpec) { width ->
+                    -tabDirection * direction * width
                 }
             },
             popEnterTransition = {
+                val initialRoute = initialState.destination.route
+                val targetRoute = targetState.destination.route
                 val direction = shellTransitionDirection(
-                    initialState.destination.route,
-                    targetState.destination.route,
+                    initialRoute,
+                    targetRoute,
                 )
-                if (
-                    isShellRoute(initialState.destination.route) &&
-                    isShellRoute(targetState.destination.route)
-                ) {
+                if (requestedTabTransition == (initialRoute to targetRoute)) {
                     slideInHorizontally(tabOffsetSpec) { width ->
                         tabDirection * direction * width
                     }
                 } else {
-                    fadeIn(tabEffectsSpec) +
-                        slideInHorizontally(tabOffsetSpec) { width ->
-                            tabDirection * direction * width / 8
-                        }
+                    EnterTransition.None
                 }
             },
             popExitTransition = {
+                val initialRoute = initialState.destination.route
+                val targetRoute = targetState.destination.route
                 val direction = shellTransitionDirection(
-                    initialState.destination.route,
-                    targetState.destination.route,
+                    initialRoute,
+                    targetRoute,
                 )
-                if (
-                    isShellRoute(initialState.destination.route) &&
-                    isShellRoute(targetState.destination.route)
-                ) {
+                if (requestedTabTransition == (initialRoute to targetRoute)) {
                     slideOutHorizontally(tabOffsetSpec) { width ->
                         -tabDirection * direction * width
                     }
                 } else {
-                    fadeOut(tabEffectsSpec) +
-                        slideOutHorizontally(tabOffsetSpec) { width ->
-                            -tabDirection * direction * width / 8
-                        }
+                    ExitTransition.None
                 }
             },
         ) {
@@ -800,37 +786,79 @@ private fun MainShell(
             composable(route = ShellRoute.Settings.route) {
                 val settingsViewModel = hiltViewModel<SettingsViewModel>()
                 val noticeState by settingsViewModel.noticeState.collectAsStateWithLifecycle()
-                SettingsScreen(
-                    user = user,
-                    themeMode = themeSettings.themeMode,
-                    onThemeModeChange = onThemeModeChange,
-                    dynamicColorEnabled = themeSettings.dynamicColorEnabled,
-                    themeSeedColorArgb = themeSettings.seedColorArgb,
-                    themeSchemeVariant = themeSettings.schemeVariant,
-                    onDynamicColorEnabledChange = onDynamicColorEnabledChange,
-                    onThemeSeedColorChange = onSeedColorChange,
-                    onThemeSchemeVariantChange = onSchemeVariantChange,
-                    onResetThemeColor = onResetSeedColor,
-                    noticeState = noticeState,
-                    onRetryNotice = settingsViewModel::refreshNotice,
-                    onOpenAbout = {
-                        navController.navigate(SettingsRoute.About) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onLogout = onLogout,
-                )
-            }
-            composable(route = SettingsRoute.About) {
                 val aboutViewModel = hiltViewModel<AboutViewModel>()
                 val updateState by aboutViewModel.updateState.collectAsStateWithLifecycle()
-                AboutScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                    updateState = updateState,
-                    onCheckUpdate = aboutViewModel::checkForUpdate,
-                    onDismissUpdate = aboutViewModel::dismissUpdateResult,
-                    onOpenUrl = ::openExternalUrl,
-                )
+                val aboutBackEnabled = showAbout && when (updateState) {
+                    UpdateUiState.Idle, UpdateUiState.Checking -> true
+                    is UpdateUiState.Available,
+                    is UpdateUiState.Error,
+                    is UpdateUiState.UpToDate,
+                        -> false
+                }
+                ScalePredictiveBackLayout(
+                    enabled = aboutBackEnabled,
+                    onBack = {
+                        predictiveAboutExit = true
+                        showAbout = false
+                    },
+                    contentKey = showAbout,
+                    keepBackgroundComposed = true,
+                    background = { backgroundModifier ->
+                        SettingsScreen(
+                            user = user,
+                            themeMode = themeSettings.themeMode,
+                            onThemeModeChange = onThemeModeChange,
+                            dynamicColorEnabled = themeSettings.dynamicColorEnabled,
+                            themeSeedColorArgb = themeSettings.seedColorArgb,
+                            themeSchemeVariant = themeSettings.schemeVariant,
+                            onDynamicColorEnabledChange = onDynamicColorEnabledChange,
+                            onThemeSeedColorChange = onSeedColorChange,
+                            onThemeSchemeVariantChange = onSchemeVariantChange,
+                            onResetThemeColor = onResetSeedColor,
+                            noticeState = noticeState,
+                            onRetryNotice = settingsViewModel::refreshNotice,
+                            onOpenAbout = {
+                                predictiveAboutExit = false
+                                showAbout = true
+                            },
+                            onLogout = onLogout,
+                            modifier = if (showAbout) {
+                                backgroundModifier.clearAndSetSemantics { }
+                            } else {
+                                backgroundModifier
+                            },
+                        )
+                    },
+                ) { foregroundModifier ->
+                    AnimatedVisibility(
+                        visible = showAbout,
+                        modifier = foregroundModifier,
+                        enter = fadeIn(tabEffectsSpec) +
+                            slideInHorizontally(tabOffsetSpec) { width ->
+                                tabDirection * width / 8
+                            },
+                        exit = if (predictiveAboutExit) {
+                            ExitTransition.None
+                        } else {
+                            fadeOut(tabEffectsSpec) +
+                                slideOutHorizontally(tabOffsetSpec) { width ->
+                                    tabDirection * width / 8
+                                }
+                        },
+                    ) {
+                        AboutScreen(
+                            onNavigateBack = {
+                                predictiveAboutExit = false
+                                showAbout = false
+                            },
+                            updateState = updateState,
+                            onCheckUpdate = aboutViewModel::checkForUpdate,
+                            onDismissUpdate = aboutViewModel::dismissUpdateResult,
+                            onOpenUrl = ::openExternalUrl,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
             }
         }
     }

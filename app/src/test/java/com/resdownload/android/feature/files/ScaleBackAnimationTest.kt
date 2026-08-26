@@ -1,6 +1,10 @@
 package com.resdownload.android.feature.files
 
 import androidx.activity.BackEventCompat
+import com.resdownload.android.core.ui.scaleBackExitDirection
+import com.resdownload.android.core.ui.scaleBackPivotX
+import com.resdownload.android.core.ui.scaleBackPivotY
+import com.resdownload.android.core.ui.scaleBackScale
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
