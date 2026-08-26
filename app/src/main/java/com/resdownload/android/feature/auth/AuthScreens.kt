@@ -47,8 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -78,11 +76,13 @@ fun LoginScreen(
     val appName = stringResource(R.string.app_name)
     val visibilityEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val visibilitySpatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<androidx.compose.ui.unit.IntSize>()
-    val backgroundColor = MaterialTheme.colorScheme.background
-    val neutralOverlay = if (backgroundColor.luminance() < 0.5f) Color.White else Color.Black
-    val agreementContainerColor = neutralOverlay.copy(alpha = 0.04f).compositeOver(backgroundColor)
-    val githubButtonColors = ButtonDefaults.buttonColors()
-    val qqButtonColors = ButtonDefaults.filledTonalButtonColors()
+    val colorScheme = MaterialTheme.colorScheme
+    val loginButtonColors = ButtonDefaults.buttonColors(
+        containerColor = colorScheme.primaryContainer,
+        contentColor = colorScheme.onPrimaryContainer,
+    )
+    val aboutContainerColor = colorScheme.surfaceContainerHigh
+    val agreementContainerColor = colorScheme.surfaceContainerLow
     val actionContainerHeight = 68.dp
     val actionContainerSpacing = 12.dp
 
@@ -159,14 +159,14 @@ fun LoginScreen(
                         enabled = !busy,
                         shape = MaterialTheme.shapes.large,
                         color = if (busy) {
-                            githubButtonColors.disabledContainerColor
+                            loginButtonColors.disabledContainerColor
                         } else {
-                            githubButtonColors.containerColor
+                            loginButtonColors.containerColor
                         },
                         contentColor = if (busy) {
-                            githubButtonColors.disabledContentColor
+                            loginButtonColors.disabledContentColor
                         } else {
-                            githubButtonColors.contentColor
+                            loginButtonColors.contentColor
                         },
                     ) {
                         Row(
@@ -200,14 +200,14 @@ fun LoginScreen(
                         enabled = !busy,
                         shape = MaterialTheme.shapes.large,
                         color = if (busy) {
-                            qqButtonColors.disabledContainerColor
+                            loginButtonColors.disabledContainerColor
                         } else {
-                            qqButtonColors.containerColor
+                            loginButtonColors.containerColor
                         },
                         contentColor = if (busy) {
-                            qqButtonColors.disabledContentColor
+                            loginButtonColors.disabledContentColor
                         } else {
-                            qqButtonColors.contentColor
+                            loginButtonColors.contentColor
                         },
                     ) {
                         Row(
@@ -238,7 +238,8 @@ fun LoginScreen(
                         .fillMaxWidth()
                         .height(actionContainerHeight),
                     shape = MaterialTheme.shapes.large,
-                    color = agreementContainerColor,
+                    color = aboutContainerColor,
+                    contentColor = colorScheme.onSurface,
                 ) {
                     Row(
                         modifier = Modifier
@@ -265,6 +266,7 @@ fun LoginScreen(
                         .height(actionContainerHeight),
                     shape = MaterialTheme.shapes.large,
                     color = agreementContainerColor,
+                    contentColor = colorScheme.onSurface,
                 ) {
                     Row(
                         modifier = Modifier
