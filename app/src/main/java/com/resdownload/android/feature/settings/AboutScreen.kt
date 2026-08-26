@@ -74,6 +74,7 @@ private const val BACKEND_AVATAR_URL =
 @Composable
 fun AboutScreen(
     onNavigateBack: () -> Unit,
+    navigateBackContentDescription: String = "返回设置",
     updateState: UpdateUiState = UpdateUiState.Idle,
     onCheckUpdate: () -> Unit = {},
     onDismissUpdate: () -> Unit = {},
@@ -89,7 +90,7 @@ fun AboutScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回设置",
+                            contentDescription = navigateBackContentDescription,
                         )
                     }
                 },

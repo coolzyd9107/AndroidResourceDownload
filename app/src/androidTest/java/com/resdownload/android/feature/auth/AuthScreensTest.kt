@@ -1,6 +1,7 @@
 package com.resdownload.android.feature.auth
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -19,12 +20,14 @@ class AuthScreensTest {
     fun loginActionsRemainPolicyGated() {
         var githubLogin = false
         var qqLogin = false
+        var aboutOpened = false
         var policyAccepted = false
         composeRule.setContent {
             MaterialTheme {
                 LoginScreen(
                     onGithubLogin = { githubLogin = true },
                     onQqLogin = { qqLogin = true },
+                    onOpenAbout = { aboutOpened = true },
                     onPolicyAccepted = { policyAccepted = true },
                 )
             }
@@ -35,16 +38,31 @@ class AuthScreensTest {
             .fetchSemanticsNode().boundsInRoot
         val qqBounds = composeRule.onNodeWithText("QQ 登录")
             .fetchSemanticsNode().boundsInRoot
+        val aboutBounds = composeRule.onNodeWithText("关于")
+            .fetchSemanticsNode().boundsInRoot
         val agreementBounds = composeRule.onNodeWithText("我已阅读并同意")
             .fetchSemanticsNode().boundsInRoot
         assertEquals(githubBounds.top, qqBounds.top, 1f)
         assertEquals(githubBounds.height, qqBounds.height, 1f)
+        assertEquals(githubBounds.height, aboutBounds.height, 1f)
         assertEquals(githubBounds.height, agreementBounds.height, 1f)
         assertEquals(
             qqBounds.left - githubBounds.right,
-            agreementBounds.top - githubBounds.bottom,
+            aboutBounds.top - githubBounds.bottom,
             1f,
         )
+        assertEquals(
+            qqBounds.left - githubBounds.right,
+            agreementBounds.top - aboutBounds.bottom,
+            1f,
+        )
+        composeRule.onNodeWithText("我已阅读并同意").assertIsOff()
+
+        composeRule.onNodeWithText("关于").performClick()
+        composeRule.runOnIdle {
+            assertTrue(aboutOpened)
+            assertFalse(policyAccepted)
+        }
 
         composeRule.onNodeWithText("GitHub 登录").performClick()
         composeRule.onNodeWithText("QQ 登录").performClick()

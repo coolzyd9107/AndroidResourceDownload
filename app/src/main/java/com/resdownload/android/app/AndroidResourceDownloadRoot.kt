@@ -187,7 +187,6 @@ fun AndroidResourceDownloadRoot(
 ) {
     val themeSettings by themeViewModel.themeSettings.collectAsStateWithLifecycle()
     val authState by authViewModel.state.collectAsStateWithLifecycle()
-    val privacyConsentAccepted by authViewModel.privacyConsentAccepted.collectAsStateWithLifecycle()
     var sessionUser by remember { mutableStateOf<User?>(null) }
 
     AndroidResourceDownloadTheme(
@@ -240,57 +239,121 @@ fun AndroidResourceDownloadRoot(
             ) {
                 composable(RootRoute.Login) {
                     val context = LocalContext.current
-                    LoginScreen(
-                        onGithubLogin = {
-                            if (BuildConfig.DEMO_MODE) {
-                                sessionUser = User(
-                                    id = "mock-github-user",
-                                    name = "GitHub 用户",
-                                    email = "demo@qq.com",
-                                    role = Role.USER,
-                                    loginType = LoginType.GITHUB,
-                                )
-                                navController.navigate(RootRoute.Main) {
-                                    popUpTo(RootRoute.Login) { inclusive = true }
-                                }
-                            } else {
-                                val authorizationUrl = authViewModel.beginGithub()
-                                if (authorizationUrl != null) {
-                                    if (!context.launchBrowser(authorizationUrl)) {
-                                        authViewModel.reportGithubLaunchFailure()
+                    var showAbout by rememberSaveable { mutableStateOf(false) }
+                    var predictiveAboutExit by remember { mutableStateOf(false) }
+                    val aboutViewModel = hiltViewModel<AboutViewModel>()
+                    val updateState by aboutViewModel.updateState.collectAsStateWithLifecycle()
+                    val aboutBackEnabled = showAbout && when (updateState) {
+                        UpdateUiState.Idle, UpdateUiState.Checking -> true
+                        is UpdateUiState.Available,
+                        is UpdateUiState.Error,
+                        is UpdateUiState.UpToDate,
+                            -> false
+                    }
+                    val aboutOffsetSpec = spring<IntOffset>(stiffness = Spring.StiffnessMediumLow)
+                    val aboutEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LoginScreen(
+                            onGithubLogin = {
+                                if (BuildConfig.DEMO_MODE) {
+                                    sessionUser = User(
+                                        id = "mock-github-user",
+                                        name = "GitHub 用户",
+                                        email = "demo@qq.com",
+                                        role = Role.USER,
+                                        loginType = LoginType.GITHUB,
+                                    )
+                                    navController.navigate(RootRoute.Main) {
+                                        popUpTo(RootRoute.Login) { inclusive = true }
+                                    }
+                                } else {
+                                    val authorizationUrl = authViewModel.beginGithub()
+                                    if (authorizationUrl != null) {
+                                        if (!context.launchBrowser(authorizationUrl)) {
+                                            authViewModel.reportGithubLaunchFailure()
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        onQqLogin = {
-                            if (BuildConfig.DEMO_MODE) {
-                                sessionUser = User(
-                                    id = "mock-qq-user",
-                                    name = "QQ 用户",
-                                    email = null,
-                                    role = Role.USER,
-                                    loginType = LoginType.QQ,
-                                )
-                                navController.navigate(RootRoute.Main) {
-                                    popUpTo(RootRoute.Login) { inclusive = true }
+                            },
+                            onQqLogin = {
+                                if (BuildConfig.DEMO_MODE) {
+                                    sessionUser = User(
+                                        id = "mock-qq-user",
+                                        name = "QQ 用户",
+                                        email = null,
+                                        role = Role.USER,
+                                        loginType = LoginType.QQ,
+                                    )
+                                    navController.navigate(RootRoute.Main) {
+                                        popUpTo(RootRoute.Login) { inclusive = true }
+                                    }
+                                } else {
+                                    context.findActivity()?.let(authViewModel::beginQq)
+                                        ?: authViewModel.reportError("无法获取当前页面，QQ 登录未启动")
                                 }
+                            },
+                            onOpenAbout = {
+                                predictiveAboutExit = false
+                                showAbout = true
+                            },
+                            modifier = if (showAbout) {
+                                Modifier.clearAndSetSemantics { }
                             } else {
-                                context.findActivity()?.let(authViewModel::beginQq)
-                                    ?: authViewModel.reportError("无法获取当前页面，QQ 登录未启动")
+                                Modifier
+                            },
+                            busy = authState is AuthUiState.Restoring ||
+                                authState is AuthUiState.Authenticating ||
+                                authState is AuthUiState.LoggingOut,
+                            message = (authState as? AuthUiState.Error)?.message,
+                            onPolicyAccepted = authViewModel::acceptPrivacyPolicy,
+                            onOpenQqPrivacyPolicy = {
+                                if (!context.launchBrowser(QQ_PRIVACY_POLICY_URL)) {
+                                    authViewModel.reportError("无法打开 QQ 互联 SDK 隐私保护声明")
+                                }
+                            },
+                        )
+
+                        ScalePredictiveBackLayout(
+                            enabled = aboutBackEnabled,
+                            onBack = {
+                                predictiveAboutExit = true
+                                showAbout = false
+                            },
+                            contentKey = showAbout,
+                            background = { backgroundModifier -> Box(backgroundModifier) },
+                        ) { foregroundModifier ->
+                            AnimatedVisibility(
+                                visible = showAbout,
+                                modifier = foregroundModifier,
+                                enter = fadeIn(aboutEffectsSpec) +
+                                    slideInHorizontally(aboutOffsetSpec) { width ->
+                                        rootDirection * width / 8
+                                    },
+                                exit = if (predictiveAboutExit) {
+                                    ExitTransition.None
+                                } else {
+                                    fadeOut(aboutEffectsSpec) +
+                                        slideOutHorizontally(aboutOffsetSpec) { width ->
+                                            rootDirection * width / 8
+                                        }
+                                },
+                            ) {
+                                AboutScreen(
+                                    onNavigateBack = {
+                                        predictiveAboutExit = false
+                                        showAbout = false
+                                    },
+                                    navigateBackContentDescription = "返回登录",
+                                    updateState = updateState,
+                                    onCheckUpdate = aboutViewModel::checkForUpdate,
+                                    onDismissUpdate = aboutViewModel::dismissUpdateResult,
+                                    onOpenUrl = context::launchBrowser,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
                             }
-                        },
-                        busy = authState is AuthUiState.Restoring ||
-                            authState is AuthUiState.Authenticating ||
-                            authState is AuthUiState.LoggingOut,
-                        message = (authState as? AuthUiState.Error)?.message,
-                        policyAccepted = privacyConsentAccepted,
-                        onPolicyAccepted = authViewModel::acceptPrivacyPolicy,
-                        onOpenQqPrivacyPolicy = {
-                            if (!context.launchBrowser(QQ_PRIVACY_POLICY_URL)) {
-                                authViewModel.reportError("无法打开 QQ 互联 SDK 隐私保护声明")
-                            }
-                        },
-                    )
+                        }
+                    }
                 }
                 composable(RootRoute.Main) {
                     val user = if (BuildConfig.DEMO_MODE) {

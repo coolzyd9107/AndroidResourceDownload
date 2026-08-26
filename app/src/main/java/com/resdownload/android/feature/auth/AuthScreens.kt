@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -39,7 +40,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -65,14 +65,14 @@ import com.resdownload.android.core.ui.AppIcon
 fun LoginScreen(
     onGithubLogin: () -> Unit,
     onQqLogin: () -> Unit,
+    onOpenAbout: () -> Unit,
     modifier: Modifier = Modifier,
     busy: Boolean = false,
     message: String? = null,
-    policyAccepted: Boolean = false,
     onPolicyAccepted: () -> Unit = {},
     onOpenQqPrivacyPolicy: () -> Unit = {},
 ) {
-    var agreementAccepted by rememberSaveable { mutableStateOf(policyAccepted) }
+    var agreementAccepted by rememberSaveable { mutableStateOf(false) }
     var showAgreementError by rememberSaveable { mutableStateOf(false) }
     var showPolicy by rememberSaveable { mutableStateOf(false) }
     val appName = stringResource(R.string.app_name)
@@ -85,10 +85,6 @@ fun LoginScreen(
     val qqButtonColors = ButtonDefaults.filledTonalButtonColors()
     val actionContainerHeight = 68.dp
     val actionContainerSpacing = 12.dp
-
-    LaunchedEffect(policyAccepted) {
-        agreementAccepted = policyAccepted
-    }
 
     fun updateAgreement(accepted: Boolean) {
         agreementAccepted = accepted
@@ -234,6 +230,33 @@ fun LoginScreen(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
+                }
+                Surface(
+                    onClick = onOpenAbout,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(actionContainerHeight),
+                    shape = MaterialTheme.shapes.large,
+                    color = agreementContainerColor,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.MediumIconSize),
+                        )
+                        Spacer(Modifier.width(ButtonDefaults.MediumIconSpacing))
+                        Text(
+                            text = "关于",
+                            style = MaterialTheme.typography.labelLargeEmphasized,
+                        )
                     }
                 }
                 Surface(
