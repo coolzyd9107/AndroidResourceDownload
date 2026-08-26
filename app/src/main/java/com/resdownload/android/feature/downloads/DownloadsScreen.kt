@@ -495,7 +495,7 @@ fun DownloadsScreen(
                                     placementSpec = itemSpatialSpec,
                                     fadeOutSpec = itemEffectsSpec,
                                 )
-                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                                .padding(horizontal = 12.dp, vertical = 3.dp),
                         )
                     }
                 }
@@ -658,8 +658,8 @@ private fun DownloadTaskItem(
         ),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Column(
                 modifier = Modifier
@@ -669,102 +669,108 @@ private fun DownloadTaskItem(
                         label = "选择下载任务",
                         onLongPress = onLongSelect,
                     ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        modifier = Modifier.size(40.dp),
+                        shape = MaterialTheme.shapes.small,
+                        color = statusContainerColor(task.status),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            AnimatedContent(
+                                targetState = task.status,
+                                transitionSpec = {
+                                    (fadeIn(effectsSpec) +
+                                        scaleIn(spatialFloatSpec, initialScale = 0.65f))
+                                        .togetherWith(
+                                            fadeOut(effectsSpec) +
+                                                scaleOut(spatialFloatSpec, targetScale = 0.65f),
+                                        )
+                                },
+                                label = "downloadStatusIcon",
+                            ) { status ->
+                                Icon(
+                                    imageVector = statusIcon(status),
+                                    contentDescription = null,
+                                    tint = statusColor(status),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = task.fileName,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = taskProgressText(task, progress, currentSpeed),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (selectionMode) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { onSelectionToggle() },
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = task.status == DownloadStatus.RUNNING,
+                    enter = fadeIn(effectsSpec) + expandVertically(spatialSizeSpec),
+                    exit = fadeOut(effectsSpec) + shrinkVertically(spatialSizeSpec),
+                ) {
+                    if (totalBytes != null && totalBytes > 0L) {
+                        LinearWavyProgressIndicator(
+                            progress = { animatedProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = statusContainerColor(task.status),
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .taskLongPress(
+                            enabled = enabled && !selectionMode,
+                            label = "选择下载任务",
+                            onLongPress = onLongSelect,
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        AnimatedContent(
-                            targetState = task.status,
-                            transitionSpec = {
-                                (fadeIn(effectsSpec) + scaleIn(spatialFloatSpec, initialScale = 0.65f))
-                                    .togetherWith(
-                                        fadeOut(effectsSpec) +
-                                            scaleOut(spatialFloatSpec, targetScale = 0.65f),
-                                    )
-                            },
-                            label = "downloadStatusIcon",
-                        ) { status ->
-                            Icon(
-                                imageVector = statusIcon(status),
-                                contentDescription = null,
-                                tint = statusColor(status),
+                    StatusBadge(task.status)
+                    if (task.supportRange && task.status != DownloadStatus.SUCCESS) {
+                        Spacer(Modifier.width(6.dp))
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        ) {
+                            Text(
+                                text = "可续传",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = task.fileName,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = taskProgressText(task, progress, currentSpeed),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (selectionMode) {
-                    Checkbox(
-                        checked = selected,
-                        onCheckedChange = { onSelectionToggle() },
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = task.status == DownloadStatus.RUNNING,
-                enter = fadeIn(effectsSpec) + expandVertically(spatialSizeSpec),
-                exit = fadeOut(effectsSpec) + shrinkVertically(spatialSizeSpec),
-            ) {
-                if (totalBytes != null && totalBytes > 0L) {
-                    LinearWavyProgressIndicator(
-                        progress = { animatedProgress },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                StatusBadge(task.status)
-                if (task.supportRange && task.status != DownloadStatus.SUCCESS) {
-                    Spacer(Modifier.width(8.dp))
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    ) {
-                        Text(
-                            text = "可续传",
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            }
-            if (!selectionMode) {
-                Box(
-                    modifier = Modifier.align(Alignment.End),
-                    contentAlignment = Alignment.CenterEnd,
-                ) {
+                if (!selectionMode) {
                     TaskActions(
                         status = task.status,
                         enabled = enabled,
@@ -787,8 +793,8 @@ private fun StatusBadge(status: DownloadStatus) {
     ) {
         Text(
             text = statusLabel(status),
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
             color = statusColor(status),
         )
     }

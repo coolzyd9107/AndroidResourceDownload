@@ -491,7 +491,7 @@ fun UploadsScreen(
                                     placementSpec = itemSpatialSpec,
                                     fadeOutSpec = itemEffectsSpec,
                                 )
-                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                                .padding(horizontal = 12.dp, vertical = 3.dp),
                         )
                     }
                 }
@@ -624,8 +624,8 @@ private fun UploadTaskItem(
         ),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Column(
                 modifier = Modifier
@@ -635,92 +635,103 @@ private fun UploadTaskItem(
                         label = "选择上传任务",
                         onLongPress = onLongSelect,
                     ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        modifier = Modifier.size(40.dp),
+                        shape = MaterialTheme.shapes.small,
+                        color = statusContainerColor(task.status),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            AnimatedContent(
+                                targetState = task.status,
+                                transitionSpec = {
+                                    (fadeIn(effectsSpec) +
+                                        scaleIn(spatialFloatSpec, initialScale = 0.65f))
+                                        .togetherWith(
+                                            fadeOut(effectsSpec) +
+                                                scaleOut(spatialFloatSpec, targetScale = 0.65f),
+                                        )
+                                },
+                                label = "uploadStatusIcon",
+                            ) { status ->
+                                Icon(
+                                    imageVector = statusIcon(status, task.isDirectory),
+                                    contentDescription = null,
+                                    tint = statusColor(status),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = task.fileName,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (task.relativePath != task.fileName) {
+                            Text(
+                                text = task.relativePath,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(
+                            text = taskProgressText(task, progress, currentSpeed),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (selectionMode) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { onSelectionToggle() },
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = task.status == UploadStatus.RUNNING && !task.committing,
+                    enter = fadeIn(effectsSpec) + expandVertically(spatialSizeSpec),
+                    exit = fadeOut(effectsSpec) + shrinkVertically(spatialSizeSpec),
+                ) {
+                    if (!task.isDirectory && totalBytes != null && totalBytes > 0L) {
+                        LinearWavyProgressIndicator(
+                            progress = { animatedProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = statusContainerColor(task.status),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        AnimatedContent(
-                            targetState = task.status,
-                            transitionSpec = {
-                                (fadeIn(effectsSpec) + scaleIn(spatialFloatSpec, initialScale = 0.65f))
-                                    .togetherWith(
-                                        fadeOut(effectsSpec) +
-                                            scaleOut(spatialFloatSpec, targetScale = 0.65f),
-                                    )
-                            },
-                            label = "uploadStatusIcon",
-                        ) { status ->
-                            Icon(
-                                imageVector = statusIcon(status, task.isDirectory),
-                                contentDescription = null,
-                                tint = statusColor(status),
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = task.fileName,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (task.relativePath != task.fileName) {
-                        Text(
-                            text = task.relativePath,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Text(
-                        text = taskProgressText(task, progress, currentSpeed),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (selectionMode) {
-                    Checkbox(
-                        checked = selected,
-                        onCheckedChange = { onSelectionToggle() },
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = task.status == UploadStatus.RUNNING && !task.committing,
-                enter = fadeIn(effectsSpec) + expandVertically(spatialSizeSpec),
-                exit = fadeOut(effectsSpec) + shrinkVertically(spatialSizeSpec),
-            ) {
-                if (!task.isDirectory && totalBytes != null && totalBytes > 0L) {
-                    LinearWavyProgressIndicator(
-                        progress = { animatedProgress },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-            }
-
-            StatusBadge(task)
-            }
-            if (!selectionMode) {
                 Box(
-                    modifier = Modifier.align(Alignment.End),
-                    contentAlignment = Alignment.CenterEnd,
+                    modifier = Modifier
+                        .weight(1f)
+                        .taskLongPress(
+                            enabled = enabled && !selectionMode,
+                            label = "选择上传任务",
+                            onLongPress = onLongSelect,
+                        ),
+                    contentAlignment = Alignment.CenterStart,
                 ) {
+                    StatusBadge(task)
+                }
+                if (!selectionMode) {
                     TaskActions(
                         task = task,
                         enabled = enabled,
@@ -740,8 +751,8 @@ private fun StatusBadge(task: UploadTask) {
     Surface(shape = CircleShape, color = statusContainerColor(task.status)) {
         Text(
             text = statusLabel(task),
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
             color = statusColor(task.status),
         )
     }
