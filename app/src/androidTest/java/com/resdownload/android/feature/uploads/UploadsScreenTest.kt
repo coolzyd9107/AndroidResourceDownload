@@ -39,6 +39,38 @@ class UploadsScreenTest {
     }
 
     @Test
+    fun statusBadgeSpacingIsStableAcrossUploadStates() {
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(
+                        task("running", UploadStatus.RUNNING),
+                        task("success", UploadStatus.SUCCESS),
+                    ),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        val runningIcon = composeRule.onNodeWithTag("uploadStatusIcon-running")
+            .fetchSemanticsNode().boundsInRoot
+        val runningBadge = composeRule.onNodeWithTag("uploadStatusBadge-running")
+            .fetchSemanticsNode().boundsInRoot
+        val successIcon = composeRule.onNodeWithTag("uploadStatusIcon-success")
+            .fetchSemanticsNode().boundsInRoot
+        val successBadge = composeRule.onNodeWithTag("uploadStatusBadge-success")
+            .fetchSemanticsNode().boundsInRoot
+
+        assertEquals(
+            runningBadge.top - runningIcon.bottom,
+            successBadge.top - successIcon.bottom,
+            1f,
+        )
+    }
+
+    @Test
     fun committingTaskCannotBeCancelled() {
         setScreen(task("committing", UploadStatus.RUNNING, committing = true))
 

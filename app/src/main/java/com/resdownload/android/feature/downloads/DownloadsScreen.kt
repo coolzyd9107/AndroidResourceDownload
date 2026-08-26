@@ -4,13 +4,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -23,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -82,7 +80,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.resdownload.android.core.common.formatFileSize
@@ -632,7 +629,6 @@ private fun DownloadTaskItem(
     )
     val effectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val spatialFloatSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
-    val spatialSizeSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntSize>()
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -676,7 +672,9 @@ private fun DownloadTaskItem(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Surface(
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("downloadStatusIcon-${task.id}"),
                         shape = MaterialTheme.shapes.small,
                         color = statusContainerColor(task.status),
                     ) {
@@ -725,18 +723,30 @@ private fun DownloadTaskItem(
                     }
                 }
 
-                AnimatedVisibility(
-                    visible = task.status == DownloadStatus.RUNNING,
-                    enter = fadeIn(effectsSpec) + expandVertically(spatialSizeSpec),
-                    exit = fadeOut(effectsSpec) + shrinkVertically(spatialSizeSpec),
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(12.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    if (totalBytes != null && totalBytes > 0L) {
-                        LinearWavyProgressIndicator(
-                            progress = { animatedProgress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    AnimatedContent(
+                        targetState = task.status == DownloadStatus.RUNNING,
+                        modifier = Modifier.fillMaxSize(),
+                        transitionSpec = {
+                            fadeIn(effectsSpec).togetherWith(fadeOut(effectsSpec))
+                        },
+                        label = "downloadProgressVisibility",
+                    ) { visible ->
+                        if (visible && totalBytes != null && totalBytes > 0L) {
+                            LinearWavyProgressIndicator(
+                                progress = { animatedProgress },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else if (visible) {
+                            LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        } else {
+                            Spacer(Modifier.fillMaxSize())
+                        }
                     }
                 }
             }
@@ -754,7 +764,10 @@ private fun DownloadTaskItem(
                         ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    StatusBadge(task.status)
+                    StatusBadge(
+                        status = task.status,
+                        modifier = Modifier.testTag("downloadStatusBadge-${task.id}"),
+                    )
                     if (task.supportRange && task.status != DownloadStatus.SUCCESS) {
                         Spacer(Modifier.width(6.dp))
                         Surface(
@@ -786,8 +799,12 @@ private fun DownloadTaskItem(
 }
 
 @Composable
-private fun StatusBadge(status: DownloadStatus) {
+private fun StatusBadge(
+    status: DownloadStatus,
+    modifier: Modifier = Modifier,
+) {
     Surface(
+        modifier = modifier,
         shape = CircleShape,
         color = statusContainerColor(status),
     ) {

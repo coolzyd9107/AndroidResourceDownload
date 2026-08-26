@@ -91,6 +91,38 @@ class DownloadsScreenTest {
     }
 
     @Test
+    fun statusBadgeSpacingIsStableAcrossDownloadStates() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsScreen(
+                    tasks = listOf(
+                        task("running", DownloadStatus.RUNNING),
+                        task("success", DownloadStatus.SUCCESS),
+                    ),
+                    onStatusChange = { _, _ -> },
+                    onOpen = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        val runningIcon = composeRule.onNodeWithTag("downloadStatusIcon-running")
+            .fetchSemanticsNode().boundsInRoot
+        val runningBadge = composeRule.onNodeWithTag("downloadStatusBadge-running")
+            .fetchSemanticsNode().boundsInRoot
+        val successIcon = composeRule.onNodeWithTag("downloadStatusIcon-success")
+            .fetchSemanticsNode().boundsInRoot
+        val successBadge = composeRule.onNodeWithTag("downloadStatusBadge-success")
+            .fetchSemanticsNode().boundsInRoot
+
+        assertEquals(
+            runningBadge.top - runningIcon.bottom,
+            successBadge.top - successIcon.bottom,
+            1f,
+        )
+    }
+
+    @Test
     fun searchFiltersTasksAndClearRestoresTheList() {
         composeRule.setContent {
             MaterialTheme {
