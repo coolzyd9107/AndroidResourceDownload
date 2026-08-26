@@ -14,17 +14,21 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import com.resdownload.android.MainActivity
 import com.resdownload.android.core.common.formatFileSize
@@ -57,19 +61,29 @@ class DownloadService : Service() {
     private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
     private val runnerLock = Any()
     private val wakeVersion = AtomicLong()
+    private val wakeSignals = Channel<Unit>(Channel.CONFLATED)
+    private val concurrencyGate = TransferConcurrencyGate()
+    private val serviceGenerationReady = CompletableDeferred<Unit>()
     @Volatile private var latestStartId = 0
+    @Volatile private var activeDownloadCount = 0
     private var runnerJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        serviceScope.launch {
+            executionRegistry.awaitQuiescenceAndOpenServiceGeneration()
+            serviceGenerationReady.complete(Unit)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         latestStartId = startId
         wakeVersion.incrementAndGet()
+        wakeSignals.trySend(Unit)
         startForeground(NOTIFICATION_ID, buildWaitingNotification())
         serviceScope.launch {
+            serviceGenerationReady.await()
             val ownerId = sessionStore.read()?.user?.id
             when (intent?.action) {
                 ACTION_PAUSE -> ownerId?.let { owner ->
@@ -96,9 +110,10 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        executionRegistry.cancelActive()
+        executionRegistry.blockAll()
+        runnerJob?.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf(startId)
+        stopSelf()
     }
 
     private fun ensureRunner() {
@@ -109,38 +124,87 @@ class DownloadService : Service() {
     }
 
     private suspend fun runQueue() {
-        var claimedTaskId: String? = null
-        try {
-            var ownerId: String? = null
+        val activeTasks = mutableMapOf<String, RunningDownload>()
+        val completions = Channel<DownloadCompletion>(Channel.UNLIMITED)
+        var ownerId: String? = null
+        var claimsBlockedAtVersion: Long? = null
 
+        fun blockClaimsAt(version: Long) {
+            claimsBlockedAtVersion = maxOf(claimsBlockedAtVersion ?: version, version)
+        }
+
+        try {
             while (currentCoroutineContext().isActive) {
                 val observedVersion = wakeVersion.get()
                 val observedStartId = latestStartId
+                while (wakeSignals.tryReceive().isSuccess) Unit
+                if (claimsBlockedAtVersion != null && claimsBlockedAtVersion != observedVersion) {
+                    claimsBlockedAtVersion = null
+                }
                 val currentOwnerId = sessionStore.read()?.user?.id
                 if (currentOwnerId == null || queueController.isBlocked(currentOwnerId)) {
+                    activeTasks.values.forEach { it.job.cancel() }
+                    finishAll(activeTasks, completions)
                     if (stopIfUnchanged(observedVersion, observedStartId)) return
                     continue
                 }
                 if (ownerId != currentOwnerId) {
+                    activeTasks.values.forEach { it.job.cancel() }
+                    finishAll(activeTasks, completions)
                     ownerId = currentOwnerId
                     repository.recoverRunning(currentOwnerId)
                 }
 
-                val task = repository.claimNext(currentOwnerId)
-                if (task != null) {
-                    val taskVersion = wakeVersion.get()
-                    val taskStartId = latestStartId
-                    claimedTaskId = task.id
-                    val continueQueue = try {
-                        runTask(currentOwnerId, task)
-                    } finally {
-                        claimedTaskId = null
+                drainCompletions(activeTasks, completions).forEach { completion ->
+                    completion.blockedVersionOrNull()?.let { blockedVersion ->
+                        blockClaimsAt(blockedVersion)
                     }
-                    if (!continueQueue && stopIfUnchanged(taskVersion, taskStartId)) return
+                }
+
+                if (claimsBlockedAtVersion == null) {
+                    while (activeTasks.size < MAX_PARALLEL_TRANSFERS) {
+                        val task = repository.claimNext(currentOwnerId) ?: break
+                        val deferred = serviceScope.async(start = CoroutineStart.LAZY) {
+                            concurrencyGate.withSlot { executeTask(task) }
+                        }
+                        if (!executionRegistry.register(currentOwnerId, task.id, deferred)) {
+                            withContext(NonCancellable) { repository.requeueIfRunning(task.id) }
+                            break
+                        }
+                        activeTasks[task.id] = RunningDownload(task, deferred)
+                        deferred.invokeOnCompletion {
+                            completions.trySend(
+                                DownloadCompletion(task.id, deferred, wakeVersion.get()),
+                            )
+                        }
+                        if (repository.status(task.id) != DownloadStatus.RUNNING) {
+                            deferred.cancel()
+                            finishTask(
+                                DownloadCompletion(task.id, deferred, wakeVersion.get()),
+                                activeTasks,
+                            )
+                            continue
+                        }
+                        deferred.start()
+                    }
+                }
+
+                updateQueueNotification(activeTasks.values.map(RunningDownload::task))
+                if (activeTasks.isNotEmpty()) {
+                    var completion: TaskCompletion? = null
+                    select<Unit> {
+                        completions.onReceive { completed ->
+                            completion = finishTask(completed, activeTasks)
+                        }
+                        wakeSignals.onReceive { }
+                    }
+                    completion?.blockedVersionOrNull()?.let { blockedVersion ->
+                        blockClaimsAt(blockedVersion)
+                    }
                     continue
                 }
 
-                if (repository.hasRunnable(currentOwnerId)) {
+                if (claimsBlockedAtVersion == null && repository.hasRunnable(currentOwnerId)) {
                     repository.recoverRunning(currentOwnerId)
                     continue
                 }
@@ -148,11 +212,14 @@ class DownloadService : Service() {
             }
         } catch (error: CancellationException) {
             throw error
-        } catch (_: Exception) {
-            withContext(NonCancellable) {
-                claimedTaskId?.let { repository.requeueIfRunning(it) }
-            }
+        } catch (error: Exception) {
+            Timber.e(error, "Download queue stopped unexpectedly")
+            withContext(NonCancellable) { finishAll(activeTasks, completions) }
             stopServiceNow()
+        } finally {
+            activeTasks.values.forEach { it.job.cancel() }
+            withContext(NonCancellable) { finishAll(activeTasks, completions) }
+            completions.close()
         }
     }
 
@@ -163,19 +230,58 @@ class DownloadService : Service() {
         return true
     }
 
-    private suspend fun runTask(ownerId: String, task: DownloadTask): Boolean {
-        val taskJob = serviceScope.async(start = CoroutineStart.LAZY) { executeTask(task) }
-        executionRegistry.register(ownerId, task.id, taskJob)
-        taskJob.start()
-        return try {
-            taskJob.await()
+    private suspend fun finishTask(
+        completion: DownloadCompletion,
+        activeTasks: MutableMap<String, RunningDownload>,
+    ): TaskCompletion? {
+        val taskId = completion.taskId
+        val running = activeTasks[taskId]
+            ?.takeIf { it.job === completion.job }
+            ?: return null
+        activeTasks.remove(taskId)
+        val continueQueue = try {
+            running.job.await()
         } catch (error: CancellationException) {
             if (!serviceJob.isActive) throw error
             true
         } finally {
-            executionRegistry.clear(task.id, taskJob)
+            executionRegistry.clear(taskId, running.job)
         }
+        return TaskCompletion(continueQueue, completion.completedAtVersion)
     }
+
+    private suspend fun drainCompletions(
+        activeTasks: MutableMap<String, RunningDownload>,
+        completions: Channel<DownloadCompletion>,
+    ): List<TaskCompletion> {
+        val results = mutableListOf<TaskCompletion>()
+        while (true) {
+            val completion = completions.tryReceive().getOrNull() ?: break
+            finishTask(completion, activeTasks)?.let(results::add)
+        }
+        return results
+    }
+
+    private suspend fun finishAll(
+        activeTasks: MutableMap<String, RunningDownload>,
+        completions: Channel<DownloadCompletion>,
+    ) {
+        activeTasks.values.forEach { it.job.cancel() }
+        activeTasks.keys.toList().forEach { taskId ->
+            val running = activeTasks[taskId] ?: return@forEach
+            repository.requeueIfRunning(taskId)
+            runCatching {
+                finishTask(
+                    DownloadCompletion(taskId, running.job, wakeVersion.get()),
+                    activeTasks,
+                )
+            }
+        }
+        while (completions.tryReceive().isSuccess) Unit
+    }
+
+    private fun TaskCompletion.blockedVersionOrNull(): Long? =
+        if (continueQueue) null else completedAtVersion
 
     private suspend fun executeTask(task: DownloadTask): Boolean {
         var lastProgressUpdate = 0L
@@ -366,7 +472,41 @@ class DownloadService : Service() {
             )
             .build()
 
+    private fun updateQueueNotification(tasks: List<DownloadTask>) {
+        activeDownloadCount = tasks.size
+        if (tasks.isEmpty()) return
+        val text = if (tasks.size == 1) tasks.single().fileName else "${tasks.size} 个文件正在下载"
+        notifyQueueProgress(text)
+    }
+
+    private fun notifyQueueProgress(text: String) {
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("下载队列")
+            .setContentText(text)
+            .setContentIntent(openAppPendingIntent())
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setProgress(0, 0, true)
+            .addAction(
+                android.R.drawable.ic_media_pause,
+                "暂停",
+                servicePendingIntent(ACTION_STOP, null, REQUEST_STOP),
+            )
+            .build()
+        try {
+            notificationManager().notify(NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) {
+            // The foreground transfer remains valid without notification permission.
+        }
+    }
+
     private fun updateProgressNotification(task: DownloadTask, downloaded: Long, total: Long?) {
+        val activeCount = activeDownloadCount
+        if (activeCount > 1) {
+            notifyQueueProgress("$activeCount 个文件正在下载")
+            return
+        }
         val determinateTotal = total?.takeIf { it > 0L }
         val percent = determinateTotal?.let {
             ((downloaded.toDouble() / it.toDouble()) * 100.0).toInt().coerceIn(0, 100)
@@ -455,6 +595,22 @@ class DownloadService : Service() {
 
     private fun pendingIntentFlags(): Int =
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+
+    private data class RunningDownload(
+        val task: DownloadTask,
+        val job: Deferred<Boolean>,
+    )
+
+    private data class DownloadCompletion(
+        val taskId: String,
+        val job: Deferred<Boolean>,
+        val completedAtVersion: Long,
+    )
+
+    private data class TaskCompletion(
+        val continueQueue: Boolean,
+        val completedAtVersion: Long,
+    )
 
     private class TaskStoppedException : CancellationException("Download task was stopped")
 

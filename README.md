@@ -6,7 +6,7 @@
 
 **Phase 3 read-only browsing / v1.1 direct WebDAV integration in progress（阶段三只读浏览 / v1.1 直连 WebDAV 接入中）。**
 
-首版 Mock UI 已保留为显式 Demo 模式。真实模式已接入 GitHub OAuth/QQ OpenSDK 认证、加密会话恢复、内存 WebDAV 凭据、目录浏览、受支持文本与图片的内存预览、下载队列、仓库版本检查、可开关的莫奈自动取色与自定义 HCT 主题，以及管理员专属的三并发上传队列、递归文件夹上传、重命名、移动、复制和删除操作。
+首版 Mock UI 已保留为显式 Demo 模式。真实模式已接入 GitHub OAuth/QQ OpenSDK 认证、加密会话恢复、内存 WebDAV 凭据、目录浏览、受支持文本与图片的内存预览、三并发下载队列、仓库版本检查、可开关的莫奈自动取色与自定义 HCT 主题，以及管理员专属的三并发上传队列、递归文件夹上传、重命名、移动、复制和删除操作。
 
 ## 目标技术栈
 

@@ -58,14 +58,44 @@ class DownloadTaskDaoTest {
         assertNotNull(dao.findById(active.ownerId, active.id))
     }
 
-    private fun task(status: DownloadStatus): DownloadTask = DownloadTask(
-        id = UUID.randomUUID().toString(),
+    @Test
+    fun fourthTaskRemainsPendingUntilAClaimedTaskFinishes() = runBlocking {
+        val dao = database.downloadTaskDao()
+        val tasks = List(4) { index ->
+            task(
+                status = DownloadStatus.PENDING,
+                id = "task-$index",
+                createdAt = index.toLong() + 1L,
+            )
+        }
+        tasks.forEach { dao.insert(DownloadTaskEntity.fromDomain(it)) }
+
+        val claimedIds = List(3) {
+            requireNotNull(dao.claimNext("owner", 10L + it)).id
+        }
+
+        assertEquals(listOf("task-0", "task-1", "task-2"), claimedIds)
+        assertEquals(
+            DownloadStatus.PENDING,
+            dao.findById("owner", "task-3")?.status,
+        )
+
+        dao.fail("task-0", "finished", 20L)
+        assertEquals("task-3", dao.claimNext("owner", 21L)?.id)
+    }
+
+    private fun task(
+        status: DownloadStatus,
+        id: String = UUID.randomUUID().toString(),
+        createdAt: Long = 1L,
+    ): DownloadTask = DownloadTask(
+        id = id,
         ownerId = "owner",
-        fileName = "file.txt",
-        remotePath = "/file.txt",
-        storageName = "file.txt",
+        fileName = "$id.txt",
+        remotePath = "/$id.txt",
+        storageName = "$id.txt",
         status = status,
-        createdAt = 1L,
-        updatedAt = 1L,
+        createdAt = createdAt,
+        updatedAt = createdAt,
     )
 }

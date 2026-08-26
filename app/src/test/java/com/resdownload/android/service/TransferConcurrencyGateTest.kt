@@ -10,10 +10,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class UploadConcurrencyGateTest {
+class TransferConcurrencyGateTest {
     @Test
-    fun fourthFileWaitsAndStartsWhenOneOfThreeSlotsCompletes() = runTest {
-        val gate = UploadConcurrencyGate(maxParallel = 3)
+    fun fourthTransferWaitsAndStartsWhenOneOfThreeSlotsCompletes() = runTest {
+        val gate = TransferConcurrencyGate(maxParallel = 3)
         val active = AtomicInteger()
         val maxActive = AtomicInteger()
         val started = Channel<Int>(Channel.UNLIMITED)
@@ -21,7 +21,7 @@ class UploadConcurrencyGateTest {
 
         val jobs = List(4) { index ->
             launch {
-                gate.withFileSlot {
+                gate.withSlot {
                     val count = active.incrementAndGet()
                     maxActive.updateAndGet { current -> maxOf(current, count) }
                     started.send(index)

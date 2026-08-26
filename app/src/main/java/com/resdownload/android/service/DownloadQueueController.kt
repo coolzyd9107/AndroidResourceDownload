@@ -7,9 +7,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import com.resdownload.android.data.download.DownloadRepository
 
 @Singleton
@@ -18,23 +21,36 @@ class DownloadQueueController @Inject constructor(
     private val repository: DownloadRepository,
     private val executionRegistry: DownloadExecutionRegistry,
 ) {
-    private val blockedOwners = ConcurrentHashMap.newKeySet<String>()
+    private val stateLock = Any()
+    private val blockedOwners = mutableSetOf<String>()
+    private val suspendedOwners = mutableSetOf<String>()
+    private val cancelAllMutex = Mutex()
 
     fun activate(ownerId: String) {
-        blockedOwners.remove(ownerId)
+        synchronized(stateLock) {
+            blockedOwners.remove(ownerId)
+            if (ownerId !in suspendedOwners) executionRegistry.activate(ownerId)
+        }
     }
 
-    fun isBlocked(ownerId: String): Boolean = ownerId in blockedOwners
+    fun isBlocked(ownerId: String): Boolean = synchronized(stateLock) {
+        ownerId in blockedOwners || ownerId in suspendedOwners
+    }
 
     fun block(ownerId: String) {
-        blockedOwners += ownerId
-        executionRegistry.cancelOwner(ownerId)
+        synchronized(stateLock) {
+            blockedOwners += ownerId
+            executionRegistry.blockOwner(ownerId)
+        }
         context.stopService(Intent(context, DownloadService::class.java))
     }
 
-    fun start(ownerId: String): Boolean {
-        if (ownerId in blockedOwners || !hasPublicDownloadAccess()) return false
-        return try {
+    fun start(ownerId: String): Boolean = synchronized(stateLock) {
+        if (ownerId in blockedOwners || ownerId in suspendedOwners || !hasPublicDownloadAccess()) {
+            return@synchronized false
+        }
+        executionRegistry.activate(ownerId)
+        try {
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, DownloadService::class.java).setAction(DownloadService.ACTION_START),
@@ -55,7 +71,7 @@ class DownloadQueueController @Inject constructor(
     }
 
     suspend fun retry(ownerId: String, taskId: String): Boolean {
-        if (ownerId in blockedOwners || !hasPublicDownloadAccess()) return false
+        if (isBlocked(ownerId) || !hasPublicDownloadAccess()) return false
         executionRegistry.cancelTaskAndJoin(taskId)
         val changed = repository.retry(ownerId, taskId)
         return changed && start(ownerId)
@@ -80,18 +96,61 @@ class DownloadQueueController @Inject constructor(
         return repository.deleteTerminal(ownerId, taskId, deleteLocalFile)
     }
 
-    suspend fun cancelAll(ownerId: String): Int {
-        executionRegistry.cancelOwnerAndJoin(ownerId)
-        return repository.cancelAll(ownerId)
+    suspend fun cancelAll(ownerId: String): Int = cancelAllMutex.withLock {
+        synchronized(stateLock) {
+            suspendedOwners += ownerId
+            executionRegistry.closeOwner(ownerId)
+        }
+        try {
+            repository.cancelAll(ownerId)
+        } finally {
+            withContext(NonCancellable) {
+                executionRegistry.blockOwner(ownerId)
+                executionRegistry.cancelOwnerAndJoin(ownerId)
+                val shouldRestart = synchronized(stateLock) {
+                    suspendedOwners.remove(ownerId)
+                    if (ownerId !in blockedOwners) {
+                        executionRegistry.activate(ownerId)
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (shouldRestart && repository.hasRunnable(ownerId)) start(ownerId)
+            }
+        }
     }
 
     suspend fun clearTerminal(ownerId: String, deleteLocalFiles: Boolean): Int =
         repository.clearTerminal(ownerId, deleteLocalFiles)
 
     suspend fun stop(ownerId: String) {
-        block(ownerId)
-        repository.pauseRunning(ownerId)
-        executionRegistry.cancelOwnerAndJoin(ownerId)
+        synchronized(stateLock) {
+            suspendedOwners += ownerId
+            executionRegistry.closeOwner(ownerId)
+        }
+        try {
+            repository.pauseRunning(ownerId)
+        } finally {
+            withContext(NonCancellable) {
+                synchronized(stateLock) {
+                    blockedOwners += ownerId
+                    executionRegistry.blockOwner(ownerId)
+                }
+                executionRegistry.cancelOwnerAndJoin(ownerId)
+                val shouldRestart = synchronized(stateLock) {
+                    suspendedOwners.remove(ownerId)
+                    if (ownerId !in blockedOwners) {
+                        executionRegistry.activate(ownerId)
+                        true
+                    } else {
+                        false
+                    }
+                }
+                context.stopService(Intent(context, DownloadService::class.java))
+                if (shouldRestart && repository.hasRunnable(ownerId)) start(ownerId)
+            }
+        }
     }
 
     fun hasPublicDownloadAccess(): Boolean =

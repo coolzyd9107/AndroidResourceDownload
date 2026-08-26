@@ -62,7 +62,7 @@ class UploadService : Service() {
     private val runnerLock = Any()
     private val wakeVersion = AtomicLong()
     private val wakeSignals = Channel<Unit>(Channel.CONFLATED)
-    private val concurrencyGate = UploadConcurrencyGate(MAX_PARALLEL_FILES)
+    private val concurrencyGate = TransferConcurrencyGate()
     private val serviceGenerationReady = CompletableDeferred<Unit>()
     @Volatile private var latestStartId = 0
     private var runnerJob: Job? = null
@@ -168,11 +168,11 @@ class UploadService : Service() {
                 }
 
                 if (claimsBlockedAtVersion == null) {
-                    while (activeFiles.size < MAX_PARALLEL_FILES) {
+                    while (activeFiles.size < MAX_PARALLEL_TRANSFERS) {
                         val task = repository.claimNextFile(currentOwnerId) ?: break
                         val taskVersion = wakeVersion.get()
                         val deferred = serviceScope.async(start = CoroutineStart.LAZY) {
-                            concurrencyGate.withFileSlot { executeTask(task) }
+                            concurrencyGate.withSlot { executeTask(task) }
                         }
                         if (!executionRegistry.register(currentOwnerId, task.id, deferred)) {
                             withContext(NonCancellable) { repository.requeueIfRunning(task.id) }
@@ -614,8 +614,6 @@ class UploadService : Service() {
         const val ACTION_CANCEL =
             "com.resdownload.android.service.action.CANCEL_UPLOAD"
         const val NOTIFICATION_ID = 1002
-        const val MAX_PARALLEL_FILES = 3
-
         private const val EXTRA_TASK_ID = "task_id"
         private const val REQUEST_OPEN_APP = 200
         private const val PROGRESS_UPDATE_INTERVAL_MILLIS = 500L

@@ -11,7 +11,7 @@
 - 先实现 Mock 后端与 Repository 替身，稳定 UI 状态、导航和领域接口后，再接入真实认证、WebDAV 与更新服务。
 - GitHub Actions 对所有事件执行 Release lint、单元测试和无签名打包；仅在 `main` 上通过受保护的 `release` Environment 注入正式签名并构建 Release APK。
 - 真实后端路由采用 `{code,message,data}` envelope；GitHub 与 QQ 的角色均以后端返回为准，邮箱验证码登录已移除。
-- Android 直连 WebDAV，当前已完成凭据 DTO、内存缓存、路径安全、PROPFIND 解析、Range 校验和串行下载队列；凭据密码不落盘。
+- Android 直连 WebDAV，当前已完成凭据 DTO、内存缓存、路径安全、PROPFIND 解析、Range 校验和三并发下载队列；凭据密码不落盘。
 - 本地 Android 构建默认 `DEMO_MODE=true`；CI 通过 Gradle 属性注入真实 API 地址并设置 `demoMode=false`。
 - GitHub Actions 同时执行 Android Release 门禁和 backend Go test/vet/build。
 
