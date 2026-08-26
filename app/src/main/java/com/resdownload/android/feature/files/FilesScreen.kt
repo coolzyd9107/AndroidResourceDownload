@@ -1,11 +1,16 @@
 package com.resdownload.android.feature.files
 
+import android.os.Build
+import android.view.RoundedCorner
 import java.util.ArrayDeque
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -17,6 +22,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -105,23 +112,30 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -129,6 +143,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import coil.compose.SubcomposeAsyncImage
@@ -151,6 +167,34 @@ import com.resdownload.android.domain.model.Role
 import com.resdownload.android.domain.model.previewFormat
 import com.resdownload.android.domain.webdav.WebDavPath
 import com.resdownload.android.domain.webdav.strongEntityTagOrNull
+
+private const val SCALE_BACK_TARGET_SCALE = 0.85f
+private const val SCALE_BACK_DIM_ALPHA = 0.5f
+private const val SCALE_BACK_EXIT_MILLIS = 200
+private const val SCALE_BACK_SETTLE_MILLIS = 300
+
+private data class PredictiveFolderTransition(
+    val source: WebDavPath,
+    val destination: WebDavPath,
+)
+
+internal fun scaleBackScale(progress: Float): Float {
+    val easedProgress = FastOutSlowInEasing.transform(progress.coerceIn(0f, 1f))
+    return 1f - ((1f - SCALE_BACK_TARGET_SCALE) * easedProgress)
+}
+
+internal fun scaleBackPivotX(swipeEdge: Int): Float =
+    if (swipeEdge == BackEventCompat.EDGE_LEFT) 0.8f else 0.2f
+
+internal fun scaleBackPivotY(touchY: Float, containerHeightPx: Int): Float =
+    if (touchY.isFinite() && containerHeightPx > 0) {
+        (touchY / containerHeightPx).coerceIn(0.1f, 0.9f)
+    } else {
+        0.5f
+    }
+
+internal fun scaleBackExitDirection(swipeEdge: Int): Float =
+    if (swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -526,11 +570,23 @@ fun FilesScreen(
         selectableFiles.all { it.path in selectedPaths }
     var folderHistory by remember { mutableStateOf<List<FilePaneState>>(emptyList()) }
     val predictiveBackProgress = remember { Animatable(0f) }
+    val predictiveBackExitProgress = remember { Animatable(0f) }
     var predictiveBackInProgress by remember { mutableStateOf(false) }
     var predictiveBackEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
+    var predictiveBackTouchY by remember { mutableFloatStateOf(Float.NaN) }
     var screenWidthPx by remember { mutableIntStateOf(0) }
+    var screenHeightPx by remember { mutableIntStateOf(0) }
+    var predictiveFolderTransition by remember {
+        mutableStateOf<PredictiveFolderTransition?>(null)
+    }
+    var predictiveBackFinishing by remember { mutableStateOf(false) }
+    var queuedBackCount by remember { mutableIntStateOf(0) }
+    var finishingBackCollectors by remember { mutableIntStateOf(0) }
+    var predictiveGestureGeneration by remember { mutableIntStateOf(0) }
     val predictiveSettleScope = rememberCoroutineScope()
     var predictiveSettleJob by remember { mutableStateOf<Job?>(null) }
+    val latestActivePath by rememberUpdatedState(activePath)
+    val onBackPressedDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     val parentPath = activePath.decodedSegments
         .takeIf { it.isNotEmpty() }
         ?.dropLast(1)
@@ -543,16 +599,31 @@ fun FilesScreen(
                 FilePaneState(parent, FilePaneContent.Loading)
             }
     }
+    LaunchedEffect(filePaneState.path, predictiveFolderTransition) {
+        val pendingTransition = predictiveFolderTransition ?: return@LaunchedEffect
+        if (filePaneState.path != pendingTransition.source) {
+            predictiveFolderTransition = null
+        } else {
+            delay(SCALE_BACK_SETTLE_MILLIS.toLong())
+            if (predictiveFolderTransition == pendingTransition) {
+                predictiveFolderTransition = null
+            }
+        }
+    }
     val folderSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val folderScaleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val folderEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-    val navigateUp = {
+    val navigateToParent = { destination: WebDavPath ->
         folderHistory = folderHistory.dropLast(1)
         if (viewModel == null) {
-            currentPath = WebDavPath.fromDecodedSegments(activePath.decodedSegments.dropLast(1)).toString()
+            currentPath = destination.toString()
         } else {
-            viewModel.navigateUp()
+            viewModel.openDirectory(destination)
         }
+    }
+    val navigateUp = {
+        parentPath?.let(navigateToParent)
+        Unit
     }
 
     PredictiveBackHandler(
@@ -568,26 +639,135 @@ fun FilesScreen(
             mutationState == FileMutationState.Idle &&
             !activePath.isRoot,
     ) { events ->
-        predictiveSettleJob?.cancel()
-        predictiveBackProgress.stop()
-        predictiveBackInProgress = true
+        if (predictiveBackFinishing) {
+            finishingBackCollectors++
+            try {
+                events.collect { }
+                queuedBackCount++
+            } finally {
+                finishingBackCollectors--
+            }
+            return@PredictiveBackHandler
+        }
+
+        val generation = predictiveGestureGeneration + 1
+        predictiveGestureGeneration = generation
         try {
+            predictiveSettleJob?.cancel()
+            predictiveBackProgress.stop()
+            predictiveBackExitProgress.stop()
+            predictiveBackProgress.snapTo(0f)
+            predictiveBackExitProgress.snapTo(0f)
+            predictiveBackEdge = BackEventCompat.EDGE_LEFT
+            predictiveBackTouchY = Float.NaN
+            predictiveFolderTransition = null
+            predictiveBackInProgress = true
             events.collect { event ->
                 predictiveBackProgress.snapTo(event.progress.coerceIn(0f, 1f))
                 predictiveBackEdge = event.swipeEdge
+                predictiveBackTouchY = event.touchY
             }
-            navigateUp()
-            predictiveBackProgress.snapTo(0f)
-            predictiveBackInProgress = false
-        } catch (error: CancellationException) {
-            predictiveSettleJob = predictiveSettleScope.launch {
-                predictiveBackProgress.animateTo(0f, folderScaleSpec)
+            val source = activePath
+            val destination = parentPath
+            if (destination == null) {
                 predictiveBackInProgress = false
+                return@PredictiveBackHandler
+            }
+
+            predictiveBackFinishing = true
+            predictiveSettleScope.launch {
+                var replayQueuedBack = false
+                try {
+                    coroutineScope {
+                        launch {
+                            predictiveBackProgress.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(
+                                    durationMillis = SCALE_BACK_EXIT_MILLIS,
+                                    easing = FastOutSlowInEasing,
+                                ),
+                            )
+                        }
+                        launch {
+                            predictiveBackExitProgress.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(
+                                    durationMillis = SCALE_BACK_EXIT_MILLIS,
+                                    easing = FastOutSlowInEasing,
+                                ),
+                            )
+                        }
+                    }
+                    if (
+                        generation == predictiveGestureGeneration &&
+                        latestActivePath == source
+                    ) {
+                        predictiveFolderTransition = PredictiveFolderTransition(
+                            source = source,
+                            destination = destination,
+                        )
+                        predictiveBackInProgress = false
+                        navigateToParent(destination)
+                        withFrameNanos { }
+                        while (finishingBackCollectors > 0) {
+                            withFrameNanos { }
+                        }
+                        if (queuedBackCount > 0) {
+                            queuedBackCount--
+                            replayQueuedBack = true
+                        }
+                    }
+                } finally {
+                    if (generation == predictiveGestureGeneration) {
+                        predictiveBackInProgress = false
+                        predictiveBackFinishing = false
+                    }
+                }
+                if (
+                    replayQueuedBack &&
+                    generation == predictiveGestureGeneration
+                ) {
+                    onBackPressedDispatcher?.onBackPressed()
+                }
+            }
+        } catch (error: CancellationException) {
+            if (generation == predictiveGestureGeneration && !predictiveBackFinishing) {
+                predictiveSettleJob = predictiveSettleScope.launch {
+                    coroutineScope {
+                        launch {
+                            predictiveBackProgress.animateTo(
+                                targetValue = 0f,
+                                animationSpec = tween(
+                                    durationMillis = SCALE_BACK_SETTLE_MILLIS,
+                                    easing = FastOutSlowInEasing,
+                                ),
+                            )
+                        }
+                        launch {
+                            predictiveBackExitProgress.animateTo(
+                                targetValue = 0f,
+                                animationSpec = tween(
+                                    durationMillis = SCALE_BACK_EXIT_MILLIS,
+                                    easing = FastOutSlowInEasing,
+                                ),
+                            )
+                        }
+                    }
+                    if (generation == predictiveGestureGeneration) {
+                        predictiveBackInProgress = false
+                    }
+                }
             }
             throw error
         } catch (error: Throwable) {
-            predictiveBackProgress.snapTo(0f)
-            predictiveBackInProgress = false
+            if (generation == predictiveGestureGeneration) {
+                predictiveFolderTransition = null
+                predictiveBackProgress.snapTo(0f)
+                predictiveBackExitProgress.snapTo(0f)
+                predictiveBackInProgress = false
+                predictiveBackFinishing = false
+                queuedBackCount = 0
+            }
             throw error
         }
     }
@@ -600,9 +780,7 @@ fun FilesScreen(
         closeFileSearch()
     }
 
-    val predictiveDirection = if (predictiveBackEdge == BackEventCompat.EDGE_RIGHT) -1f else 1f
-    val predictiveShape = RoundedCornerShape(32.dp)
-    val predictiveElevation = with(LocalDensity.current) { 12.dp.toPx() }
+    val predictiveShape = RoundedCornerShape(rememberDeviceCornerRadius())
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -611,12 +789,15 @@ fun FilesScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .onSizeChanged { screenWidthPx = it.width },
+                .onSizeChanged {
+                    screenWidthPx = it.width
+                    screenHeightPx = it.height
+                },
         ) {
             if (predictiveBackInProgress && parentPreviewState != null) {
                 FolderBackPreview(
                     pane = parentPreviewState,
-                    progress = predictiveBackProgress.value,
+                    dimAlpha = SCALE_BACK_DIM_ALPHA * (1f - predictiveBackExitProgress.value),
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -624,11 +805,24 @@ fun FilesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        val progress = predictiveBackProgress.value
-                        translationX = predictiveDirection * screenWidthPx * 0.16f * progress
-                        scaleX = 1f - (0.08f * progress)
-                        scaleY = 1f - (0.08f * progress)
-                        shadowElevation = predictiveElevation * progress
+                        if (predictiveBackInProgress) {
+                            val scale = scaleBackScale(predictiveBackProgress.value)
+                            translationX = scaleBackExitDirection(predictiveBackEdge) *
+                                screenWidthPx * predictiveBackExitProgress.value
+                            scaleX = scale
+                            scaleY = scale
+                            transformOrigin = TransformOrigin(
+                                pivotFractionX = scaleBackPivotX(predictiveBackEdge),
+                                pivotFractionY = scaleBackPivotY(
+                                    touchY = predictiveBackTouchY,
+                                    containerHeightPx = screenHeightPx,
+                                ),
+                            )
+                        } else {
+                            translationX = 0f
+                            scaleX = 1f
+                            scaleY = 1f
+                        }
                         shape = predictiveShape
                         clip = predictiveBackInProgress
                     },
@@ -1007,7 +1201,14 @@ fun FilesScreen(
                         targetState = filePaneState,
                         contentKey = { pane -> pane.path to pane.content::class },
                         transitionSpec = {
-                            if (initialState.path != targetState.path) {
+                            if (
+                                predictiveFolderTransition?.let { transition ->
+                                    initialState.path == transition.source &&
+                                        targetState.path == transition.destination
+                                } == true
+                            ) {
+                                EnterTransition.None.togetherWith(ExitTransition.None)
+                            } else if (initialState.path != targetState.path) {
                                 val direction = if (
                                     targetState.path.decodedSegments.size >
                                     initialState.path.decodedSegments.size
@@ -1547,16 +1748,14 @@ private fun MultiSelectAction(
 @Composable
 private fun FolderBackPreview(
     pane: FilePaneState,
-    progress: Float,
+    dimAlpha: Float,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier
-            .graphicsLayer {
-                val scale = 0.94f + (0.06f * progress)
-                scaleX = scale
-                scaleY = scale
-                alpha = 0.6f + (0.4f * progress)
+            .drawWithContent {
+                drawContent()
+                drawRect(Color.Black.copy(alpha = dimAlpha.coerceIn(0f, SCALE_BACK_DIM_ALPHA)))
             }
             .clearAndSetSemantics { },
         topBar = {
@@ -1604,6 +1803,26 @@ private fun FolderBackPreview(
                 modifier = Modifier.padding(innerPadding),
             )
         }
+    }
+}
+
+@Composable
+private fun rememberDeviceCornerRadius(defaultRadius: Dp = 16.dp): Dp {
+    val view = LocalView.current
+    val density = LocalDensity.current
+
+    return remember(view, density) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val insets = view.rootWindowInsets
+            val corner = insets?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)
+                ?: insets?.getRoundedCorner(RoundedCorner.POSITION_TOP_RIGHT)
+                ?: insets?.getRoundedCorner(RoundedCorner.POSITION_BOTTOM_LEFT)
+                ?: insets?.getRoundedCorner(RoundedCorner.POSITION_BOTTOM_RIGHT)
+            if (corner != null) {
+                return@remember with(density) { corner.radius.toDp() }
+            }
+        }
+        defaultRadius
     }
 }
 

@@ -16,7 +16,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -127,6 +129,8 @@ private fun shellTransitionDirection(initialRoute: String?, targetRoute: String?
 
     return position(targetRoute).compareTo(position(initialRoute))
 }
+
+private fun isShellRoute(route: String?): Boolean = ShellRoute.entries.any { it.route == route }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -341,7 +345,7 @@ private fun MainShell(
     var pendingFolderUploadDestination by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFolderUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
     var requestedQueueStoragePermission by rememberSaveable(user.id) { mutableStateOf(false) }
-    val tabOffsetSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+    val tabOffsetSpec = spring<IntOffset>(stiffness = Spring.StiffnessMediumLow)
     val tabEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val tabDirection = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1 else -1
 
@@ -529,40 +533,76 @@ private fun MainShell(
                     initialState.destination.route,
                     targetState.destination.route,
                 )
-                fadeIn(tabEffectsSpec) +
+                if (
+                    isShellRoute(initialState.destination.route) &&
+                    isShellRoute(targetState.destination.route)
+                ) {
                     slideInHorizontally(tabOffsetSpec) { width ->
-                        tabDirection * direction * width / 8
+                        tabDirection * direction * width
                     }
+                } else {
+                    fadeIn(tabEffectsSpec) +
+                        slideInHorizontally(tabOffsetSpec) { width ->
+                            tabDirection * direction * width / 8
+                        }
+                }
             },
             exitTransition = {
                 val direction = shellTransitionDirection(
                     initialState.destination.route,
                     targetState.destination.route,
                 )
-                fadeOut(tabEffectsSpec) +
+                if (
+                    isShellRoute(initialState.destination.route) &&
+                    isShellRoute(targetState.destination.route)
+                ) {
                     slideOutHorizontally(tabOffsetSpec) { width ->
-                        -tabDirection * direction * width / 8
+                        -tabDirection * direction * width
                     }
+                } else {
+                    fadeOut(tabEffectsSpec) +
+                        slideOutHorizontally(tabOffsetSpec) { width ->
+                            -tabDirection * direction * width / 8
+                        }
+                }
             },
             popEnterTransition = {
                 val direction = shellTransitionDirection(
                     initialState.destination.route,
                     targetState.destination.route,
                 )
-                fadeIn(tabEffectsSpec) +
+                if (
+                    isShellRoute(initialState.destination.route) &&
+                    isShellRoute(targetState.destination.route)
+                ) {
                     slideInHorizontally(tabOffsetSpec) { width ->
-                        tabDirection * direction * width / 8
+                        tabDirection * direction * width
                     }
+                } else {
+                    fadeIn(tabEffectsSpec) +
+                        slideInHorizontally(tabOffsetSpec) { width ->
+                            tabDirection * direction * width / 8
+                        }
+                }
             },
             popExitTransition = {
                 val direction = shellTransitionDirection(
                     initialState.destination.route,
                     targetState.destination.route,
                 )
-                fadeOut(tabEffectsSpec) +
+                if (
+                    isShellRoute(initialState.destination.route) &&
+                    isShellRoute(targetState.destination.route)
+                ) {
                     slideOutHorizontally(tabOffsetSpec) { width ->
-                        -tabDirection * direction * width / 8
+                        -tabDirection * direction * width
                     }
+                } else {
+                    fadeOut(tabEffectsSpec) +
+                        slideOutHorizontally(tabOffsetSpec) { width ->
+                            -tabDirection * direction * width / 8
+                        }
+                }
             },
         ) {
             composable(route = ShellRoute.Files.route) {
