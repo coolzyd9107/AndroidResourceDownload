@@ -464,8 +464,11 @@ fun UploadsScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .padding(bottom = listBottomPadding),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                        .testTag("uploadTaskList"),
+                    contentPadding = PaddingValues(
+                        top = 8.dp,
+                        bottom = listBottomPadding + 16.dp,
+                    ),
                 ) {
                     items(visibleTasks, key = UploadTask::id) { task ->
                         UploadTaskItem(

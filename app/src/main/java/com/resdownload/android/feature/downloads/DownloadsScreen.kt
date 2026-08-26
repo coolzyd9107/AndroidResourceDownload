@@ -465,8 +465,11 @@ fun DownloadsScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .padding(bottom = listBottomPadding),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                        .testTag("downloadTaskList"),
+                    contentPadding = PaddingValues(
+                        top = 8.dp,
+                        bottom = listBottomPadding + 16.dp,
+                    ),
                 ) {
                     items(visibleTasks, key = DownloadTask::id) { task ->
                         DownloadTaskItem(

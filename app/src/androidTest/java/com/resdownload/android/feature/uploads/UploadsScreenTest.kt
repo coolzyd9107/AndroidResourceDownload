@@ -343,6 +343,18 @@ class UploadsScreenTest {
         composeRule.runOnIdle { assertTrue(cleared) }
     }
 
+    @Test
+    fun taskListViewportContinuesBehindFloatingActionButton() {
+        setScreen(task("failed", UploadStatus.FAILED))
+
+        val listBottom = composeRule.onNodeWithTag("uploadTaskList")
+            .fetchSemanticsNode().boundsInRoot.bottom
+        val floatingActionTop = composeRule.onNodeWithTag("clearTerminalTasks")
+            .fetchSemanticsNode().boundsInRoot.top
+
+        assertTrue(listBottom > floatingActionTop)
+    }
+
     private fun setScreen(
         task: UploadTask,
         speeds: Map<String, Long> = emptyMap(),
