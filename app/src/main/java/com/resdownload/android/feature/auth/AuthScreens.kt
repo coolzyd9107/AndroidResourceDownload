@@ -49,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -78,6 +80,9 @@ fun LoginScreen(
     val appName = stringResource(R.string.app_name)
     val visibilityEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val visibilitySpatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<androidx.compose.ui.unit.IntSize>()
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val neutralOverlay = if (backgroundColor.luminance() < 0.5f) Color.White else Color.Black
+    val agreementContainerColor = neutralOverlay.copy(alpha = 0.04f).compositeOver(backgroundColor)
 
     LaunchedEffect(policyAccepted) {
         agreementAccepted = policyAccepted
@@ -201,7 +206,7 @@ fun LoginScreen(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                color = agreementContainerColor,
             ) {
                 Row(
                     modifier = Modifier

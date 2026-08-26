@@ -17,7 +17,6 @@ kotlinx-serialization-json = "1.8.1"
 security-crypto = "1.0.0"
 coil = "2.7.0"
 timber = "5.0.1"
-browser = "1.8.0"
 room = "2.7.1"
 splashscreen = "1.0.1"
 documentfile = "1.0.1"
@@ -56,7 +55,6 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "security-crypto" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
-androidx-browser = { module = "androidx.browser:browser", version.ref = "browser" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }

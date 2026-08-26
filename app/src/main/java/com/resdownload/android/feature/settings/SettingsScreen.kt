@@ -276,7 +276,7 @@ fun SettingsScreen(
             )
             ListItem(
                 headlineContent = { Text("关于") },
-                supportingContent = { Text("开发者、开源与版本信息") },
+                supportingContent = { Text("查看资源云盘的各项信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
                 modifier = Modifier.clickable(onClick = onOpenAbout),
             )

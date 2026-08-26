@@ -4,12 +4,12 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -256,12 +256,9 @@ fun AndroidResourceDownloadRoot(
                             } else {
                                 val authorizationUrl = authViewModel.beginGithub()
                                 if (authorizationUrl != null) {
-                                    runCatching {
-                                        CustomTabsIntent.Builder().build().launchUrl(
-                                            context,
-                                            Uri.parse(authorizationUrl),
-                                        )
-                                    }.onFailure { authViewModel.reportGithubLaunchFailure() }
+                                    if (!context.launchBrowser(authorizationUrl)) {
+                                        authViewModel.reportGithubLaunchFailure()
+                                    }
                                 }
                             }
                         },
@@ -289,12 +286,7 @@ fun AndroidResourceDownloadRoot(
                         policyAccepted = privacyConsentAccepted,
                         onPolicyAccepted = authViewModel::acceptPrivacyPolicy,
                         onOpenQqPrivacyPolicy = {
-                            runCatching {
-                                CustomTabsIntent.Builder().build().launchUrl(
-                                    context,
-                                    Uri.parse(QQ_PRIVACY_POLICY_URL),
-                                )
-                            }.onFailure {
+                            if (!context.launchBrowser(QQ_PRIVACY_POLICY_URL)) {
                                 authViewModel.reportError("无法打开 QQ 互联 SDK 隐私保护声明")
                             }
                         },
@@ -412,11 +404,9 @@ private fun MainShell(
         scope.launch { snackbarHostState.showSnackbar(message) }
     }
 
-    fun openExternalUrl(url: String): Boolean = runCatching {
-        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
+    fun openBrowserUrl(url: String): Boolean = context.launchBrowser(url).also { launched ->
+        if (!launched) showMessage("无法打开浏览器")
     }
-        .onFailure { showMessage("无法打开链接") }
-        .isSuccess
 
     fun openShellRoute(route: ShellRoute, animatePop: Boolean = false): Boolean {
         if (navController.currentDestination?.route == route.route) return false
@@ -862,7 +852,7 @@ private fun MainShell(
                         updateState = updateState,
                         onCheckUpdate = aboutViewModel::checkForUpdate,
                         onDismissUpdate = aboutViewModel::dismissUpdateResult,
-                        onOpenUrl = ::openExternalUrl,
+                        onOpenUrl = ::openBrowserUrl,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -876,6 +866,10 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
+
+private fun Context.launchBrowser(url: String): Boolean = runCatching {
+    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+}.isSuccess
 
 private fun DownloadTask.withMockStatus(status: DownloadStatus): DownloadTask {
     val total = totalBytes

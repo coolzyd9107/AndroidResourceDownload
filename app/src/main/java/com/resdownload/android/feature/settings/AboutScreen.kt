@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -59,6 +60,7 @@ internal const val FRONTEND_DEVELOPER_URL = "https://github.com/coolzyd9107"
 internal const val BACKEND_DEVELOPER_URL = "https://github.com/zhuzhuzihan"
 internal const val SOURCE_REPOSITORY_URL =
     "https://github.com/zhuzhuzihan/AndroidResourceDownload"
+internal const val DONATION_URL = "https://myweb.mczihan.link/donate"
 
 private const val FRONTEND_AVATAR_URL =
     "https://avatars.githubusercontent.com/u/35447134?v=4"
@@ -150,6 +152,15 @@ fun AboutScreen(
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                 },
                 modifier = Modifier.clickable { onOpenUrl(SOURCE_REPOSITORY_URL) },
+            )
+            ListItem(
+                headlineContent = { Text("向我们捐赠") },
+                supportingContent = { Text("支持项目持续开发与维护") },
+                leadingContent = { SettingsIcon(Icons.Default.VolunteerActivism) },
+                trailingContent = {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+                },
+                modifier = Modifier.clickable { onOpenUrl(DONATION_URL) },
             )
         }
     }

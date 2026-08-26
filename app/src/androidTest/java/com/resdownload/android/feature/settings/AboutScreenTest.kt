@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.resdownload.android.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -148,6 +149,17 @@ class AboutScreenTest {
 
         composeRule.runOnIdle { assertEquals(SOURCE_REPOSITORY_URL, openedUrl) }
         composeRule.onNodeWithText("浏览项目代码、提交问题或参与开发").assertExists()
+    }
+
+    @Test
+    fun donationItemOpensDonationPage() {
+        var openedUrl: String? = null
+        setAbout(onOpenUrl = { url -> openedUrl = url; true })
+
+        composeRule.onNodeWithText("向我们捐赠").performScrollTo().performClick()
+
+        composeRule.runOnIdle { assertEquals(DONATION_URL, openedUrl) }
+        composeRule.onNodeWithText("支持项目持续开发与维护").assertExists()
     }
 
     @Test

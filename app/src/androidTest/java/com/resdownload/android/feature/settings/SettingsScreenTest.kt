@@ -39,6 +39,7 @@ class SettingsScreenTest {
 
         composeRule.onNodeWithText("公告").assertExists()
         composeRule.onNodeWithText("检查更新").assertDoesNotExist()
+        composeRule.onNodeWithText("开发者、开源、捐赠与版本信息").assertExists()
         composeRule.onNodeWithText("关于").performClick()
 
         composeRule.runOnIdle { assertTrue(opened) }

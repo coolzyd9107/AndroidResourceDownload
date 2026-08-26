@@ -137,7 +137,6 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.coil.compose)
     implementation(libs.timber)
-    implementation(libs.androidx.browser)
     implementation(libs.kxml2)
     implementation(files("libs/qq-open-sdk-3.5.19.jar"))
 
