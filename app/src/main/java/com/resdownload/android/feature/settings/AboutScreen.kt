@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,21 +18,24 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -53,11 +55,6 @@ import coil.request.ImageRequest
 import com.resdownload.android.BuildConfig
 import com.resdownload.android.R
 import com.resdownload.android.core.ui.AppIcon
-import com.resdownload.android.core.ui.AppTopBar
-import com.resdownload.android.core.ui.AppListItem
-import com.resdownload.android.core.ui.ExpressiveDialog
-import com.resdownload.android.core.ui.ExpressiveDialogAction
-import com.resdownload.android.core.ui.ExpressiveDialogTone
 
 internal const val FRONTEND_DEVELOPER_URL = "https://github.com/coolzyd9107"
 internal const val BACKEND_DEVELOPER_URL = "https://github.com/zhuzhuzihan"
@@ -86,9 +83,8 @@ fun AboutScreen(
 ) {
     Scaffold(
         modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
-            AppTopBar(
+            TopAppBar(
                 title = { Text("关于") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -98,6 +94,9 @@ fun AboutScreen(
                         )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
             )
         },
     ) { innerPadding ->
@@ -120,7 +119,7 @@ fun AboutScreen(
                 style = MaterialTheme.typography.titleMediumEmphasized,
                 color = MaterialTheme.colorScheme.primary,
             )
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("检查更新") },
                 supportingContent = {
                     Text(
@@ -141,127 +140,67 @@ fun AboutScreen(
                 } else {
                     null
                 },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier.clickable(
-                        enabled = updateState != UpdateUiState.Checking,
-                        onClick = onCheckUpdate,
+                modifier = Modifier.clickable(
+                    enabled = updateState != UpdateUiState.Checking,
+                    onClick = onCheckUpdate,
                 ),
             )
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("在GitHub查看源代码") },
                 supportingContent = { Text("浏览项目代码、提交问题或参与开发") },
                 leadingContent = { SettingsIcon(Icons.Default.Code) },
                 trailingContent = {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                 },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier.clickable { onOpenUrl(SOURCE_REPOSITORY_URL) },
+                modifier = Modifier.clickable { onOpenUrl(SOURCE_REPOSITORY_URL) },
             )
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("向我们捐赠") },
                 supportingContent = { Text("支持项目持续开发与维护") },
                 leadingContent = { SettingsIcon(Icons.Default.VolunteerActivism) },
                 trailingContent = {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                 },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier.clickable { onOpenUrl(DONATION_URL) },
+                modifier = Modifier.clickable { onOpenUrl(DONATION_URL) },
             )
         }
     }
 
     when (val state = updateState) {
-        is UpdateUiState.Available -> ExpressiveDialog(
+        is UpdateUiState.Available -> AlertDialog(
             onDismissRequest = onDismissUpdate,
-            title = "发现新版本",
-            icon = Icons.Default.SystemUpdate,
-            content = {
-                Text(
-                    text = "当前版本 ${state.currentVersion}  ·  最新版本 ${state.latestVersion}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (state.releaseNotes.isNotEmpty()) {
-                    Text(
-                        text = "v${state.latestVersion} 更新内容",
-                        style = MaterialTheme.typography.titleMediumEmphasized,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 320.dp)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        state.releaseNotes.forEach { note ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.Top,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.tertiary,
-                                )
-                                Text(
-                                    text = note,
-                                    modifier = Modifier.weight(1f),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Text(
-                        text = "暂未获取到该版本的更新日志",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
+            title = { Text("发现新版本") },
+            text = {
+                Text("当前版本 ${state.currentVersion}\n最新版本 ${state.latestVersion}")
             },
-            actions = {
-                ExpressiveDialogAction(label = "取消", onClick = onDismissUpdate)
-                ExpressiveDialogAction(
-                    label = "下载",
+            confirmButton = {
+                TextButton(
                     onClick = {
                         if (onOpenUrl(state.updateUrl)) onDismissUpdate()
                     },
-                    primary = true,
-                )
+                ) { Text("下载") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissUpdate) { Text("取消") }
             },
         )
-        is UpdateUiState.UpToDate -> ExpressiveDialog(
+        is UpdateUiState.UpToDate -> AlertDialog(
             onDismissRequest = onDismissUpdate,
-            title = "已是最新版本",
-            icon = Icons.Default.CheckCircle,
-            tone = ExpressiveDialogTone.POSITIVE,
-            content = { Text("当前版本 ${state.currentVersion}") },
-            actions = {
-                ExpressiveDialogAction(
-                    label = "确定",
-                    onClick = onDismissUpdate,
-                    primary = true,
-                )
+            title = { Text("已是最新版本") },
+            text = { Text("当前版本 ${state.currentVersion}") },
+            confirmButton = {
+                TextButton(onClick = onDismissUpdate) { Text("确定") }
             },
         )
-        is UpdateUiState.Error -> ExpressiveDialog(
+        is UpdateUiState.Error -> AlertDialog(
             onDismissRequest = onDismissUpdate,
-            title = "检查更新失败",
-            icon = Icons.Default.ErrorOutline,
-            tone = ExpressiveDialogTone.DESTRUCTIVE,
-            content = { Text(state.message) },
-            actions = {
-                ExpressiveDialogAction(label = "取消", onClick = onDismissUpdate)
-                ExpressiveDialogAction(
-                    label = "重试",
-                    onClick = onCheckUpdate,
-                    primary = true,
-                )
+            title = { Text("检查更新失败") },
+            text = { Text(state.message) },
+            confirmButton = {
+                TextButton(onClick = onCheckUpdate) { Text("重试") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissUpdate) { Text("取消") }
             },
         )
         UpdateUiState.Idle,

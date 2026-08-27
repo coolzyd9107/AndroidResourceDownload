@@ -1,14 +1,12 @@
 package com.resdownload.android.data.file
 
 import java.io.ByteArrayInputStream
-import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import com.resdownload.android.domain.model.FileNode
 import com.resdownload.android.domain.model.FilePreviewContent
 import com.resdownload.android.domain.model.FilePreviewFormat
@@ -201,30 +199,13 @@ class WebDavFileRepository @Inject constructor(
         sourceEtag: String?,
     ) {
         validateTransfer(source, destination)
-        val targetBeforeCopy = webDavClient.propFindResource(destination)
-        val resolvedOverwrite = when {
-            targetBeforeCopy == null -> false
-            !overwrite -> throw WebDavException.PreconditionFailed()
-            targetBeforeCopy.requireKnownResourceType().isCollection ->
-                throw WebDavException.CollectionOverwriteDenied()
-            else -> true
-        }
-        val nativeCopySucceeded = copyNativelyThroughStaging(
-            source = source,
-            destination = destination,
-            overwrite = resolvedOverwrite,
-            sourceIsCollection = sourceIsCollection,
-            sourceEtag = sourceEtag,
+        webDavClient.copy(
+            source,
+            destination,
+            resolvedOverwrite(destination, overwrite),
+            sourceIsCollection,
+            sourceEtag,
         )
-        if (!nativeCopySucceeded) {
-            copyThroughClient(
-                source = source,
-                destination = destination,
-                overwrite = resolvedOverwrite,
-                sourceIsCollection = sourceIsCollection,
-                sourceEtag = sourceEtag,
-            )
-        }
     }
 
     override suspend fun delete(path: WebDavPath, isCollection: Boolean, etag: String?) {
@@ -240,129 +221,6 @@ class WebDavFileRepository @Inject constructor(
         }
         return true
     }
-
-    private suspend fun validateFallbackSourceEtag(source: WebDavPath, sourceEtag: String?) {
-        val expected = sourceEtag.strongEntityTagOrNull() ?: return
-        val current = webDavClient.propFindResource(source)
-            ?.etag
-            .strongEntityTagOrNull()
-        if (current != expected) throw WebDavException.PreconditionFailed()
-    }
-
-    private suspend fun copyNativelyThroughStaging(
-        source: WebDavPath,
-        destination: WebDavPath,
-        overwrite: Boolean,
-        sourceIsCollection: Boolean,
-        sourceEtag: String?,
-    ): Boolean {
-        val parent = WebDavPath.fromDecodedSegments(destination.decodedSegments.dropLast(1))
-        val stagingRoot = copyTemporaryPath(parent)
-        val stagedResource = stagingRoot.child(requireNotNull(source.name))
-        activeUploads += stagingRoot
-        try {
-            webDavClient.makeCollection(stagingRoot)
-            try {
-                webDavClient.copy(
-                    source = source,
-                    destination = stagedResource,
-                    overwrite = false,
-                    sourceIsCollection = sourceIsCollection,
-                    sourceEtag = sourceEtag,
-                )
-            } catch (error: WebDavException) {
-                if (error.isCopyCompatibilityFailure()) return false
-                throw error
-            }
-            webDavClient.move(
-                source = stagedResource,
-                destination = destination,
-                overwrite = overwrite,
-                sourceIsCollection = sourceIsCollection,
-            )
-            return true
-        } finally {
-            cleanupFailedClientCopy(stagingRoot)
-            activeUploads -= stagingRoot
-        }
-    }
-
-    private suspend fun copyThroughClient(
-        source: WebDavPath,
-        destination: WebDavPath,
-        overwrite: Boolean,
-        sourceIsCollection: Boolean,
-        sourceEtag: String?,
-    ) {
-        val parent = WebDavPath.fromDecodedSegments(destination.decodedSegments.dropLast(1))
-        val stagingRoot = copyTemporaryPath(parent)
-        val stagedResource = stagingRoot.child(requireNotNull(source.name))
-        activeUploads += stagingRoot
-        try {
-            webDavClient.makeCollection(stagingRoot)
-            if (!sourceIsCollection) {
-                webDavClient.copyFileContents(
-                    source = source,
-                    destination = stagedResource,
-                    overwrite = false,
-                    sourceEtag = sourceEtag,
-                )
-                webDavClient.move(stagedResource, destination, overwrite = overwrite)
-                return
-            }
-
-            validateFallbackSourceEtag(source, sourceEtag)
-            webDavClient.makeCollection(stagedResource)
-            val directories = ArrayDeque<Pair<WebDavPath, WebDavPath>>().apply {
-                add(source to stagedResource)
-            }
-            val visited = mutableSetOf<WebDavPath>()
-            while (directories.isNotEmpty()) {
-                val (sourceDirectory, destinationDirectory) = directories.removeFirst()
-                if (!visited.add(sourceDirectory)) continue
-                webDavClient.propFind(sourceDirectory).forEach { resource ->
-                    if (!resource.path.isDirectChildOf(sourceDirectory)) return@forEach
-                    val childName = requireNotNull(resource.path.name)
-                    val childDestination = destinationDirectory.child(childName)
-                    if (resource.requireKnownResourceType().isCollection) {
-                        webDavClient.makeCollection(childDestination)
-                        directories.addLast(resource.path to childDestination)
-                    } else {
-                        webDavClient.copyFileContents(
-                            source = resource.path,
-                            destination = childDestination,
-                            overwrite = false,
-                            sourceEtag = resource.etag,
-                        )
-                    }
-                }
-            }
-            webDavClient.move(
-                source = stagedResource,
-                destination = destination,
-                overwrite = overwrite,
-                sourceIsCollection = true,
-            )
-        } finally {
-            cleanupFailedClientCopy(stagingRoot)
-            activeUploads -= stagingRoot
-        }
-    }
-
-    private suspend fun cleanupFailedClientCopy(stagingRoot: WebDavPath) {
-        withContext(NonCancellable) {
-            try {
-                withTimeout(COPY_CLEANUP_TIMEOUT_MILLIS) {
-                    webDavClient.delete(stagingRoot, isCollection = true)
-                }
-            } catch (_: Exception) {
-                // Best-effort cleanup must not replace the original copy failure.
-            }
-        }
-    }
-
-    private fun copyTemporaryPath(parent: WebDavPath): WebDavPath =
-        parent.child(".ard-copy-${UUID.randomUUID()}.tmp")
 
     private fun requireMutablePath(path: WebDavPath) {
         require(!path.isRoot) { "The WebDAV root cannot be modified" }
@@ -391,14 +249,6 @@ class WebDavFileRepository @Inject constructor(
     }
 }
 
-private fun WebDavException.isCopyCompatibilityFailure(): Boolean =
-    this is WebDavException.ServerError && statusCode in setOf(500, 501) ||
-        this is WebDavException.UnexpectedStatus && statusCode in setOf(405, 501)
-
-private fun WebDavPath.isDirectChildOf(parent: WebDavPath): Boolean =
-    decodedSegments.size == parent.decodedSegments.size + 1 &&
-        decodedSegments.dropLast(1) == parent.decodedSegments
-
 private fun WebDavResource.requireKnownResourceType(): WebDavResource {
     if (!resourceTypeKnown) {
         throw WebDavException.InvalidResponse("WebDAV response omitted the target resource type")
@@ -414,15 +264,12 @@ private fun WebDavResource.toFileNode(): FileNode = FileNode(
     lastModified = lastModifiedEpochMillis,
     mimeType = contentType,
     etag = etag,
-    isUploadTemporary = path.name?.matches(TRANSFER_TEMPORARY_NAME) == true,
+    isUploadTemporary = path.name?.matches(UPLOAD_TEMPORARY_NAME) == true,
 )
 
-private val TRANSFER_TEMPORARY_NAME = Regex(
-    "^\\.ard-(?:upload-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-" +
-        "[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.part|" +
-        "copy-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-" +
-        "[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.tmp)$",
+private val UPLOAD_TEMPORARY_NAME = Regex(
+    "^\\.ard-upload-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-" +
+        "[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.part$",
 )
 
 private const val MAX_EDITED_TEXT_BYTES = 512 * 1024
-private const val COPY_CLEANUP_TIMEOUT_MILLIS = 15_000L

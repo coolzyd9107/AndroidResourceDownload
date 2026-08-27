@@ -9,9 +9,10 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -23,8 +24,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.ui.graphics.Color
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -54,22 +53,15 @@ fun SearchTopAppBar(
         focusRequester.requestFocus()
     }
 
-    AppTopBar(
+    TopAppBar(
         modifier = modifier,
         title = {
-            TextField(
+            OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
+                modifier = Modifier.focusRequester(focusRequester),
                 placeholder = { Text(placeholder) },
                 singleLine = true,
-                shape = MaterialTheme.shapes.extraLarge,
-                textStyle = MaterialTheme.typography.bodyLargeEmphasized,
-                leadingIcon = {
-                    Icon(Icons.Default.Search, contentDescription = null)
-                },
                 trailingIcon = if (query.isNotEmpty()) {
                     {
                         IconButton(onClick = { onQueryChange("") }) {
@@ -81,15 +73,9 @@ fun SearchTopAppBar(
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { submit() }),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                ),
             )
         },
-        subtitle = subtitle?.let { text -> { Text(text) } },
+        subtitle = { subtitle?.let { Text(it) } },
         navigationIcon = {
             IconButton(onClick = onClose) {
                 Icon(
@@ -109,5 +95,8 @@ fun SearchTopAppBar(
                 }
             }
         },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
     )
 }

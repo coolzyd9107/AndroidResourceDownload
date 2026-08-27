@@ -93,13 +93,6 @@ class CredentialBackedWebDavClient(
         sourceEtag: String?,
     ) = execute { it.copy(source, destination, overwrite, sourceIsCollection, sourceEtag) }
 
-    override suspend fun copyFileContents(
-        source: WebDavPath,
-        destination: WebDavPath,
-        overwrite: Boolean,
-        sourceEtag: String?,
-    ) = execute { it.copyFileContents(source, destination, overwrite, sourceEtag) }
-
     private class FixedCredentialProvider(
         private val lease: CredentialLease,
     ) : WebDavCredentialProvider {

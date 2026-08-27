@@ -43,9 +43,11 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -54,6 +56,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -79,12 +84,6 @@ import com.resdownload.android.core.common.formatFileSize
 import com.resdownload.android.core.common.formatTransferProgress
 import com.resdownload.android.core.common.formatTransferSpeed
 import com.resdownload.android.core.ui.EmptyPane
-import com.resdownload.android.core.ui.AppTopBar
-import com.resdownload.android.core.ui.ExpressiveDialog
-import com.resdownload.android.core.ui.ExpressiveDialogAction
-import com.resdownload.android.core.ui.ExpressiveDialogTone
-import com.resdownload.android.core.ui.FloatingAction
-import com.resdownload.android.core.ui.FloatingActionDock
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
 import com.resdownload.android.core.ui.SelectionBottomBar
@@ -246,7 +245,6 @@ fun DownloadsScreen(
 
     Scaffold(
         modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
             if (searchingSelectedTasks) {
                 SearchTopAppBar(
@@ -265,7 +263,7 @@ fun DownloadsScreen(
                     subtitle = "${filteredTasks.size} / ${selectedSearchTaskIds.size} 个已选任务",
                 )
             } else if (multiSelectMode) {
-                AppTopBar(
+                TopAppBar(
                     title = { Text("已选择 ${selectedTasks.size} 项") },
                     navigationIcon = {
                         IconButton(onClick = ::exitMultiSelect) {
@@ -293,6 +291,9 @@ fun DownloadsScreen(
                             )
                         }
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 )
             } else if (searchActive) {
                 SearchTopAppBar(
@@ -313,7 +314,7 @@ fun DownloadsScreen(
                     },
                 )
             } else {
-                AppTopBar(
+                TopAppBar(
                     title = { Text("下载") },
                     subtitle = {
                         AnimatedContent(
@@ -336,6 +337,9 @@ fun DownloadsScreen(
                             Icon(Icons.Default.Search, contentDescription = "搜索下载任务")
                         }
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 )
             }
         },
@@ -398,27 +402,28 @@ fun DownloadsScreen(
             }
         },
         floatingActionButton = {
-            if (!multiSelectMode && (hasCancellableTasks || hasClearableTasks)) {
-                FloatingActionDock {
+            if (!multiSelectMode) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     if (hasCancellableTasks) {
-                        FloatingAction(
-                            icon = Icons.Default.Cancel,
-                            label = "全部取消",
+                        ExtendedFloatingActionButton(
+                            text = { Text("全部取消") },
+                            icon = { Icon(Icons.Default.Cancel, contentDescription = null) },
                             modifier = Modifier.testTag("cancelAllTasks"),
                             onClick = { showCancelAllDialog = true },
-                            destructive = true,
                         )
                     }
                     if (hasClearableTasks) {
-                        FloatingAction(
-                            icon = Icons.Default.DeleteSweep,
-                            label = "全部清除",
+                        ExtendedFloatingActionButton(
+                            text = { Text("全部清除") },
+                            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
                             modifier = Modifier.testTag("clearTerminalTasks"),
                             onClick = {
                                 clearLocalFiles = true
                                 showClearDialog = true
                             },
-                            destructive = true,
                         )
                     }
                 }
@@ -496,37 +501,33 @@ fun DownloadsScreen(
     }
 
     if (showCancelAllDialog) {
-        ExpressiveDialog(
+        AlertDialog(
             onDismissRequest = { showCancelAllDialog = false },
-            title = "全部取消？",
-            icon = Icons.Default.Cancel,
-            tone = ExpressiveDialogTone.DESTRUCTIVE,
-            content = { Text("确定要取消所有等待中、正在下载或已暂停的任务吗？") },
-            actions = {
-                ExpressiveDialogAction(
-                    label = "返回",
-                    onClick = { showCancelAllDialog = false },
-                )
-                ExpressiveDialogAction(
-                    label = "取消全部任务",
+            title = { Text("全部取消？") },
+            text = { Text("确定要取消所有等待中、正在下载或已暂停的任务吗？") },
+            confirmButton = {
+                TextButton(
                     onClick = {
                         showCancelAllDialog = false
                         onCancelAll()
                     },
-                    primary = true,
-                    destructive = true,
-                )
+                ) {
+                    Text("取消全部任务")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelAllDialog = false }) {
+                    Text("返回")
+                }
             },
         )
     }
 
     deleteTaskIds?.let { taskIds ->
-        ExpressiveDialog(
+        AlertDialog(
             onDismissRequest = { deleteTaskIds = null },
-            title = if (taskIds.size == 1) "删除任务" else "删除所选任务",
-            icon = Icons.Default.Delete,
-            tone = ExpressiveDialogTone.DESTRUCTIVE,
-            content = {
+            title = { Text(if (taskIds.size == 1) "删除任务" else "删除所选任务") },
+            text = {
                 Column {
                     Text(
                         if (taskIds.size == 1) {
@@ -547,29 +548,28 @@ fun DownloadsScreen(
                     }
                 }
             },
-            actions = {
-                ExpressiveDialogAction(label = "取消", onClick = { deleteTaskIds = null })
-                ExpressiveDialogAction(
-                    label = "删除",
-                    onClick = {
-                        deleteTaskIds = null
-                        taskIds.forEach { id -> onDeleteWithOption(id, deleteLocalFile) }
-                        exitMultiSelect()
-                    },
-                    primary = true,
-                    destructive = true,
-                )
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteTaskIds = null
+                    taskIds.forEach { id -> onDeleteWithOption(id, deleteLocalFile) }
+                    exitMultiSelect()
+                }) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTaskIds = null }) {
+                    Text("取消")
+                }
             },
         )
     }
 
     if (showClearDialog) {
-        ExpressiveDialog(
+        AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = "全部清除",
-            icon = Icons.Default.DeleteSweep,
-            tone = ExpressiveDialogTone.DESTRUCTIVE,
-            content = {
+            title = { Text("全部清除") },
+            text = {
                 Column {
                     Text("确定要清除所有已结束的下载任务吗？")
                     Row(
@@ -584,17 +584,18 @@ fun DownloadsScreen(
                     }
                 }
             },
-            actions = {
-                ExpressiveDialogAction(label = "取消", onClick = { showClearDialog = false })
-                ExpressiveDialogAction(
-                    label = "清除",
-                    onClick = {
-                        showClearDialog = false
-                        onClearTerminal(clearLocalFiles)
-                    },
-                    primary = true,
-                    destructive = true,
-                )
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearDialog = false
+                    onClearTerminal(clearLocalFiles)
+                }) {
+                    Text("清除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("取消")
+                }
             },
         )
     }
@@ -701,7 +702,7 @@ private fun DownloadTaskItem(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(40.dp)
                         .testTag("downloadStatusAction-${task.id}")
                         .then(
                             if (!selectionMode && statusAction != null) {
@@ -824,7 +825,6 @@ private fun DownloadTaskItem(
                                         modifier = Modifier.fillMaxWidth(),
                                         color = progressColor(task.status),
                                         trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                        stopSize = 0.dp,
                                     )
                                 } else if (active) {
                                     LinearWavyProgressIndicator(
