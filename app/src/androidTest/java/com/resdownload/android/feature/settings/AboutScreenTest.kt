@@ -46,6 +46,7 @@ class AboutScreenTest {
                 currentVersion = "2.0.0",
                 latestVersion = "2.1.1",
                 updateUrl = "https://example.com/download",
+                releaseNotes = listOf("修复 WebDAV 复制", "统一 M3E 弹窗"),
             ),
             onDismissUpdate = { dismissed = true },
             onOpenUrl = {
@@ -55,6 +56,9 @@ class AboutScreenTest {
         )
 
         composeRule.onNodeWithText("发现新版本").assertExists()
+        composeRule.onNodeWithText("v2.1.1 更新内容").assertExists()
+        composeRule.onNodeWithText("修复 WebDAV 复制").assertExists()
+        composeRule.onNodeWithText("统一 M3E 弹窗").assertExists()
         composeRule.onNodeWithText("下载").performClick()
 
         composeRule.runOnIdle {

@@ -59,3 +59,31 @@ internal fun normalizeNotice(bytes: ByteArray): String? = decodeText(bytes)
     ?.removePrefix("\uFEFF")
     ?.trim()
     ?.takeIf(String::isNotEmpty)
+
+internal fun parseReleaseNotesForVersion(notice: String, version: String): List<String> {
+    if (!VERSION_PATTERN.matches(version)) return emptyList()
+    val targetHeading = Regex("^v${Regex.escape(version)}\\s*:\\s*$", RegexOption.IGNORE_CASE)
+    var collecting = false
+    val notes = mutableListOf<String>()
+    for (rawLine in notice.lineSequence()) {
+        val line = rawLine.trim()
+        if (targetHeading.matches(line)) {
+            if (collecting) break
+            collecting = true
+            continue
+        }
+        if (collecting && VERSION_HEADING_PATTERN.matches(line)) break
+        if (collecting && !line.startsWith('-') && SECTION_HEADING_PATTERN.matches(line)) break
+        if (collecting && line.startsWith('-')) {
+            line.removePrefix("-").trim().takeIf(String::isNotEmpty)?.let(notes::add)
+        }
+    }
+    return notes
+}
+
+private val VERSION_PATTERN = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
+private val VERSION_HEADING_PATTERN = Regex(
+    "^v[0-9]+\\.[0-9]+\\.[0-9]+\\s*:\\s*$",
+    RegexOption.IGNORE_CASE,
+)
+private val SECTION_HEADING_PATTERN = Regex("^.+[:：]\\s*$")

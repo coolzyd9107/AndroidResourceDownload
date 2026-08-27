@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
@@ -35,7 +36,10 @@ sealed interface ContentState<out T> {
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun LoadingPane(modifier: Modifier = Modifier) {
+fun LoadingPane(
+    modifier: Modifier = Modifier,
+    message: String = "加载中",
+) {
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -43,7 +47,7 @@ fun LoadingPane(modifier: Modifier = Modifier) {
     ) {
         LoadingIndicator()
         Text(
-            text = "加载中",
+            text = message,
             modifier = Modifier.padding(top = 16.dp),
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -84,6 +88,7 @@ fun EmptyPane(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ErrorPane(
     message: String,
@@ -120,6 +125,7 @@ fun ErrorPane(
             onClick = onRetry,
             enabled = enabled,
             modifier = Modifier.padding(top = 16.dp),
+            shapes = ButtonDefaults.shapes(),
         ) {
             Icon(Icons.Default.Refresh, contentDescription = null)
             Spacer(Modifier.width(8.dp))

@@ -47,4 +47,13 @@ interface WebDavClient {
         sourceIsCollection: Boolean = false,
         sourceEtag: String? = null,
     )
+
+    suspend fun copyFileContents(
+        source: WebDavPath,
+        destination: WebDavPath,
+        overwrite: Boolean = false,
+        sourceEtag: String? = null,
+    ) {
+        throw UnsupportedOperationException("Streamed copy is not supported")
+    }
 }
