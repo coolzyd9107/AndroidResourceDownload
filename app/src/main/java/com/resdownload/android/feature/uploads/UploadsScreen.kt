@@ -26,8 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
@@ -51,6 +49,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -81,6 +80,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.resdownload.android.core.common.formatFileSize
+import com.resdownload.android.core.common.formatTransferProgress
+import com.resdownload.android.core.common.formatTransferSpeed
 import com.resdownload.android.core.ui.EmptyPane
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
@@ -488,7 +489,7 @@ fun UploadsScreen(
                                     placementSpec = itemSpatialSpec,
                                     fadeOutSpec = itemEffectsSpec,
                                 )
-                                .padding(horizontal = 12.dp, vertical = 3.dp),
+                                .padding(horizontal = 10.dp, vertical = 2.dp),
                         )
                     }
                 }
@@ -589,7 +590,7 @@ private fun UploadTaskItem(
         0f
     }
     val animatedProgress by animateFloatAsState(
-        targetValue = progress,
+        targetValue = if (task.status == UploadStatus.SUCCESS || task.committing) 1f else progress,
         animationSpec = WavyProgressIndicatorDefaults.ProgressAnimationSpec,
         label = "uploadProgress",
     )
@@ -598,6 +599,7 @@ private fun UploadTaskItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .testTag("uploadTaskCard-${task.id}")
             .then(
                 if (selectionMode) {
                     Modifier.clickable(
@@ -610,7 +612,7 @@ private fun UploadTaskItem(
                 },
             )
             .then(if (enabled) Modifier else Modifier.clearAndSetSemantics { }),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.secondaryContainer
@@ -619,162 +621,173 @@ private fun UploadTaskItem(
             },
         ),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(
+            Row(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .weight(1f)
                     .taskLongPress(
                         enabled = enabled && !selectionMode,
                         label = "选择上传任务",
                         onLongPress = onLongSelect,
                     ),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("uploadStatusIcon-${task.id}"),
+                    shape = MaterialTheme.shapes.small,
+                    color = statusContainerColor(task.status),
                 ) {
-                    Surface(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .testTag("uploadStatusIcon-${task.id}"),
-                        shape = MaterialTheme.shapes.small,
-                        color = statusContainerColor(task.status),
+                    Box(contentAlignment = Alignment.Center) {
+                        AnimatedContent(
+                            targetState = task.status,
+                            transitionSpec = {
+                                (fadeIn(effectsSpec) +
+                                    scaleIn(spatialFloatSpec, initialScale = 0.65f))
+                                    .togetherWith(
+                                        fadeOut(effectsSpec) +
+                                            scaleOut(spatialFloatSpec, targetScale = 0.65f),
+                                    )
+                            },
+                            label = "uploadStatusIcon",
+                        ) { status ->
+                            Icon(
+                                imageVector = statusIcon(status, task.isDirectory),
+                                contentDescription = null,
+                                tint = statusColor(status),
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = task.fileName,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (task.relativePath != task.fileName) {
+                        Text(
+                            text = task.relativePath,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            AnimatedContent(
-                                targetState = task.status,
-                                transitionSpec = {
-                                    (fadeIn(effectsSpec) +
-                                        scaleIn(spatialFloatSpec, initialScale = 0.65f))
-                                        .togetherWith(
-                                            fadeOut(effectsSpec) +
-                                                scaleOut(spatialFloatSpec, targetScale = 0.65f),
-                                        )
-                                },
-                                label = "uploadStatusIcon",
-                            ) { status ->
-                                Icon(
-                                    imageVector = statusIcon(status, task.isDirectory),
-                                    contentDescription = null,
-                                    tint = statusColor(status),
-                                )
+                        Text(
+                            text = statusLabel(task),
+                            modifier = Modifier.testTag("uploadStatusLabel-${task.id}"),
+                            color = statusColor(task.status),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = taskProgressText(task),
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (task.status == UploadStatus.RUNNING &&
+                            !task.isDirectory &&
+                            !task.committing &&
+                            task.errorMessage == null
+                        ) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = formatTransferSpeed(currentSpeed),
+                                modifier = Modifier.testTag("uploadCurrentSpeed-${task.id}"),
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    val progressModifier = Modifier
+                        .fillMaxWidth()
+                        .height(10.dp)
+                        .testTag("uploadProgress-${task.id}")
+                    Box(
+                        modifier = progressModifier,
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AnimatedContent(
+                            targetState = task.status == UploadStatus.RUNNING && !task.committing,
+                            modifier = Modifier.fillMaxSize(),
+                            transitionSpec = {
+                                fadeIn(effectsSpec).togetherWith(fadeOut(effectsSpec))
+                            },
+                            label = "uploadProgressStyle",
+                        ) { active ->
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (active &&
+                                    !task.isDirectory &&
+                                    totalBytes != null &&
+                                    totalBytes > 0L
+                                ) {
+                                    LinearWavyProgressIndicator(
+                                        progress = { animatedProgress },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = progressColor(task.status),
+                                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    )
+                                } else if (active) {
+                                    LinearWavyProgressIndicator(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = progressColor(task.status),
+                                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    )
+                                } else {
+                                    LinearProgressIndicator(
+                                        progress = { animatedProgress },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp),
+                                        color = progressColor(task.status),
+                                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                        drawStopIndicator = {},
+                                    )
+                                }
                             }
                         }
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = task.fileName,
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (task.relativePath != task.fileName) {
-                            Text(
-                                text = task.relativePath,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Text(
-                            text = taskProgressText(task, progress, currentSpeed),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    if (selectionMode) {
-                        Checkbox(
-                            checked = selected,
-                            onCheckedChange = { onSelectionToggle() },
-                        )
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(12.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AnimatedContent(
-                        targetState = task.status == UploadStatus.RUNNING && !task.committing,
-                        modifier = Modifier.fillMaxSize(),
-                        transitionSpec = {
-                            fadeIn(effectsSpec).togetherWith(fadeOut(effectsSpec))
-                        },
-                        label = "uploadProgressVisibility",
-                    ) { visible ->
-                        if (visible && !task.isDirectory && totalBytes != null && totalBytes > 0L) {
-                            LinearWavyProgressIndicator(
-                                progress = { animatedProgress },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        } else if (visible) {
-                            LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        } else {
-                            Spacer(Modifier.fillMaxSize())
-                        }
-                    }
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .taskLongPress(
-                            enabled = enabled && !selectionMode,
-                            label = "选择上传任务",
-                            onLongPress = onLongSelect,
-                        ),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    StatusBadge(
-                        task = task,
-                        modifier = Modifier.testTag("uploadStatusBadge-${task.id}"),
-                    )
-                }
-                if (!selectionMode) {
-                    TaskActions(
-                        task = task,
-                        enabled = enabled,
-                        onRetry = onRetry,
-                        onCancel = onCancel,
-                        onDelete = onDelete,
-                        onLongSelect = onLongSelect,
-                    )
-                }
+            Spacer(Modifier.width(2.dp))
+            if (selectionMode) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onSelectionToggle() },
+                )
+            } else {
+                TaskActions(
+                    task = task,
+                    enabled = enabled,
+                    onRetry = onRetry,
+                    onCancel = onCancel,
+                    onDelete = onDelete,
+                    onLongSelect = onLongSelect,
+                )
             }
         }
-    }
-}
-
-@Composable
-private fun StatusBadge(
-    task: UploadTask,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = statusContainerColor(task.status),
-    ) {
-        Text(
-            text = statusLabel(task),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = statusColor(task.status),
-        )
     }
 }
 
@@ -787,7 +800,7 @@ private fun TaskActions(
     onDelete: () -> Unit,
     onLongSelect: () -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row {
         when (task.status) {
             UploadStatus.PENDING, UploadStatus.RUNNING -> {
                 if (!task.isDirectory && !task.committing) {
@@ -877,7 +890,7 @@ private fun AnimatedDeleteIconButton(
     }
 }
 
-private fun taskProgressText(task: UploadTask, progress: Float, currentSpeed: Long): String =
+private fun taskProgressText(task: UploadTask): String =
     when (task.status) {
         UploadStatus.SUCCESS -> if (task.isDirectory) "文件夹已创建" else formatFileSize(task.totalBytes)
         UploadStatus.FAILED -> task.errorMessage ?: "上传失败，可重试"
@@ -885,25 +898,13 @@ private fun taskProgressText(task: UploadTask, progress: Float, currentSpeed: Lo
         UploadStatus.PENDING -> if (task.isDirectory) {
             "等待创建文件夹"
         } else {
-            "${formatFileSize(task.uploadedBytes)} / ${formatFileSize(task.totalBytes)}"
+            formatTransferProgress(task.uploadedBytes, task.totalBytes)
         }
         UploadStatus.RUNNING -> when {
             task.errorMessage != null -> task.errorMessage
             task.committing -> "正在提交到云端"
             task.isDirectory -> "正在创建文件夹"
-            else -> buildString {
-                append(formatFileSize(task.uploadedBytes))
-                append(" / ")
-                append(formatFileSize(task.totalBytes))
-                if (task.totalBytes != null && task.totalBytes > 0L) {
-                    append(" · ")
-                    append((progress * 100).toInt())
-                    append('%')
-                }
-                append(" · ")
-                append(formatFileSize(currentSpeed))
-                append("/s")
-            }
+            else -> formatTransferProgress(task.uploadedBytes, task.totalBytes)
         }
     }
 
@@ -946,6 +947,14 @@ private fun statusColor(status: UploadStatus): Color = when (status) {
     UploadStatus.FAILED -> MaterialTheme.colorScheme.onErrorContainer
     UploadStatus.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
     else -> MaterialTheme.colorScheme.onSecondaryContainer
+}
+
+@Composable
+private fun progressColor(status: UploadStatus): Color = when (status) {
+    UploadStatus.SUCCESS, UploadStatus.RUNNING -> MaterialTheme.colorScheme.primary
+    UploadStatus.FAILED -> MaterialTheme.colorScheme.error
+    UploadStatus.PENDING -> MaterialTheme.colorScheme.outlineVariant
+    UploadStatus.CANCELLED -> MaterialTheme.colorScheme.outline
 }
 
 @Composable

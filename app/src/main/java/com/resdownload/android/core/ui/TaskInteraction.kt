@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -49,7 +48,7 @@ fun TaskActionIconButton(
     tonal: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    Surface(
+    Box(
         modifier = modifier
             .size(48.dp)
             .combinedClickable(
@@ -60,22 +59,32 @@ fun TaskActionIconButton(
                 onClickLabel = clickLabel,
                 onLongClickLabel = longClickLabel,
             ),
-        shape = CircleShape,
-        color = if (tonal) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            Color.Transparent
-        },
-        contentColor = if (tonal) {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-            content = content,
-        )
+        Surface(
+            modifier = Modifier.size(36.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = if (tonal) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                Color.Transparent
+            },
+            contentColor = if (tonal) {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier.size(20.dp),
+                    contentAlignment = Alignment.Center,
+                    content = content,
+                )
+            }
+        }
     }
 }

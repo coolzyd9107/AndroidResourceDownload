@@ -1,6 +1,7 @@
 package com.resdownload.android.feature.downloads
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -87,11 +88,13 @@ class DownloadsScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("0 B / -- · 1.0 KB/s").assertExists()
+        composeRule.onNodeWithText("0 B / --").assertExists()
+        composeRule.onNodeWithTag("downloadCurrentSpeed-running")
+            .assertTextEquals("1.0 KB/s")
     }
 
     @Test
-    fun statusBadgeSpacingIsStableAcrossDownloadStates() {
+    fun taskCardHeightIsStableAcrossDownloadStates() {
         composeRule.setContent {
             MaterialTheme {
                 DownloadsScreen(
@@ -106,20 +109,12 @@ class DownloadsScreenTest {
             }
         }
 
-        val runningIcon = composeRule.onNodeWithTag("downloadStatusIcon-running")
+        val runningCard = composeRule.onNodeWithTag("downloadTaskCard-running")
             .fetchSemanticsNode().boundsInRoot
-        val runningBadge = composeRule.onNodeWithTag("downloadStatusBadge-running")
-            .fetchSemanticsNode().boundsInRoot
-        val successIcon = composeRule.onNodeWithTag("downloadStatusIcon-success")
-            .fetchSemanticsNode().boundsInRoot
-        val successBadge = composeRule.onNodeWithTag("downloadStatusBadge-success")
+        val successCard = composeRule.onNodeWithTag("downloadTaskCard-success")
             .fetchSemanticsNode().boundsInRoot
 
-        assertEquals(
-            runningBadge.top - runningIcon.bottom,
-            successBadge.top - successIcon.bottom,
-            1f,
-        )
+        assertEquals(runningCard.height, successCard.height, 1f)
     }
 
     @Test

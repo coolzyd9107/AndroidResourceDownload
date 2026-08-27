@@ -1,6 +1,7 @@
 package com.resdownload.android.feature.uploads
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -34,12 +35,28 @@ class UploadsScreenTest {
             speeds = mapOf("running" to 1_024L),
         )
 
-        composeRule.onNodeWithText("1.0 KB / 4.0 KB · 25% · 1.0 KB/s").assertExists()
+        composeRule.onNodeWithText("1.0 KB / 4.0 KB · 25%").assertExists()
+        composeRule.onNodeWithTag("uploadCurrentSpeed-running")
+            .assertTextEquals("1.0 KB/s")
         composeRule.onNode(hasContentDescription("取消上传")).assertExists()
     }
 
     @Test
-    fun statusBadgeSpacingIsStableAcrossUploadStates() {
+    fun pendingFileShowsTheSameSizeAndPercentageFormatAsDownloads() {
+        setScreen(
+            task(
+                id = "pending",
+                status = UploadStatus.PENDING,
+                totalBytes = 4_096L,
+                uploadedBytes = 1_024L,
+            ),
+        )
+
+        composeRule.onNodeWithText("1.0 KB / 4.0 KB · 25%").assertExists()
+    }
+
+    @Test
+    fun taskCardHeightIsStableAcrossUploadStates() {
         composeRule.setContent {
             MaterialTheme {
                 UploadsScreen(
@@ -54,20 +71,12 @@ class UploadsScreenTest {
             }
         }
 
-        val runningIcon = composeRule.onNodeWithTag("uploadStatusIcon-running")
+        val runningCard = composeRule.onNodeWithTag("uploadTaskCard-running")
             .fetchSemanticsNode().boundsInRoot
-        val runningBadge = composeRule.onNodeWithTag("uploadStatusBadge-running")
-            .fetchSemanticsNode().boundsInRoot
-        val successIcon = composeRule.onNodeWithTag("uploadStatusIcon-success")
-            .fetchSemanticsNode().boundsInRoot
-        val successBadge = composeRule.onNodeWithTag("uploadStatusBadge-success")
+        val successCard = composeRule.onNodeWithTag("uploadTaskCard-success")
             .fetchSemanticsNode().boundsInRoot
 
-        assertEquals(
-            runningBadge.top - runningIcon.bottom,
-            successBadge.top - successIcon.bottom,
-            1f,
-        )
+        assertEquals(runningCard.height, successCard.height, 1f)
     }
 
     @Test
@@ -75,6 +84,7 @@ class UploadsScreenTest {
         setScreen(task("committing", UploadStatus.RUNNING, committing = true))
 
         composeRule.onNodeWithText("正在提交到云端").assertExists()
+        composeRule.onNodeWithTag("uploadCurrentSpeed-committing").assertDoesNotExist()
         composeRule.onNode(hasContentDescription("取消上传")).assertDoesNotExist()
     }
 
