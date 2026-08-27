@@ -596,6 +596,19 @@ private fun UploadTaskItem(
     )
     val effectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val spatialFloatSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    val statusAction: (() -> Unit)? = when (task.status) {
+        UploadStatus.FAILED, UploadStatus.CANCELLED -> onRetry
+        else -> null
+    }
+    val statusActionLabel = when (task.status) {
+        UploadStatus.FAILED, UploadStatus.CANCELLED -> "重试上传"
+        else -> null
+    }
+    val interactiveStatusLabel = statusActionLabel.takeIf { !selectionMode && enabled }
+    val statusImage = when (task.status) {
+        UploadStatus.FAILED, UploadStatus.CANCELLED -> Icons.Default.Refresh
+        else -> statusIcon(task.status, task.isDirectory)
+    }
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -635,31 +648,51 @@ private fun UploadTaskItem(
                     ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
+                Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .testTag("uploadStatusIcon-${task.id}"),
-                    shape = MaterialTheme.shapes.small,
-                    color = statusContainerColor(task.status),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        AnimatedContent(
-                            targetState = task.status,
-                            transitionSpec = {
-                                (fadeIn(effectsSpec) +
-                                    scaleIn(spatialFloatSpec, initialScale = 0.65f))
-                                    .togetherWith(
-                                        fadeOut(effectsSpec) +
-                                            scaleOut(spatialFloatSpec, targetScale = 0.65f),
-                                    )
+                        .size(40.dp)
+                        .testTag("uploadStatusAction-${task.id}")
+                        .then(
+                            if (!selectionMode && statusAction != null) {
+                                Modifier.taskLongPress(
+                                    enabled = enabled,
+                                    label = "选择上传任务",
+                                    onLongPress = onLongSelect,
+                                    onClick = statusAction,
+                                    onClickLabel = interactiveStatusLabel,
+                                )
+                            } else {
+                                Modifier
                             },
-                            label = "uploadStatusIcon",
-                        ) { status ->
-                            Icon(
-                                imageVector = statusIcon(status, task.isDirectory),
-                                contentDescription = null,
-                                tint = statusColor(status),
-                            )
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("uploadStatusIcon-${task.id}"),
+                        shape = MaterialTheme.shapes.small,
+                        color = statusContainerColor(task.status),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            AnimatedContent(
+                                targetState = task.status,
+                                transitionSpec = {
+                                    (fadeIn(effectsSpec) +
+                                        scaleIn(spatialFloatSpec, initialScale = 0.65f))
+                                        .togetherWith(
+                                            fadeOut(effectsSpec) +
+                                                scaleOut(spatialFloatSpec, targetScale = 0.65f),
+                                        )
+                                },
+                                label = "uploadStatusIcon",
+                            ) { status ->
+                                Icon(
+                                    imageVector = statusImage,
+                                    contentDescription = interactiveStatusLabel,
+                                    tint = statusColor(status),
+                                )
+                            }
                         }
                     }
                 }
@@ -816,16 +849,6 @@ private fun TaskActions(
                 }
             }
             UploadStatus.FAILED, UploadStatus.CANCELLED -> {
-                TaskActionIconButton(
-                    onClick = onRetry,
-                    onLongPress = onLongSelect,
-                    clickLabel = "重试上传",
-                    longClickLabel = "选择上传任务",
-                    enabled = enabled,
-                    tonal = true,
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "重试上传")
-                }
                 AnimatedDeleteIconButton(
                     onDelete = onDelete,
                     contentDescription = "删除上传任务",

@@ -19,17 +19,30 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalFoundationApi::class)
 fun Modifier.taskLongPress(
     enabled: Boolean,
     label: String,
     onLongPress: () -> Unit,
+    onClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
 ): Modifier = if (enabled) {
-    pointerInput(onLongPress) {
-        detectTapGestures(onLongPress = { onLongPress() })
-    }.semantics {
-        onLongClick(label = label) {
-            onLongPress()
-            true
+    if (onClick != null) {
+        combinedClickable(
+            role = Role.Button,
+            onClick = onClick,
+            onLongClick = onLongPress,
+            onClickLabel = onClickLabel,
+            onLongClickLabel = label,
+        )
+    } else {
+        pointerInput(onLongPress) {
+            detectTapGestures(onLongPress = { onLongPress() })
+        }.semantics {
+            onLongClick(label = label) {
+                onLongPress()
+                true
+            }
         }
     }
 } else {

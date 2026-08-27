@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -630,19 +629,45 @@ private fun DownloadTaskItem(
     )
     val effectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val spatialFloatSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    val statusAction: (() -> Unit)? = when (task.status) {
+        DownloadStatus.RUNNING -> { { onStatusChange(DownloadStatus.PAUSED) } }
+        DownloadStatus.PAUSED -> { { onStatusChange(DownloadStatus.RUNNING) } }
+        DownloadStatus.FAILED -> { { onStatusChange(DownloadStatus.RUNNING) } }
+        DownloadStatus.CANCELLED -> { { onStatusChange(DownloadStatus.RUNNING) } }
+        else -> null
+    }
+    val statusActionLabel = when (task.status) {
+        DownloadStatus.RUNNING -> "暂停下载"
+        DownloadStatus.PAUSED -> "继续下载"
+        DownloadStatus.FAILED, DownloadStatus.CANCELLED -> "重试下载"
+        else -> null
+    }
+    val interactiveStatusLabel = statusActionLabel.takeIf { !selectionMode && enabled }
+    val statusImage = when (task.status) {
+        DownloadStatus.RUNNING -> Icons.Default.Pause
+        DownloadStatus.PAUSED -> Icons.Default.PlayArrow
+        DownloadStatus.FAILED, DownloadStatus.CANCELLED -> Icons.Default.Refresh
+        else -> statusIcon(task.status)
+    }
     Card(
         modifier = modifier
             .fillMaxWidth()
             .testTag("downloadTaskCard-${task.id}")
             .then(
-                if (selectionMode) {
-                    Modifier.clickable(
+                when {
+                    selectionMode -> Modifier.clickable(
                         enabled = enabled,
                         onClickLabel = "切换任务选择",
                         onClick = onSelectionToggle,
                     )
-                } else {
-                    Modifier
+                    task.status == DownloadStatus.SUCCESS -> Modifier.taskLongPress(
+                        enabled = enabled,
+                        label = "选择下载任务",
+                        onLongPress = onLongSelect,
+                        onClick = onOpen,
+                        onClickLabel = "打开文件",
+                    )
+                    else -> Modifier
                 },
             )
             .then(if (enabled) Modifier else Modifier.clearAndSetSemantics { }),
@@ -662,38 +687,64 @@ private fun DownloadTaskItem(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .taskLongPress(
-                        enabled = enabled && !selectionMode,
-                        label = "选择下载任务",
-                        onLongPress = onLongSelect,
+                    .then(
+                        if (!selectionMode && task.status != DownloadStatus.SUCCESS) {
+                            Modifier.taskLongPress(
+                                enabled = enabled,
+                                label = "选择下载任务",
+                                onLongPress = onLongSelect,
+                            )
+                        } else {
+                            Modifier
+                        },
                     ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
+                Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .testTag("downloadStatusIcon-${task.id}"),
-                    shape = MaterialTheme.shapes.small,
-                    color = statusContainerColor(task.status),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        AnimatedContent(
-                            targetState = task.status,
-                            transitionSpec = {
-                                (fadeIn(effectsSpec) +
-                                    scaleIn(spatialFloatSpec, initialScale = 0.65f))
-                                    .togetherWith(
-                                        fadeOut(effectsSpec) +
-                                            scaleOut(spatialFloatSpec, targetScale = 0.65f),
-                                    )
+                        .size(40.dp)
+                        .testTag("downloadStatusAction-${task.id}")
+                        .then(
+                            if (!selectionMode && statusAction != null) {
+                                Modifier.taskLongPress(
+                                    enabled = enabled,
+                                    label = "选择下载任务",
+                                    onLongPress = onLongSelect,
+                                    onClick = statusAction,
+                                    onClickLabel = interactiveStatusLabel,
+                                )
+                            } else {
+                                Modifier
                             },
-                            label = "downloadStatusIcon",
-                        ) { status ->
-                            Icon(
-                                imageVector = statusIcon(status),
-                                contentDescription = null,
-                                tint = statusColor(status),
-                            )
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("downloadStatusIcon-${task.id}"),
+                        shape = MaterialTheme.shapes.small,
+                        color = statusContainerColor(task.status),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            AnimatedContent(
+                                targetState = task.status,
+                                transitionSpec = {
+                                    (fadeIn(effectsSpec) +
+                                        scaleIn(spatialFloatSpec, initialScale = 0.65f))
+                                        .togetherWith(
+                                            fadeOut(effectsSpec) +
+                                                scaleOut(spatialFloatSpec, targetScale = 0.65f),
+                                        )
+                                },
+                                label = "downloadStatusIcon",
+                            ) { status ->
+                                Icon(
+                                    imageVector = statusImage,
+                                    contentDescription = interactiveStatusLabel,
+                                    tint = statusColor(status),
+                                )
+                            }
                         }
                     }
                 }
@@ -719,14 +770,10 @@ private fun DownloadTaskItem(
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 1,
                         )
-                        if (task.supportRange && task.status in setOf(
-                                DownloadStatus.PAUSED,
-                                DownloadStatus.FAILED,
-                                DownloadStatus.CANCELLED,
-                            )
-                        ) {
+                        if (task.supportRange && task.status == DownloadStatus.PAUSED) {
                             Text(
                                 text = " · 可续传",
+                                modifier = Modifier.testTag("downloadResumableHint-${task.id}"),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
@@ -812,7 +859,6 @@ private fun DownloadTaskItem(
                     status = task.status,
                     enabled = enabled,
                     onStatusChange = onStatusChange,
-                    onOpen = onOpen,
                     onDelete = onDelete,
                     onLongSelect = onLongSelect,
                 )
@@ -826,23 +872,12 @@ private fun TaskActions(
     status: DownloadStatus,
     enabled: Boolean,
     onStatusChange: (DownloadStatus) -> Unit,
-    onOpen: () -> Unit,
     onDelete: () -> Unit,
     onLongSelect: () -> Unit,
 ) {
     Row {
         when (status) {
             DownloadStatus.RUNNING -> {
-                TaskActionIconButton(
-                    onClick = { onStatusChange(DownloadStatus.PAUSED) },
-                    onLongPress = onLongSelect,
-                    clickLabel = "暂停下载",
-                    longClickLabel = "选择下载任务",
-                    enabled = enabled,
-                    tonal = true,
-                ) {
-                    Icon(Icons.Default.Pause, contentDescription = "暂停下载")
-                }
                 TaskActionIconButton(
                     onClick = { onStatusChange(DownloadStatus.CANCELLED) },
                     onLongPress = onLongSelect,
@@ -864,16 +899,6 @@ private fun TaskActions(
             }
             DownloadStatus.PAUSED -> {
                 TaskActionIconButton(
-                    onClick = { onStatusChange(DownloadStatus.RUNNING) },
-                    onLongPress = onLongSelect,
-                    clickLabel = "继续下载",
-                    longClickLabel = "选择下载任务",
-                    enabled = enabled,
-                    tonal = true,
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "继续下载")
-                }
-                TaskActionIconButton(
                     onClick = { onStatusChange(DownloadStatus.CANCELLED) },
                     onLongPress = onLongSelect,
                     clickLabel = "取消下载",
@@ -884,16 +909,6 @@ private fun TaskActions(
                 }
             }
             DownloadStatus.FAILED, DownloadStatus.CANCELLED -> {
-                TaskActionIconButton(
-                    onClick = { onStatusChange(DownloadStatus.RUNNING) },
-                    onLongPress = onLongSelect,
-                    clickLabel = "重试下载",
-                    longClickLabel = "选择下载任务",
-                    enabled = enabled,
-                    tonal = true,
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "重试下载")
-                }
                 AnimatedDeleteIconButton(
                     onDelete = onDelete,
                     contentDescription = "删除下载任务",
@@ -902,16 +917,6 @@ private fun TaskActions(
                 )
             }
             DownloadStatus.SUCCESS -> {
-                TaskActionIconButton(
-                    onClick = onOpen,
-                    onLongPress = onLongSelect,
-                    clickLabel = "打开文件",
-                    longClickLabel = "选择下载任务",
-                    enabled = enabled,
-                    tonal = true,
-                ) {
-                    Icon(Icons.Default.FolderOpen, contentDescription = "打开文件")
-                }
                 AnimatedDeleteIconButton(
                     onDelete = onDelete,
                     contentDescription = "删除下载任务和本地文件",

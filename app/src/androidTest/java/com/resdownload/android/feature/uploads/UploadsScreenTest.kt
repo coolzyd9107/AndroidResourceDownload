@@ -56,6 +56,44 @@ class UploadsScreenTest {
     }
 
     @Test
+    fun cancelledTaskRestartsFromLeftStatusIcon() {
+        var retried = false
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(task("cancelled", UploadStatus.CANCELLED)),
+                    onRetry = { retried = true },
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNode(hasContentDescription("重试上传")).performClick()
+
+        composeRule.runOnIdle { assertTrue(retried) }
+    }
+
+    @Test
+    fun failedTaskRetriesFromLeftStatusIcon() {
+        var retried = false
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = listOf(task("failed", UploadStatus.FAILED)),
+                    onRetry = { retried = true },
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("uploadStatusAction-failed").performClick()
+
+        composeRule.runOnIdle { assertTrue(retried) }
+    }
+
+    @Test
     fun taskCardHeightIsStableAcrossUploadStates() {
         composeRule.setContent {
             MaterialTheme {

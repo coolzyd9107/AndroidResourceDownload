@@ -94,6 +94,92 @@ class DownloadsScreenTest {
     }
 
     @Test
+    fun runningTaskPausesFromLeftStatusIcon() {
+        val changes = mutableListOf<Pair<String, DownloadStatus>>()
+        setScreen(
+            task("running", DownloadStatus.RUNNING),
+            onStatusChange = { id, status -> changes += id to status },
+        )
+
+        composeRule.onNode(hasContentDescription("暂停下载")).performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf("running" to DownloadStatus.PAUSED), changes)
+        }
+        composeRule.onNode(hasContentDescription("取消下载")).assertExists()
+    }
+
+    @Test
+    fun resumableHintOnlyAppearsForPausedDownloads() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsScreen(
+                    tasks = listOf(
+                        task("pending", DownloadStatus.PENDING, supportRange = true),
+                        task("running", DownloadStatus.RUNNING, supportRange = true),
+                        task("paused", DownloadStatus.PAUSED, supportRange = true),
+                        task("failed", DownloadStatus.FAILED, supportRange = true),
+                        task("cancelled", DownloadStatus.CANCELLED, supportRange = true),
+                    ),
+                    onStatusChange = { _, _ -> },
+                    onOpen = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("downloadResumableHint-paused").assertExists()
+        composeRule.onNodeWithTag("downloadResumableHint-pending").assertDoesNotExist()
+        composeRule.onNodeWithTag("downloadResumableHint-running").assertDoesNotExist()
+        composeRule.onNodeWithTag("downloadResumableHint-failed").assertDoesNotExist()
+        composeRule.onNodeWithTag("downloadResumableHint-cancelled").assertDoesNotExist()
+    }
+
+    @Test
+    fun completedTaskOpensFromCardAndHasNoOpenActionButton() {
+        var opened = false
+        setScreen(
+            task("success", DownloadStatus.SUCCESS),
+            onOpen = { opened = true },
+        )
+
+        composeRule.onNode(hasContentDescription("打开文件")).assertDoesNotExist()
+        composeRule.onNodeWithTag("downloadTaskCard-success").performClick()
+
+        composeRule.runOnIdle { assertTrue(opened) }
+    }
+
+    @Test
+    fun cancelledTaskRestartsFromLeftStatusIcon() {
+        val changes = mutableListOf<Pair<String, DownloadStatus>>()
+        setScreen(
+            task("cancelled", DownloadStatus.CANCELLED),
+            onStatusChange = { id, status -> changes += id to status },
+        )
+
+        composeRule.onNode(hasContentDescription("重试下载")).performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf("cancelled" to DownloadStatus.RUNNING), changes)
+        }
+    }
+
+    @Test
+    fun failedTaskRetriesFromLeftStatusIcon() {
+        val changes = mutableListOf<Pair<String, DownloadStatus>>()
+        setScreen(
+            task("failed", DownloadStatus.FAILED),
+            onStatusChange = { id, status -> changes += id to status },
+        )
+
+        composeRule.onNodeWithTag("downloadStatusAction-failed").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf("failed" to DownloadStatus.RUNNING), changes)
+        }
+    }
+
+    @Test
     fun taskCardHeightIsStableAcrossDownloadStates() {
         composeRule.setContent {
             MaterialTheme {
@@ -329,13 +415,15 @@ class DownloadsScreenTest {
         task: DownloadTask,
         onCancelAll: () -> Unit = {},
         onClearTerminal: (Boolean) -> Unit = {},
+        onStatusChange: (String, DownloadStatus) -> Unit = { _, _ -> },
+        onOpen: () -> Unit = {},
     ) {
         composeRule.setContent {
             MaterialTheme {
                 DownloadsScreen(
                     tasks = listOf(task),
-                    onStatusChange = { _, _ -> },
-                    onOpen = {},
+                    onStatusChange = onStatusChange,
+                    onOpen = { onOpen() },
                     onDelete = {},
                     onCancelAll = onCancelAll,
                     onClearTerminal = onClearTerminal,
@@ -344,12 +432,17 @@ class DownloadsScreenTest {
         }
     }
 
-    private fun task(id: String, status: DownloadStatus) = DownloadTask(
+    private fun task(
+        id: String,
+        status: DownloadStatus,
+        supportRange: Boolean = false,
+    ) = DownloadTask(
         id = id,
         ownerId = "owner",
         fileName = "$id.txt",
         remotePath = "/$id.txt",
         status = status,
+        supportRange = supportRange,
         createdAt = 1L,
         updatedAt = 1L,
     )
