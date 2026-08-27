@@ -162,9 +162,21 @@ class OkHttpWebDavClient(
         path: WebDavPath,
         range: WebDavByteRange?,
         ifRange: String?,
+    ): WebDavReadResponse = getInternal(path, range, ifRange, ifMatch = null)
+
+    private suspend fun getInternal(
+        path: WebDavPath,
+        range: WebDavByteRange?,
+        ifRange: String?,
+        ifMatch: String?,
+        requiredPermission: WebDavPermission = WebDavPermission.READ_ONLY,
     ): WebDavReadResponse {
         validateOptionalHeader(ifRange, "If-Range")
-        val response = executeAuthenticated(followSameOriginRedirects = true) { lease ->
+        validateOptionalHeader(ifMatch, "If-Match")
+        val response = executeAuthenticated(
+            requiredPermission = requiredPermission,
+            followSameOriginRedirects = true,
+        ) { lease ->
             Request.Builder()
                 .url(endpoint.urlFor(path))
                 .header("Authorization", lease.basicAuthorization())
@@ -172,6 +184,7 @@ class OkHttpWebDavClient(
                 .apply {
                     if (range != null) header("Range", range.toHeaderValue())
                     if (ifRange != null) header("If-Range", ifRange)
+                    if (ifMatch != null) header("If-Match", ifMatch)
                 }
                 .build()
         }
@@ -312,6 +325,88 @@ class OkHttpWebDavClient(
                 .build()
         }.use { requireStatus(it, setOf(200, 201, 204)) }
     }
+
+    override suspend fun copyFileContents(
+        source: WebDavPath,
+        destination: WebDavPath,
+        overwrite: Boolean,
+        sourceEtag: String?,
+    ) {
+        if (retryAuthentication) {
+            copyFileContentsWithAuthenticationRetry(
+                source,
+                destination,
+                overwrite,
+                sourceEtag,
+            )
+            return
+        }
+        val strongEtag = sourceEtag.strongEntityTagOrNull()
+        getInternal(
+            source,
+            range = null,
+            ifRange = null,
+            ifMatch = strongEtag,
+            requiredPermission = WebDavPermission.READ_WRITE,
+        ).use { response ->
+            var streamOpened = false
+            put(
+                path = destination,
+                upload = WebDavUpload(
+                    contentLength = response.metadata.contentLength,
+                    contentType = response.metadata.contentType,
+                    openStream = {
+                        check(!streamOpened) { "A streamed WebDAV copy cannot reopen its source" }
+                        streamOpened = true
+                        response.stream
+                    },
+                ),
+                overwrite = overwrite,
+            )
+        }
+    }
+
+    private suspend fun copyFileContentsWithAuthenticationRetry(
+        source: WebDavPath,
+        destination: WebDavPath,
+        overwrite: Boolean,
+        sourceEtag: String?,
+    ) {
+        val firstLease = credentialProvider.acquire()
+        try {
+            singleLeaseClient(firstLease).copyFileContents(
+                source,
+                destination,
+                overwrite,
+                sourceEtag,
+            )
+            return
+        } catch (_: WebDavException.AuthenticationRequired) {
+            credentialProvider.invalidate(firstLease.generation)
+        }
+
+        val refreshedLease = credentialProvider.acquire()
+        try {
+            singleLeaseClient(refreshedLease).copyFileContents(
+                source,
+                destination,
+                overwrite,
+                sourceEtag,
+            )
+        } catch (error: WebDavException.AuthenticationRequired) {
+            credentialProvider.invalidate(refreshedLease.generation)
+            throw error
+        }
+    }
+
+    private fun singleLeaseClient(lease: CredentialLease): OkHttpWebDavClient =
+        OkHttpWebDavClient(
+            endpoint = endpoint.rootUrl,
+            credentialProvider = SingleLeaseCredentialProvider(lease),
+            okHttpClient = httpClient,
+            propFindParser = propFindParser,
+            retryAuthentication = false,
+        )
 
     private suspend fun executeWrite(factory: (CredentialLease) -> Request): Response =
         executeAuthenticated(requiredPermission = WebDavPermission.READ_WRITE, factory = factory)
@@ -498,6 +593,16 @@ class OkHttpWebDavClient(
                 }
             }
         }
+    }
+
+    private class SingleLeaseCredentialProvider(
+        private val lease: CredentialLease,
+    ) : WebDavCredentialProvider {
+        override suspend fun acquire(): CredentialLease = lease
+
+        override suspend fun invalidate(generation: Long) = Unit
+
+        override suspend fun clear() = Unit
     }
 
     companion object {

@@ -40,24 +40,20 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -83,6 +79,13 @@ import com.resdownload.android.core.common.formatFileSize
 import com.resdownload.android.core.common.formatTransferProgress
 import com.resdownload.android.core.common.formatTransferSpeed
 import com.resdownload.android.core.ui.EmptyPane
+import com.resdownload.android.core.ui.AppTopBar
+import com.resdownload.android.core.ui.ExpressiveDialog
+import com.resdownload.android.core.ui.ExpressiveDialogAction
+import com.resdownload.android.core.ui.ExpressiveDialogTone
+import com.resdownload.android.core.ui.FloatingAction
+import com.resdownload.android.core.ui.FloatingActionDock
+import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
 import com.resdownload.android.core.ui.SelectionBottomBar
@@ -263,6 +266,7 @@ fun UploadsScreen(
 
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
             if (searchingSelectedTasks) {
                 SearchTopAppBar(
@@ -279,9 +283,18 @@ fun UploadsScreen(
                         selectedSearchTaskIds = emptyList()
                     },
                     subtitle = "${filteredTasks.size} / ${selectedSearchTaskIds.size} 个已选任务",
+                    additionalActions = {
+                        if (preparingSelections > 0) {
+                            LoadingIndicator(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .size(24.dp),
+                            )
+                        }
+                    },
                 )
             } else if (multiSelectMode) {
-                TopAppBar(
+                AppTopBar(
                     title = { Text("已选择 ${selectedTasks.size} 项") },
                     navigationIcon = {
                         IconButton(onClick = ::exitMultiSelect) {
@@ -292,6 +305,13 @@ fun UploadsScreen(
                         }
                     },
                     actions = {
+                        if (preparingSelections > 0) {
+                            LoadingIndicator(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .size(24.dp),
+                            )
+                        }
                         IconButton(
                             onClick = {
                                 if (selectedTaskIds.isEmpty()) {
@@ -309,9 +329,6 @@ fun UploadsScreen(
                             )
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ),
                 )
             } else if (searchActive) {
                 SearchTopAppBar(
@@ -333,9 +350,18 @@ fun UploadsScreen(
                             "${filteredTasks.size} / ${tasks.size} 个任务"
                         else -> null
                     },
+                    additionalActions = {
+                        if (preparingSelections > 0) {
+                            LoadingIndicator(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .size(24.dp),
+                            )
+                        }
+                    },
                 )
             } else {
-                TopAppBar(
+                AppTopBar(
                     title = { Text("上传") },
                     subtitle = {
                         AnimatedContent(
@@ -352,13 +378,17 @@ fun UploadsScreen(
                         ) { text -> Text(text) }
                     },
                     actions = {
+                        if (preparingSelections > 0) {
+                            LoadingIndicator(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .size(24.dp),
+                            )
+                        }
                         IconButton(onClick = { searchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = "搜索上传任务")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ),
                 )
             }
         },
@@ -407,25 +437,24 @@ fun UploadsScreen(
             }
         },
         floatingActionButton = {
-            if (!multiSelectMode) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+            if (!multiSelectMode && (hasCancellableTasks || hasClearableTasks)) {
+                FloatingActionDock {
                     if (hasCancellableTasks) {
-                        ExtendedFloatingActionButton(
-                            text = { Text("全部取消") },
-                            icon = { Icon(Icons.Default.Cancel, contentDescription = null) },
+                        FloatingAction(
+                            icon = Icons.Default.Cancel,
+                            label = "全部取消",
                             modifier = Modifier.testTag("cancelAllTasks"),
                             onClick = { showCancelAllDialog = true },
+                            destructive = true,
                         )
                     }
                     if (hasClearableTasks) {
-                        ExtendedFloatingActionButton(
-                            text = { Text("全部清除") },
-                            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
+                        FloatingAction(
+                            icon = Icons.Default.DeleteSweep,
+                            label = "全部清除",
                             modifier = Modifier.testTag("clearTerminalTasks"),
                             onClick = { showClearDialog = true },
+                            destructive = true,
                         )
                     }
                 }
@@ -446,17 +475,25 @@ fun UploadsScreen(
         ) { visibleTasks ->
             val isTargetContent = visibleTasks == filteredTasks
             if (visibleTasks.isEmpty()) {
-                EmptyPane(
-                    message = when {
-                        preparingSelections > 0 -> "正在创建上传任务"
-                        tasks.isEmpty() -> "暂无上传任务"
-                        else -> "未找到匹配的上传任务"
-                    },
-                    modifier = Modifier
-                        .padding(innerPadding)
-                        .then(if (isTargetContent) Modifier else Modifier.clearAndSetSemantics { }),
-                    icon = Icons.Default.Upload,
-                )
+                val emptyModifier = Modifier
+                    .padding(innerPadding)
+                    .then(if (isTargetContent) Modifier else Modifier.clearAndSetSemantics { })
+                if (preparingSelections > 0) {
+                    LoadingPane(
+                        message = "正在创建上传任务",
+                        modifier = emptyModifier,
+                    )
+                } else {
+                    EmptyPane(
+                        message = if (tasks.isEmpty()) {
+                            "暂无上传任务"
+                        } else {
+                            "未找到匹配的上传任务"
+                        },
+                        modifier = emptyModifier,
+                        icon = Icons.Default.Upload,
+                    )
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier
@@ -498,71 +535,81 @@ fun UploadsScreen(
     }
 
     if (showCancelAllDialog) {
-        AlertDialog(
+        ExpressiveDialog(
             onDismissRequest = { showCancelAllDialog = false },
-            title = { Text("全部取消？") },
-            text = {
+            title = "全部取消？",
+            icon = Icons.Default.Cancel,
+            tone = ExpressiveDialogTone.DESTRUCTIVE,
+            content = {
                 Text("确定要取消所有可取消的等待中或正在上传的文件任务吗？文件夹创建任务不会取消。")
             },
-            confirmButton = {
-                TextButton(
+            actions = {
+                ExpressiveDialogAction(
+                    label = "返回",
+                    onClick = { showCancelAllDialog = false },
+                )
+                ExpressiveDialogAction(
+                    label = "取消全部任务",
                     onClick = {
                         showCancelAllDialog = false
                         onCancelAll()
                     },
-                ) {
-                    Text("取消全部任务")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCancelAllDialog = false }) {
-                    Text("返回")
-                }
+                    primary = true,
+                    destructive = true,
+                )
             },
         )
     }
 
     if (showClearDialog) {
-        AlertDialog(
+        ExpressiveDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("全部清除？") },
-            text = { Text("确定要清除所有失败或已取消的上传任务吗？") },
-            confirmButton = {
-                TextButton(
+            title = "全部清除？",
+            icon = Icons.Default.DeleteSweep,
+            tone = ExpressiveDialogTone.DESTRUCTIVE,
+            content = { Text("确定要清除所有失败或已取消的上传任务吗？") },
+            actions = {
+                ExpressiveDialogAction(
+                    label = "返回",
+                    onClick = { showClearDialog = false },
+                )
+                ExpressiveDialogAction(
+                    label = "清除",
                     onClick = {
                         showClearDialog = false
                         onClearTerminal()
                     },
-                ) {
-                    Text("清除")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) {
-                    Text("返回")
-                }
+                    primary = true,
+                    destructive = true,
+                )
             },
         )
     }
 
     if (showDeleteSelectedDialog) {
-        AlertDialog(
+        ExpressiveDialog(
             onDismissRequest = { showDeleteSelectedDialog = false },
-            title = { Text("删除所选任务？") },
-            text = {
+            title = "删除所选任务？",
+            icon = Icons.Default.Delete,
+            tone = ExpressiveDialogTone.DESTRUCTIVE,
+            content = {
                 Text("此操作将删除 ${affectedDeletionTasks.size} 个已结束上传任务，确定继续吗？")
             },
-            confirmButton = {
-                TextButton(
+            actions = {
+                ExpressiveDialogAction(
+                    label = "取消",
+                    onClick = { showDeleteSelectedDialog = false },
+                )
+                ExpressiveDialogAction(
+                    label = "确认删除",
                     onClick = {
                         showDeleteSelectedDialog = false
                         deletionOperations.forEach { onDelete(it.id) }
                         exitMultiSelect()
                     },
-                ) { Text("确认删除") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteSelectedDialog = false }) { Text("取消") }
+                    primary = true,
+                    destructive = true,
+                )
             },
         )
     }
@@ -650,7 +697,7 @@ private fun UploadTaskItem(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(48.dp)
                         .testTag("uploadStatusAction-${task.id}")
                         .then(
                             if (!selectionMode && statusAction != null) {
@@ -781,6 +828,7 @@ private fun UploadTaskItem(
                                         modifier = Modifier.fillMaxWidth(),
                                         color = progressColor(task.status),
                                         trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                        stopSize = 0.dp,
                                     )
                                 } else if (active) {
                                     LinearWavyProgressIndicator(

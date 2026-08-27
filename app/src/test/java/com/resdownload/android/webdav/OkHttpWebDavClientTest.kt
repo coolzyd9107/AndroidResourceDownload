@@ -491,12 +491,104 @@ class OkHttpWebDavClientTest {
             assertEquals("\"v1\"", move.getHeader("If-Match"))
             assertEquals("COPY", copy.method)
             assertEquals("/root/source/", copy.path)
+            assertEquals(server.url("/root/archive/destination/").toString(), copy.getHeader("Destination"))
             assertEquals("infinity", copy.getHeader("Depth"))
             assertEquals("F", copy.getHeader("Overwrite"))
             assertEquals("\"v1\"", copy.getHeader("If-Match"))
             assertEquals("DELETE", delete.method)
             assertEquals("/root/source/", delete.path)
             assertEquals("\"v1\"", delete.getHeader("If-Match"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun fileCopyOmitsCollectionDepthAndTrailingSlashes() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(201))
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_WRITE),
+            )
+
+            runBlocking {
+                client.copy(
+                    source = WebDavPath.parseDecoded("/资料/source name.txt"),
+                    destination = WebDavPath.parseDecoded("/archive/copy name.txt"),
+                )
+            }
+
+            val request = server.takeRequest()
+            assertEquals("COPY", request.method)
+            assertEquals("/root/%E8%B5%84%E6%96%99/source%20name.txt", request.path)
+            assertEquals(
+                server.url("/root/archive/copy%20name.txt").toString(),
+                request.getHeader("Destination"),
+            )
+            assertNull(request.getHeader("Depth"))
+            assertEquals("F", request.getHeader("Overwrite"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun streamedCopyReplaysGetAndPutAfterAuthenticationRefresh() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(200).setBody("hello"))
+            server.enqueue(MockResponse().setResponseCode(401))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("hello"))
+            server.enqueue(MockResponse().setResponseCode(201))
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_WRITE),
+            )
+
+            runBlocking {
+                client.copyFileContents(
+                    source = WebDavPath.parseDecoded("/source.txt"),
+                    destination = WebDavPath.parseDecoded("/staging.tmp"),
+                    sourceEtag = "\"v1\"",
+                )
+            }
+
+            val requests = List(4) { server.takeRequest() }
+            assertEquals(listOf("GET", "PUT", "GET", "PUT"), requests.map { it.method })
+            assertEquals("\"v1\"", requests[0].getHeader("If-Match"))
+            assertEquals("\"v1\"", requests[2].getHeader("If-Match"))
+            assertEquals("hello", requests[1].body.readUtf8())
+            assertEquals("hello", requests[3].body.readUtf8())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun streamedCopyRejectsReadOnlyCredentialBeforeReadingSource() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val client = OkHttpWebDavClient(
+                endpoint = server.url("/root/"),
+                credentialProvider = credentialProvider(WebDavPermission.READ_ONLY),
+            )
+
+            val error = runCatching {
+                runBlocking {
+                    client.copyFileContents(
+                        source = WebDavPath.parseDecoded("/source.txt"),
+                        destination = WebDavPath.parseDecoded("/copy.txt"),
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(error is WebDavException.ReadWriteCredentialRequired)
+            assertNull(server.takeRequest(200, java.util.concurrent.TimeUnit.MILLISECONDS))
         } finally {
             server.shutdown()
         }

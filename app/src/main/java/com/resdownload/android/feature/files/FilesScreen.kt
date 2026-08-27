@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.resdownload.android.feature.files
 
 import java.util.ArrayDeque
@@ -37,7 +39,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -53,37 +54,34 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -92,8 +90,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -111,11 +107,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
@@ -135,11 +131,20 @@ import com.resdownload.android.BuildConfig
 import com.resdownload.android.core.common.formatDate
 import com.resdownload.android.core.common.formatFileSize
 import com.resdownload.android.core.ui.ContentState
+import com.resdownload.android.core.ui.AppTopBar
+import com.resdownload.android.core.ui.AppListItem
 import com.resdownload.android.core.ui.EmptyPane
 import com.resdownload.android.core.ui.ErrorPane
+import com.resdownload.android.core.ui.ExpressiveDialog
+import com.resdownload.android.core.ui.ExpressiveDialogAction
+import com.resdownload.android.core.ui.ExpressiveDialogTone
+import com.resdownload.android.core.ui.FloatingAction
+import com.resdownload.android.core.ui.FloatingActionDock
 import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.ScalePredictiveBackLayout
 import com.resdownload.android.core.ui.SearchTopAppBar
+import com.resdownload.android.core.ui.SelectionAction
+import com.resdownload.android.core.ui.SelectionBottomBar
 import com.resdownload.android.data.mock.mockFilesForPath
 import com.resdownload.android.data.mock.mockPreviewForFile
 import com.resdownload.android.domain.model.FileNode
@@ -583,6 +588,7 @@ fun FilesScreen(
         renameTarget == null &&
         deleteTarget == null &&
         !showCreateDirectoryDialog &&
+        !showUploadMenu &&
         !multiSelectMode &&
         !searchActive &&
         previewState == FilePreviewUiState.Idle &&
@@ -619,6 +625,7 @@ fun FilesScreen(
         ) { foregroundModifier ->
             Scaffold(
                 modifier = foregroundModifier,
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 topBar = {
                     if (searchActive && searchingSelectedContent) {
                         SearchTopAppBar(
@@ -641,7 +648,7 @@ fun FilesScreen(
                             },
                         )
                     } else if (multiSelectMode && isAdmin) {
-                        TopAppBar(
+                        AppTopBar(
                             title = { Text("已选择 ${selectedPaths.size} 项") },
                             navigationIcon = {
                                 IconButton(onClick = ::exitFileMultiSelect) {
@@ -673,9 +680,6 @@ fun FilesScreen(
                                     )
                                 }
                             },
-                            colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                            ),
                         )
                     } else if (searchActive) {
                         Column {
@@ -744,7 +748,7 @@ fun FilesScreen(
                             }
                         }
                     } else {
-                        TopAppBar(
+                        AppTopBar(
                             title = { Text("文件") },
                             subtitle = {
                                 AnimatedContent(
@@ -805,13 +809,20 @@ fun FilesScreen(
                                     } else {
                                         viewModel.refresh()
                                     }
-                                }) {
-                                    Icon(Icons.Default.Refresh, contentDescription = "刷新文件列表")
+                                }, enabled = !isRefreshing) {
+                                    if (isRefreshing) {
+                                        LoadingIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = "刷新文件列表",
+                                        )
+                                    }
                                 }
                             },
-                            colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                            ),
                         )
                     }
                 },
@@ -902,53 +913,25 @@ fun FilesScreen(
                         !multiSelectMode &&
                         !searchActive
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            ExtendedFloatingActionButton(
-                                text = { Text("新建文件夹") },
-                                icon = {
-                                    Icon(
-                                        Icons.Default.CreateNewFolder,
-                                        contentDescription = "新建文件夹",
-                                    )
-                                },
+                        FloatingActionDock {
+                            FloatingAction(
+                                icon = Icons.Default.CreateNewFolder,
+                                label = "新建文件夹",
                                 onClick = { showCreateDirectoryDialog = true },
                             )
-                            Box(contentAlignment = Alignment.BottomEnd) {
-                                ExtendedFloatingActionButton(
-                                    text = { Text("上传") },
-                                    icon = {
-                                        Icon(Icons.Default.UploadFile, contentDescription = "上传")
-                                    },
-                                    onClick = { showUploadMenu = true },
-                                )
-                                DropdownMenu(
-                                    expanded = showUploadMenu,
-                                    onDismissRequest = { showUploadMenu = false },
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("上传文件") },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Default.UploadFile,
-                                                contentDescription = "上传文件",
-                                            )
-                                        },
+                            AnimatedVisibility(visible = showUploadMenu) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    FloatingAction(
+                                        icon = Icons.Default.UploadFile,
+                                        label = "上传文件",
                                         onClick = {
                                             showUploadMenu = false
                                             onUploadFile(activePath)
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text("上传文件夹") },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Default.Folder,
-                                                contentDescription = "上传文件夹",
-                                            )
-                                        },
+                                    FloatingAction(
+                                        icon = Icons.Default.Folder,
+                                        label = "上传文件夹",
                                         onClick = {
                                             showUploadMenu = false
                                             onUploadFolder(activePath)
@@ -956,6 +939,11 @@ fun FilesScreen(
                                     )
                                 }
                             }
+                            FloatingAction(
+                                icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
+                                label = if (showUploadMenu) "收起上传选项" else "上传",
+                                onClick = { showUploadMenu = !showUploadMenu },
+                            )
                         }
                     }
                 },
@@ -1076,6 +1064,24 @@ fun FilesScreen(
                                         viewModel.refresh()
                                     }
                                 },
+                                indicator = {
+                                    if (isRefreshing) {
+                                        Surface(
+                                            modifier = Modifier
+                                                .align(Alignment.TopCenter)
+                                                .padding(top = 8.dp)
+                                                .size(48.dp),
+                                            shape = MaterialTheme.shapes.large,
+                                            color = MaterialTheme.colorScheme.secondaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            shadowElevation = 3.dp,
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                LoadingIndicator(modifier = Modifier.size(28.dp))
+                                            }
+                                        }
+                                    }
+                                },
                                 modifier = contentModifier,
                             ) {
                                 FileList(
@@ -1117,6 +1123,10 @@ fun FilesScreen(
                 }
             }
         }
+    }
+
+    BackHandler(enabled = showUploadMenu) {
+        showUploadMenu = false
     }
 
     BackHandler(enabled = multiSelectMode && !searchingSelectedContent) {
@@ -1470,92 +1480,43 @@ private fun MultiSelectBottomBar(
     onDownload: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    BottomAppBar(
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 0.dp,
-        contentPadding = PaddingValues(horizontal = 4.dp),
-    ) {
-        MultiSelectAction(
+    SelectionBottomBar {
+        SelectionAction(
             icon = if (allSelected) Icons.Default.Deselect else Icons.Default.SelectAll,
             label = if (allSelected) "取消全选" else "全选",
             enabled = selectionControlsEnabled,
             onClick = onToggleSelectAll,
-            modifier = Modifier.weight(1f),
         )
-        MultiSelectAction(
+        SelectionAction(
             icon = Icons.Default.FlipToBack,
             label = "反选",
             enabled = selectionControlsEnabled,
             onClick = onInvertSelection,
-            modifier = Modifier.weight(1f),
         )
-        MultiSelectAction(
+        SelectionAction(
             icon = Icons.AutoMirrored.Filled.DriveFileMove,
             label = "移动",
             enabled = hasSelection,
             onClick = onMove,
-            modifier = Modifier.weight(1f),
         )
-        MultiSelectAction(
+        SelectionAction(
             icon = Icons.Default.ContentCopy,
             label = "复制",
             enabled = hasSelection,
             onClick = onCopy,
-            modifier = Modifier.weight(1f),
         )
-        MultiSelectAction(
+        SelectionAction(
             icon = Icons.Default.Download,
             label = "下载",
             enabled = hasSelection,
             onClick = onDownload,
-            modifier = Modifier.weight(1f),
         )
-        MultiSelectAction(
+        SelectionAction(
             icon = Icons.Default.Delete,
             label = "删除",
             enabled = hasSelection,
             destructive = true,
             onClick = onDelete,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
-private fun MultiSelectAction(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    destructive: Boolean = false,
-) {
-    val contentColor = when {
-        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        destructive -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Column(
-        modifier = modifier
-            .heightIn(min = 64.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(enabled = enabled, role = SemanticsRole.Button, onClick = onClick)
-            .padding(horizontal = 2.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = contentColor,
-        )
-        Text(
-            text = label,
-            modifier = Modifier.padding(top = 4.dp),
-            color = contentColor,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1569,8 +1530,9 @@ private fun FolderBackPreview(
 ) {
     Scaffold(
         modifier = modifier.clearAndSetSemantics { },
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
-            TopAppBar(
+            AppTopBar(
                 title = { Text("文件") },
                 subtitle = {
                     Text(
@@ -1597,25 +1559,19 @@ private fun FolderBackPreview(
                         Icon(Icons.Default.Refresh, contentDescription = null)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
             )
         },
         floatingActionButton = {
             if (isAdmin) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    ExtendedFloatingActionButton(
-                        text = { Text("新建文件夹") },
-                        icon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
+                FloatingActionDock {
+                    FloatingAction(
+                        icon = Icons.Default.CreateNewFolder,
+                        label = "新建文件夹",
                         onClick = {},
                     )
-                    ExtendedFloatingActionButton(
-                        text = { Text("上传") },
-                        icon = { Icon(Icons.Default.UploadFile, contentDescription = null) },
+                    FloatingAction(
+                        icon = Icons.Default.UploadFile,
+                        label = "上传",
                         onClick = {},
                     )
                 }
@@ -1905,7 +1861,7 @@ private fun FileList(
         ) { index ->
             val file = files[index]
             val isSelected = file.path in selectedPaths
-            ListItem(
+            AppListItem(
                 headlineContent = {
                     Text(
                         text = file.name,
@@ -1989,13 +1945,7 @@ private fun FileList(
                 } else {
                     null
                 },
-                colors = ListItemDefaults.colors(
-                    containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    },
-                ),
+                selected = isSelected,
                 modifier = (if (animateItems) {
                     Modifier.animateItem(
                         fadeInSpec = itemEffectsSpec,
@@ -2004,21 +1954,20 @@ private fun FileList(
                     )
                 } else {
                     Modifier
-                })
-                    .clip(MaterialTheme.shapes.small)
-                    .combinedClickable(
+                }),
+                interactionModifier = Modifier.combinedClickable(
                         enabled = enabled,
                         onClick = { onFileClick(file) },
                         onLongClick = { onFileLongClick(file) },
                         onClickLabel = if (file.isDirectory) "打开文件夹" else "查看详情",
                         onLongClickLabel = "多选",
-                    ),
+                ),
             )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileDetailsSheet(
     file: FileNode,
@@ -2032,20 +1981,27 @@ private fun FileDetailsSheet(
     onCopy: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = MaterialTheme.shapes.extraLarge,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.dp,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    modifier = Modifier.size(56.dp),
+                    modifier = Modifier.size(64.dp),
                     shape = MaterialTheme.shapes.large,
                     color = MaterialTheme.colorScheme.primaryContainer,
                 ) {
@@ -2057,28 +2013,56 @@ private fun FileDetailsSheet(
                                 Icons.AutoMirrored.Filled.InsertDriveFile
                             },
                             contentDescription = null,
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(30.dp),
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(file.name, style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        text = file.name,
+                        style = MaterialTheme.typography.titleLargeEmphasized,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Text(
                         text = if (file.isDirectory) "文件夹" else file.mimeType ?: "未知类型",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             }
-            if (!file.isDirectory) DetailLine("大小", formatFileSize(file.size))
-            DetailLine("修改时间", formatDate(file.lastModified))
-            DetailLine("路径", file.path)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (!file.isDirectory) {
+                    DetailLine(
+                        icon = Icons.Default.Storage,
+                        label = "大小",
+                        value = formatFileSize(file.size),
+                    )
+                }
+                DetailLine(
+                    icon = Icons.Default.Schedule,
+                    label = "修改时间",
+                    value = formatDate(file.lastModified),
+                )
+                DetailLine(
+                    icon = Icons.Default.FolderOpen,
+                    label = "路径",
+                    value = file.path,
+                    valueMaxLines = 3,
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (!file.isDirectory) {
                 if (onPreview == null) {
                     Button(
                         onClick = onDownload,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp),
+                        shapes = ButtonDefaults.shapes(),
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
@@ -2091,7 +2075,10 @@ private fun FileDetailsSheet(
                     ) {
                         FilledTonalButton(
                             onClick = onPreview,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 56.dp),
+                            shapes = ButtonDefaults.shapes(),
                         ) {
                             Icon(Icons.Default.Visibility, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
@@ -2099,7 +2086,10 @@ private fun FileDetailsSheet(
                         }
                         Button(
                             onClick = onDownload,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 56.dp),
+                            shapes = ButtonDefaults.shapes(),
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
@@ -2111,7 +2101,10 @@ private fun FileDetailsSheet(
             if (file.isDirectory && isAdmin) {
                 Button(
                     onClick = onDownloadFolder,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -2121,7 +2114,10 @@ private fun FileDetailsSheet(
             if (isAdmin) {
                 FilledTonalButton(
                     onClick = onRename,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Icon(Icons.Default.Edit, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -2133,7 +2129,10 @@ private fun FileDetailsSheet(
                 ) {
                     FilledTonalButton(
                         onClick = onMove,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 56.dp),
+                        shapes = ButtonDefaults.shapes(),
                     ) {
                         Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
@@ -2141,7 +2140,10 @@ private fun FileDetailsSheet(
                     }
                     FilledTonalButton(
                         onClick = onCopy,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 56.dp),
+                        shapes = ButtonDefaults.shapes(),
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
@@ -2150,7 +2152,10 @@ private fun FileDetailsSheet(
                 }
                 FilledTonalButton(
                     onClick = onDelete,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
+                    shapes = ButtonDefaults.shapes(),
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
                         contentColor = MaterialTheme.colorScheme.onErrorContainer,
@@ -2212,11 +2217,13 @@ private fun FilePreviewDialog(
             color = MaterialTheme.colorScheme.background,
         ) {
             Scaffold(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 topBar = {
-                    TopAppBar(
+                    AppTopBar(
                         title = {
                             Text(
                                 text = file.name,
+                                style = MaterialTheme.typography.titleMediumEmphasized,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -2244,11 +2251,10 @@ private fun FilePreviewDialog(
                             }
                             if (editing != null) {
                                 if (saving) {
-                                    CircularProgressIndicator(
+                                    LoadingIndicator(
                                         modifier = Modifier
                                             .padding(horizontal = 12.dp)
                                             .size(24.dp),
-                                        strokeWidth = 2.dp,
                                     )
                                 } else if (editable) {
                                     IconButton(
@@ -2271,7 +2277,7 @@ private fun FilePreviewDialog(
                             .padding(innerPadding),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator()
+                        LoadingIndicator()
                     }
                     is FilePreviewUiState.Error -> Column(
                         modifier = Modifier
@@ -2321,20 +2327,26 @@ private fun FilePreviewDialog(
             }
         }
         if (showDiscardEdit && editing != null && !saving) {
-            AlertDialog(
+            ExpressiveDialog(
                 onDismissRequest = { showDiscardEdit = false },
-                title = { Text("放弃修改？") },
-                text = { Text("尚未保存的修改将会丢失。") },
-                confirmButton = {
-                    TextButton(
+                title = "放弃修改？",
+                icon = Icons.Default.WarningAmber,
+                tone = ExpressiveDialogTone.DESTRUCTIVE,
+                content = { Text("尚未保存的修改将会丢失。") },
+                actions = {
+                    ExpressiveDialogAction(
+                        label = "继续编辑",
+                        onClick = { showDiscardEdit = false },
+                    )
+                    ExpressiveDialogAction(
+                        label = "放弃",
                         onClick = {
                             showDiscardEdit = false
                             onCancelEdit()
                         },
-                    ) { Text("放弃") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDiscardEdit = false }) { Text("继续编辑") }
+                        primary = true,
+                        destructive = true,
+                    )
                 },
             )
         }
@@ -2462,7 +2474,7 @@ private fun ImagePreviewPane(
                 },
             loading = {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                    LoadingIndicator()
                 }
             },
             error = {
@@ -2512,10 +2524,15 @@ private fun DestinationDirectoryDialog(
             }
             if (allowed) directory to path else null
         }
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (request.type == TransferType.MOVE) "选择移动位置" else "选择复制位置") },
-        text = {
+        title = if (request.type == TransferType.MOVE) "选择移动位置" else "选择复制位置",
+        icon = if (request.type == TransferType.MOVE) {
+            Icons.AutoMirrored.Filled.DriveFileMove
+        } else {
+            Icons.Default.ContentCopy
+        },
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = if (sources.size == 1) request.file.name else "已选择 ${sources.size} 项",
@@ -2543,6 +2560,22 @@ private fun DestinationDirectoryDialog(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                Text(
+                    text = if (sources.size == 1) {
+                        "目标：${destinations.firstOrNull() ?: "-"}"
+                    } else {
+                        "目标目录：${currentPath ?: "-"}"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (state is DirectoryPickerState.Success && !validDestination) {
+                    Text(
+                        text = "当前位置与原位置相同或不可作为目标",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 when (state) {
                     DirectoryPickerState.Idle,
                     is DirectoryPickerState.Loading,
@@ -2552,7 +2585,7 @@ private fun DestinationDirectoryDialog(
                             .heightIn(min = 120.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator()
+                        LoadingIndicator()
                     }
                     is DirectoryPickerState.Error -> Column(
                         modifier = Modifier
@@ -2587,7 +2620,7 @@ private fun DestinationDirectoryDialog(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             items(directories, key = { it.second.toString() }) { (directory, path) ->
-                                ListItem(
+                                AppListItem(
                                     headlineContent = {
                                         Text(
                                             text = directory.name,
@@ -2607,39 +2640,25 @@ private fun DestinationDirectoryDialog(
                                             contentDescription = null,
                                         )
                                     },
-                                    modifier = Modifier
-                                        .clip(MaterialTheme.shapes.small)
-                                        .clickable { onOpenDirectory(path) },
+                                    interactionModifier = Modifier.clickable {
+                                        onOpenDirectory(path)
+                                    },
                                 )
                             }
                         }
                     }
                 }
-                if (state is DirectoryPickerState.Success && !validDestination) {
-                    Text(
-                        text = "当前位置与原位置相同或不可作为目标",
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                Text(
-                    text = if (sources.size == 1) {
-                        "目标：${destinations.firstOrNull() ?: "-"}"
-                    } else {
-                        "目标目录：${currentPath ?: "-"}"
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         },
-        confirmButton = {
-            TextButton(
+        actions = {
+            ExpressiveDialogAction(label = "取消", onClick = onDismiss)
+            ExpressiveDialogAction(
+                label = if (request.type == TransferType.MOVE) "移动到此处" else "复制到此处",
                 enabled = validDestination,
                 onClick = { currentPath?.let(onConfirm) },
-            ) { Text(if (request.type == TransferType.MOVE) "移动到此处" else "复制到此处") }
+                primary = true,
+            )
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -2683,10 +2702,11 @@ private fun CreateDirectoryDialog(
         else -> null
     }
     val valid = normalizedName.isNotEmpty() && validationMessage == null
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建文件夹") },
-        text = {
+        title = "新建文件夹",
+        icon = Icons.Default.CreateNewFolder,
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = "位置：$directory",
@@ -2707,13 +2727,15 @@ private fun CreateDirectoryDialog(
                 )
             }
         },
-        confirmButton = {
-            TextButton(
+        actions = {
+            ExpressiveDialogAction(label = "取消", onClick = onDismiss)
+            ExpressiveDialogAction(
+                label = "创建",
                 enabled = valid,
                 onClick = { onConfirm(normalizedName) },
-            ) { Text("创建") }
+                primary = true,
+            )
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -2740,10 +2762,11 @@ private fun RenameResourceDialog(
     val valid = name.isNotBlank() &&
         name != currentName &&
         validationMessage == null
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (file.isDirectory) "重命名文件夹" else "重命名文件") },
-        text = {
+        title = if (file.isDirectory) "重命名文件夹" else "重命名文件",
+        icon = Icons.Default.Edit,
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = "位置：$parent",
@@ -2764,13 +2787,15 @@ private fun RenameResourceDialog(
                 )
             }
         },
-        confirmButton = {
-            TextButton(
+        actions = {
+            ExpressiveDialogAction(label = "取消", onClick = onDismiss)
+            ExpressiveDialogAction(
+                label = "重命名",
                 enabled = valid,
                 onClick = { onConfirm(name) },
-            ) { Text("重命名") }
+                primary = true,
+            )
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -2780,10 +2805,12 @@ private fun DeleteConfirmationDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = onDismiss,
-        title = { Text("删除 ${file.name}？") },
-        text = {
+        title = "删除 ${file.name}？",
+        icon = Icons.Default.Delete,
+        tone = ExpressiveDialogTone.DESTRUCTIVE,
+        content = {
             Text(
                 if (file.isDirectory) {
                     "将永久删除 ${file.path} 及其中全部内容，此操作无法撤销。"
@@ -2792,12 +2819,15 @@ private fun DeleteConfirmationDialog(
                 },
             )
         },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text("删除", color = MaterialTheme.colorScheme.error)
-            }
+        actions = {
+            ExpressiveDialogAction(label = "取消", onClick = onDismiss)
+            ExpressiveDialogAction(
+                label = "删除",
+                onClick = onConfirm,
+                primary = true,
+                destructive = true,
+            )
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -2805,16 +2835,28 @@ private fun DeleteConfirmationDialog(
 private fun MutationRunningDialog(
     state: FileMutationState.Running,
 ) {
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = {},
-        title = { Text(state.operation.actionLabel()) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(state.operation.targetDescription())
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        title = state.operation.actionLabel(),
+        icon = state.operation.actionIcon(),
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+        ),
+        content = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                LoadingIndicator(modifier = Modifier.size(40.dp))
+                Text(
+                    text = state.operation.targetDescription(),
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
-        confirmButton = {},
     )
 }
 
@@ -2824,14 +2866,23 @@ private fun OverwriteConfirmationDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = onDismiss,
-        title = { Text("目标已存在") },
-        text = {
+        title = "目标已存在",
+        icon = Icons.Default.WarningAmber,
+        tone = ExpressiveDialogTone.DESTRUCTIVE,
+        content = {
             Text("${operation.targetDescription()} 已存在，是否覆盖？")
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("覆盖") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        actions = {
+            ExpressiveDialogAction(label = "取消", onClick = onDismiss)
+            ExpressiveDialogAction(
+                label = "覆盖",
+                onClick = onConfirm,
+                primary = true,
+                destructive = true,
+            )
+        },
     )
 }
 
@@ -2841,21 +2892,27 @@ private fun MutationFailedDialog(
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = onDismiss,
-        title = { Text("云端文件操作失败") },
-        text = { Text(state.message) },
-        confirmButton = {
+        title = "云端文件操作失败",
+        icon = Icons.Default.ErrorOutline,
+        tone = ExpressiveDialogTone.DESTRUCTIVE,
+        content = { Text(state.message) },
+        actions = {
             if (state.operation != null) {
-                TextButton(onClick = onRetry) { Text("重试") }
+                ExpressiveDialogAction(label = "关闭", onClick = onDismiss)
+                ExpressiveDialogAction(
+                    label = "重试",
+                    onClick = onRetry,
+                    primary = true,
+                )
             } else {
-                TextButton(onClick = onDismiss) { Text("关闭") }
+                ExpressiveDialogAction(
+                    label = "关闭",
+                    onClick = onDismiss,
+                    primary = true,
+                )
             }
-        },
-        dismissButton = if (state.operation != null) {
-            { TextButton(onClick = onDismiss) { Text("关闭") } }
-        } else {
-            null
         },
     )
 }
@@ -2870,6 +2927,13 @@ private fun FileOperation.actionLabel(): String = when (this) {
     is FileOperation.Rename -> "正在重命名"
     is FileOperation.Copy -> "正在复制"
     is FileOperation.Delete -> "正在删除"
+}
+
+private fun FileOperation.actionIcon(): ImageVector = when (this) {
+    is FileOperation.CreateDirectory -> Icons.Default.CreateNewFolder
+    is FileOperation.Move, is FileOperation.Rename -> Icons.AutoMirrored.Filled.DriveFileMove
+    is FileOperation.Copy -> Icons.Default.ContentCopy
+    is FileOperation.Delete -> Icons.Default.Delete
 }
 
 private fun FileOperation.targetDescription(): String = when (this) {
@@ -2901,17 +2965,44 @@ private const val MAX_IMAGE_PREVIEW_SCALE = 5f
 private const val MAX_IMAGE_PAN = 4_096f
 
 @Composable
-private fun DetailLine(label: String, value: String) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = value,
-            modifier = Modifier.padding(top = 2.dp),
-            style = MaterialTheme.typography.bodyLarge,
-        )
-    }
+private fun DetailLine(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    valueMaxLines: Int = 2,
+) {
+    AppListItem(
+        headlineContent = {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = valueMaxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        leadingContent = {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        },
+        containerColor = Color.Transparent,
+    )
 }

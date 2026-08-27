@@ -13,13 +13,14 @@ class UpdateDecisionTest {
 
     @Test
     fun lowerLocalVersionProducesAvailableUpdate() {
-        val state = resolveUpdateState("2.0.0", manifest)
+        val state = resolveUpdateState("2.0.0", manifest, listOf("新增功能"))
 
         assertTrue(state is UpdateUiState.Available)
         state as UpdateUiState.Available
         assertEquals("2.0.0", state.currentVersion)
         assertEquals("2.1.1", state.latestVersion)
         assertEquals("https://example.com/download", state.updateUrl)
+        assertEquals(listOf("新增功能"), state.releaseNotes)
     }
 
     @Test

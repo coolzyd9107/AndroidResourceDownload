@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Campaign
@@ -44,14 +45,11 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SettingsBrightness
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -64,9 +62,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -94,6 +89,12 @@ import com.resdownload.android.core.theme.normalizeThemeSeedArgb
 import com.resdownload.android.core.theme.seedColorScheme
 import com.resdownload.android.core.theme.themeSeedFromTone
 import com.resdownload.android.core.theme.themeToneFromArgb
+import com.resdownload.android.core.ui.AppTopBar
+import com.resdownload.android.core.ui.AppListItem
+import com.resdownload.android.core.ui.AppLeadingIcon
+import com.resdownload.android.core.ui.ExpressiveDialog
+import com.resdownload.android.core.ui.ExpressiveDialogAction
+import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.domain.model.User
 import com.resdownload.android.feature.profile.UserAccountSection
 
@@ -130,14 +131,15 @@ fun SettingsScreen(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
+    val visibilityEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val visibilitySpatialSpec =
+        MaterialTheme.motionScheme.fastSpatialSpec<androidx.compose.ui.unit.IntSize>()
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
-            TopAppBar(
+            AppTopBar(
                 title = { Text("设置") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
             )
         },
     ) { innerPadding ->
@@ -203,7 +205,7 @@ fun SettingsScreen(
                     }
                 }
             }
-            ListItem(
+            AppListItem(
                 headlineContent = { Text("莫奈自动取色") },
                 supportingContent = {
                     Text(
@@ -236,6 +238,8 @@ fun SettingsScreen(
                     )
                 },
                 modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                interactionModifier = Modifier
                     .semantics { contentDescription = "莫奈自动取色开关" }
                     .toggleable(
                         value = dynamicColorAvailable && dynamicColorEnabled,
@@ -246,8 +250,8 @@ fun SettingsScreen(
             )
             AnimatedVisibility(
                 visible = !dynamicColorAvailable || !dynamicColorEnabled,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
+                enter = fadeIn(visibilityEffectsSpec) + expandVertically(visibilitySpatialSpec),
+                exit = fadeOut(visibilityEffectsSpec) + shrinkVertically(visibilitySpatialSpec),
             ) {
                 ThemeColorEditor(
                     selectedSeedColorArgb = themeSeedColorArgb,
@@ -259,7 +263,13 @@ fun SettingsScreen(
                     onCustomColor = { showCustomColor = true },
                 )
             }
-            ListItem(
+            Text(
+                text = "其他",
+                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
+                style = MaterialTheme.typography.titleMediumEmphasized,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            AppListItem(
                 headlineContent = { Text("公告") },
                 supportingContent = {
                     Text(
@@ -272,22 +282,32 @@ fun SettingsScreen(
                     )
                 },
                 leadingContent = { SettingsIcon(Icons.Default.Campaign) },
-                modifier = Modifier.clickable { showNotice = true },
+                trailingContent = if (noticeState == NoticeUiState.Loading) {
+                    { LoadingIndicator(modifier = Modifier.size(24.dp)) }
+                } else {
+                    null
+                },
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                interactionModifier = Modifier.clickable { showNotice = true },
             )
-            ListItem(
+            AppListItem(
                 headlineContent = { Text("关于") },
                 supportingContent = { Text("查看资源云盘的各项信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
-                modifier = Modifier.clickable(onClick = onOpenAbout),
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                interactionModifier = Modifier.clickable(onClick = onOpenAbout),
             )
         }
     }
 
     if (showNotice) {
-        AlertDialog(
+        ExpressiveDialog(
             onDismissRequest = { showNotice = false },
-            title = { Text("公告") },
-            text = {
+            title = "公告",
+            icon = Icons.Default.Campaign,
+            content = {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -308,39 +328,46 @@ fun SettingsScreen(
                     }
                 }
             },
-            confirmButton = {
+            actions = {
                 if (noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty) {
-                    TextButton(onClick = onRetryNotice) { Text("重试") }
+                    ExpressiveDialogAction(
+                        label = "关闭",
+                        onClick = { showNotice = false },
+                    )
+                    ExpressiveDialogAction(
+                        label = "重试",
+                        onClick = onRetryNotice,
+                        primary = true,
+                    )
                 } else {
-                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
+                    ExpressiveDialogAction(
+                        label = "关闭",
+                        onClick = { showNotice = false },
+                        primary = true,
+                    )
                 }
-            },
-            dismissButton = if (
-                noticeState == NoticeUiState.Error || noticeState == NoticeUiState.Empty
-            ) {
-                {
-                    TextButton(onClick = { showNotice = false }) { Text("关闭") }
-                }
-            } else {
-                null
             },
         )
     }
 
     if (showLogout) {
-        AlertDialog(
+        ExpressiveDialog(
             onDismissRequest = { showLogout = false },
-            title = { Text("退出登录？") },
-            text = { Text("退出后需要重新验证身份。") },
-            confirmButton = {
-                TextButton(onClick = onLogout) {
-                    Text("退出")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogout = false }) {
-                    Text("取消")
-                }
+            title = "退出登录？",
+            icon = Icons.AutoMirrored.Filled.Logout,
+            tone = ExpressiveDialogTone.DESTRUCTIVE,
+            content = { Text("退出后需要重新验证身份。") },
+            actions = {
+                ExpressiveDialogAction(
+                    label = "取消",
+                    onClick = { showLogout = false },
+                )
+                ExpressiveDialogAction(
+                    label = "退出",
+                    onClick = onLogout,
+                    primary = true,
+                    destructive = true,
+                )
             },
         )
     }
@@ -559,10 +586,11 @@ private fun ThemeSchemeVariantDialog(
     onDismiss: () -> Unit,
     onSelect: (ThemeSchemeVariant) -> Unit,
 ) {
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Color scheme") },
-        text = {
+        title = "配色方案",
+        icon = Icons.Default.Palette,
+        content = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -571,19 +599,14 @@ private fun ThemeSchemeVariantDialog(
             ) {
                 ThemeSchemeVariant.entries.forEach { variant ->
                     val isSelected = variant == selected
-                    ListItem(
+                    AppListItem(
                         headlineContent = { Text(variant.displayName) },
                         leadingContent = {
                             RadioButton(selected = isSelected, onClick = null)
                         },
-                        colors = ListItemDefaults.colors(
-                            containerColor = if (isSelected) {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            } else {
-                                Color.Transparent
-                            },
-                        ),
-                        modifier = Modifier.selectable(
+                        selected = isSelected,
+                        containerColor = Color.Transparent,
+                        interactionModifier = Modifier.selectable(
                             selected = isSelected,
                             role = Role.RadioButton,
                             onClick = { onSelect(variant) },
@@ -592,7 +615,13 @@ private fun ThemeSchemeVariantDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+        actions = {
+            ExpressiveDialogAction(
+                label = "关闭",
+                onClick = onDismiss,
+                primary = true,
+            )
+        },
     )
 }
 
@@ -630,11 +659,11 @@ private fun CustomThemeColorDialog(
     val previewScheme = remember(seedColorArgb, schemeVariant, darkTheme) {
         seedColorScheme(seedColorArgb, darkTheme = darkTheme, variant = schemeVariant)
     }
-    AlertDialog(
+    ExpressiveDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Default.Colorize, contentDescription = null) },
-        title = { Text("自定义主题色") },
-        text = {
+        icon = Icons.Default.Colorize,
+        title = "自定义主题色",
+        content = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -685,10 +714,14 @@ private fun CustomThemeColorDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(seedColorArgb) }) { Text("应用") }
+        actions = {
+            ExpressiveDialogAction(label = "取消", onClick = onDismiss)
+            ExpressiveDialogAction(
+                label = "应用",
+                onClick = { onConfirm(seedColorArgb) },
+                primary = true,
+            )
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -727,19 +760,11 @@ private fun ThemeToneSlider(
 internal fun SettingsIcon(
     imageVector: ImageVector,
 ) {
-    Surface(
-        modifier = Modifier.size(40.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = imageVector,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        }
-    }
+    AppLeadingIcon(
+        imageVector = imageVector,
+        containerSize = 40.dp,
+        iconSize = 22.dp,
+    )
 }
 
 private fun ThemeMode.shortLabel(): String = when (this) {

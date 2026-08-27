@@ -49,4 +49,48 @@ class NoticeRepositoryTest {
 
         assertTrue(error is IOException)
     }
+
+    @Test
+    fun parsesOnlyRequestedVersionReleaseNotes() {
+        val notice = """
+            更新日志:
+            v2.3.7:
+            - older entry
+            v2.3.8:
+            - 修复 WebDAV 复制
+            - 更新 M3E 界面
+            v2.3.9:
+            - future entry
+        """.trimIndent()
+
+        assertEquals(
+            listOf("修复 WebDAV 复制", "更新 M3E 界面"),
+            parseReleaseNotesForVersion(notice, "2.3.8"),
+        )
+    }
+
+    @Test
+    fun missingOrMalformedVersionHasNoReleaseNotes() {
+        assertEquals(emptyList<String>(), parseReleaseNotesForVersion("v2.3.8:\n- entry", "2.3"))
+        assertEquals(emptyList<String>(), parseReleaseNotesForVersion("v2.3.7:\n- entry", "2.3.8"))
+    }
+
+    @Test
+    fun releaseNotesStopAtFollowingNonVersionSection() {
+        val notice = """
+            v2.3.8:
+            - included
+            已知问题:
+            - excluded
+        """.trimIndent()
+
+        assertEquals(listOf("included"), parseReleaseNotesForVersion(notice, "2.3.8"))
+    }
+
+    @Test
+    fun duplicateVersionSectionDoesNotMergeReleaseNotes() {
+        val notice = "v2.3.8:\n- first\nv2.3.8:\n- duplicate"
+
+        assertEquals(listOf("first"), parseReleaseNotesForVersion(notice, "2.3.8"))
+    }
 }

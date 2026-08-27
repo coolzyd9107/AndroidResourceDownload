@@ -29,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -58,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import com.resdownload.android.BuildConfig
 import com.resdownload.android.R
 import com.resdownload.android.core.ui.AppIcon
+import com.resdownload.android.core.ui.ExpressiveDialog
+import com.resdownload.android.core.ui.ExpressiveDialogAction
 
 private val LoginActionContainerHeight = 68.dp
 private val LoginActionContainerSpacing = 12.dp
@@ -328,11 +329,11 @@ fun LoginScreen(
     }
 
     if (showPolicy) {
-        AlertDialog(
+        ExpressiveDialog(
             onDismissRequest = { showPolicy = false },
-            icon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
-            title = { Text("用户协议与隐私政策") },
-            text = {
+            icon = Icons.Default.CheckCircle,
+            title = "用户协议与隐私政策",
+            content = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         "登录即表示你同意必要的账号验证与文件访问规则。" +
@@ -348,24 +349,19 @@ fun LoginScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(
+            actions = {
+                ExpressiveDialogAction(
+                    label = "关闭",
+                    onClick = { showPolicy = false },
+                )
+                ExpressiveDialogAction(
+                    label = "同意",
                     onClick = {
                         updateAgreement(true)
                         showPolicy = false
                     },
-                    shapes = ButtonDefaults.shapes(),
-                ) {
-                    Text("同意")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showPolicy = false },
-                    shapes = ButtonDefaults.shapes(),
-                ) {
-                    Text("关闭")
-                }
+                    primary = true,
+                )
             },
         )
     }
