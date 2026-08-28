@@ -96,11 +96,7 @@ fun FloatingAction(
         Spacer(Modifier.width(10.dp))
         Text(
             text = label,
-            color = if (destructive) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.labelLargeEmphasized,
         )
     }
