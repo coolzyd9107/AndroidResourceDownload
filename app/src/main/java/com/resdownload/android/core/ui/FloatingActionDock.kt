@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrain
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.getValue
 import kotlin.math.roundToInt
 
@@ -88,9 +90,53 @@ fun FloatingActionMenu(
         label = "floatingActionMenuProgress",
     ) { isExpanded -> if (isExpanded) 1f else 0f }
 
-    FloatingActionDock(
-        modifier = modifier,
+    Box(
+        modifier = Modifier.size(64.dp),
+        contentAlignment = Alignment.Center,
     ) {
+        if (transition.currentState || transition.targetState) {
+            Popup(
+                alignment = Alignment.BottomEnd,
+                onDismissRequest = { onExpandedChange(false) },
+                properties = PopupProperties(
+                    focusable = true,
+                    dismissOnBackPress = false,
+                    dismissOnClickOutside = true,
+                    clippingEnabled = false,
+                ),
+            ) {
+                FloatingActionMenuDock(
+                    progress = progress,
+                    expanded = expanded,
+                    modifier = modifier,
+                    toggleModifier = toggleModifier,
+                    onExpandedChange = onExpandedChange,
+                    content = content,
+                )
+            }
+        } else {
+            FloatingActionMenuDock(
+                progress = progress,
+                expanded = expanded,
+                modifier = modifier,
+                toggleModifier = toggleModifier,
+                onExpandedChange = onExpandedChange,
+                content = content,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FloatingActionMenuDock(
+    progress: Float,
+    expanded: Boolean,
+    modifier: Modifier,
+    toggleModifier: Modifier,
+    onExpandedChange: (Boolean) -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    FloatingActionDock(modifier = modifier) {
         FloatingActionMenuLayout(
             progress = progress,
             expanded = expanded,

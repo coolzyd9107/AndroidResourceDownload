@@ -8,6 +8,7 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -80,6 +81,28 @@ class UploadsScreenTest {
 
         assertTrue(abs(toggleBounds.left - uploadBounds.left) < 2f)
         assertTrue(abs(toggleBounds.right - uploadBounds.right) < 2f)
+    }
+
+    @Test
+    fun tappingOutsideExpandedActionMenuClosesIt() {
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = emptyList(),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("uploadActionButton").performClick()
+        composeRule.onNode(hasContentDescription("收起菜单")).assertIsDisplayed()
+
+        composeRule.onNodeWithText("暂无上传任务").performTouchInput { click() }
+
+        composeRule.onNode(hasContentDescription("更多操作")).assertIsDisplayed()
+        composeRule.onNode(hasContentDescription("收起菜单")).assertDoesNotExist()
     }
 
     @Test
