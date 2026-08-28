@@ -14,7 +14,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.espresso.Espresso
+import kotlin.math.abs
 import com.resdownload.android.domain.model.Role
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -192,16 +194,40 @@ class FilesScreenTest {
         setFilesScreen(Role.ADMIN)
 
         composeRule.onNode(hasContentDescription("更多操作")).assertExists().performClick()
+        composeRule.onNodeWithText("收起菜单").assertIsDisplayed()
+        composeRule.onNodeWithText("新建文件夹").assertIsDisplayed()
+        composeRule.onNodeWithText("上传").assertIsDisplayed()
         composeRule.onNode(hasContentDescription("上传")).assertExists().performClick()
+        composeRule.onNodeWithText("收起上传选项").assertIsDisplayed()
+        composeRule.onNodeWithText("上传文件").assertIsDisplayed()
+        composeRule.onNodeWithText("上传文件夹").assertIsDisplayed()
         composeRule.onNode(hasContentDescription("上传文件")).assertExists()
         composeRule.onNode(hasContentDescription("上传文件夹")).assertExists()
         composeRule.onNode(hasContentDescription("上传文件")).performClick()
-        composeRule.onNode(hasContentDescription("新建文件夹")).assertExists()
+        composeRule.onNode(hasContentDescription("更多操作")).assertExists()
+        composeRule.onNode(hasContentDescription("新建文件夹")).assertDoesNotExist()
         composeRule.onNode(hasContentDescription("管理 应用发布")).performClick()
         composeRule.onNodeWithText("重命名").assertIsDisplayed()
         composeRule.onNodeWithText("移动").assertIsDisplayed()
         composeRule.onNodeWithText("复制").assertIsDisplayed()
         composeRule.onNodeWithText("删除").assertIsDisplayed()
+    }
+
+    @Test
+    fun expandedFileMenuKeepsToggleAlignedWithActions() {
+        setFilesScreen(Role.ADMIN)
+
+        composeRule.onNode(hasContentDescription("更多操作")).performClick()
+
+        val toggleBounds = composeRule.onNode(hasContentDescription("收起菜单"))
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val actionBounds = composeRule.onNode(hasContentDescription("新建文件夹"))
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(abs(toggleBounds.left - actionBounds.left) < 2f)
+        assertTrue(abs(toggleBounds.right - actionBounds.right) < 2f)
     }
 
     @Test
@@ -227,6 +253,8 @@ class FilesScreenTest {
 
         composeRule.onNodeWithText("文件夹名称").assertIsDisplayed()
         composeRule.onNodeWithText("创建").assertExists()
+        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("收起菜单")).assertDoesNotExist()
     }
 
     @Test

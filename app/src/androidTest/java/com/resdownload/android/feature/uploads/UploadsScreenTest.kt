@@ -1,8 +1,11 @@
 package com.resdownload.android.feature.uploads
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
@@ -45,6 +48,7 @@ class UploadsScreenTest {
         composeRule.onNodeWithTag("uploadActionButton").performClick()
         composeRule.onNode(hasContentDescription("上传")).performClick()
         composeRule.onNodeWithTag("uploadFolderButton").performClick()
+        composeRule.onNodeWithTag("uploadActionButton").performClick()
         composeRule.onNode(hasContentDescription("上传")).performClick()
         composeRule.onNodeWithTag("uploadFileButton").performClick()
 
@@ -468,9 +472,14 @@ class UploadsScreenTest {
         )
 
         composeRule.onNode(hasContentDescription("更多操作")).assertExists().performClick()
+        composeRule.onNodeWithText("收起菜单").assertIsDisplayed()
+        composeRule.onNode(hasText("上传") and hasClickAction()).assertIsDisplayed()
+        composeRule.onNodeWithText("全部取消").assertIsDisplayed()
         composeRule.onNodeWithTag("cancelAllTasks").performClick()
         composeRule.runOnIdle { assertFalse(cancelled) }
         composeRule.onNodeWithText("全部取消？").assertExists()
+        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("收起菜单")).assertDoesNotExist()
         composeRule.onNodeWithText("取消全部任务").performClick()
 
         composeRule.runOnIdle { assertTrue(cancelled) }
@@ -485,9 +494,14 @@ class UploadsScreenTest {
         )
 
         composeRule.onNode(hasContentDescription("更多操作")).performClick()
+        composeRule.onNodeWithText("收起菜单").assertIsDisplayed()
+        composeRule.onNode(hasText("上传") and hasClickAction()).assertIsDisplayed()
+        composeRule.onNodeWithText("全部清除").assertIsDisplayed()
         composeRule.onNodeWithTag("clearTerminalTasks").performClick()
         composeRule.runOnIdle { assertFalse(cleared) }
         composeRule.onNodeWithText("全部清除？").assertExists()
+        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("收起菜单")).assertDoesNotExist()
         composeRule.onNodeWithText("清除").performClick()
 
         composeRule.runOnIdle { assertTrue(cleared) }

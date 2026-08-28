@@ -85,7 +85,6 @@ import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
-import com.resdownload.android.core.ui.FloatingActionIconButton
 import com.resdownload.android.core.ui.FloatingActionMenu
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
@@ -421,14 +420,18 @@ fun DownloadsScreen(
             }
         },
         floatingActionButton = {
-            if (!multiSelectMode && (hasCancellableTasks || hasClearableTasks)) {
+            if (!multiSelectMode &&
+                !showCancelAllDialog &&
+                !showClearDialog &&
+                (hasCancellableTasks || hasClearableTasks)
+            ) {
                 FloatingActionMenu(
                     expanded = showActionMenu,
                     onExpandedChange = { showActionMenu = it },
                     toggleModifier = Modifier.testTag("downloadActionButton"),
                 ) {
                     if (hasCancellableTasks) {
-                        FloatingActionIconButton(
+                        FloatingAction(
                             icon = Icons.Default.Cancel,
                             label = "全部取消",
                             modifier = Modifier.testTag("cancelAllTasks"),
@@ -440,7 +443,7 @@ fun DownloadsScreen(
                         )
                     }
                     if (hasClearableTasks) {
-                        FloatingActionIconButton(
+                        FloatingAction(
                             icon = Icons.Default.DeleteSweep,
                             label = "全部清除",
                             modifier = Modifier.testTag("clearTerminalTasks"),

@@ -1,6 +1,13 @@
 package com.resdownload.android.core.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandIn
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -30,8 +38,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun FloatingActionDock(
     modifier: Modifier = Modifier,
@@ -48,6 +58,7 @@ fun FloatingActionDock(
             modifier = Modifier
                 .width(IntrinsicSize.Max)
                 .padding(4.dp),
+            horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(2.dp),
             content = content,
         )
@@ -63,19 +74,124 @@ fun FloatingActionMenu(
     toggleModifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    FloatingActionDock(modifier = modifier) {
-        AnimatedVisibility(visible = expanded) {
+    val effectsSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val sizeSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntSize>()
+    FloatingActionDock(
+        modifier = modifier.then(
+            if (expanded) {
+                Modifier.width(IntrinsicSize.Max)
+            } else {
+                // AnimatedVisibility still contributes hidden content to intrinsic measurement.
+                Modifier.width(64.dp)
+            },
+        ),
+    ) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(effectsSpec) + expandIn(
+                animationSpec = sizeSpec,
+                expandFrom = Alignment.BottomEnd,
+            ),
+            exit = shrinkOut(
+                animationSpec = sizeSpec,
+                shrinkTowards = Alignment.BottomEnd,
+            ),
+        ) {
             Column(
+                horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 content = content,
             )
         }
-        FloatingActionIconButton(
-            icon = if (expanded) Icons.Default.Close else Icons.Default.MoreVert,
-            label = if (expanded) "收起更多操作" else "更多操作",
+        FloatingActionMenuToggle(
+            expanded = expanded,
             modifier = toggleModifier,
-            onClick = { onExpandedChange(!expanded) },
+            onExpandedChange = onExpandedChange,
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun FloatingActionMenuToggle(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val effectsSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val sizeSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntSize>()
+    val label = if (expanded) "收起菜单" else "更多操作"
+    val containerColor = MaterialTheme.colorScheme.secondaryContainer
+    val contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+
+    Row(
+        modifier = modifier
+            .animateContentSize(
+                animationSpec = sizeSpec,
+                alignment = Alignment.CenterEnd,
+            )
+            .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
+            .widthIn(min = 56.dp)
+            .heightIn(min = 56.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .semantics(mergeDescendants = true) { contentDescription = label }
+            .clickable(
+                role = Role.Button,
+                onClickLabel = label,
+                onClick = { onExpandedChange(!expanded) },
+            )
+            .padding(
+                horizontal = if (expanded) 12.dp else 0.dp,
+                vertical = 8.dp,
+            ),
+        horizontalArrangement = if (expanded) {
+            Arrangement.Start
+        } else {
+            Arrangement.Center
+        },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            modifier = Modifier.size(36.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = containerColor,
+            contentColor = contentColor,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                AnimatedContent(
+                    targetState = expanded,
+                    transitionSpec = {
+                        fadeIn(effectsSpec).togetherWith(fadeOut(effectsSpec))
+                    },
+                    label = "floatingActionToggleIcon",
+                ) { isExpanded ->
+                    Icon(
+                        imageVector = if (isExpanded) {
+                            Icons.Default.Close
+                        } else {
+                            Icons.Default.MoreVert
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(effectsSpec),
+            exit = fadeOut(effectsSpec),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "收起菜单",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelLargeEmphasized,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 

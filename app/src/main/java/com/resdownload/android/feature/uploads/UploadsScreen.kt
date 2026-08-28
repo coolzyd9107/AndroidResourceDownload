@@ -92,7 +92,6 @@ import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
-import com.resdownload.android.core.ui.FloatingActionIconButton
 import com.resdownload.android.core.ui.FloatingActionMenu
 import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.SearchTopAppBar
@@ -482,7 +481,7 @@ fun UploadsScreen(
             }
         },
         floatingActionButton = {
-            if (!multiSelectMode) {
+            if (!multiSelectMode && !showCancelAllDialog && !showClearDialog) {
                 FloatingActionMenu(
                     expanded = showActionMenu,
                     onExpandedChange = { expanded ->
@@ -498,6 +497,7 @@ fun UploadsScreen(
                                 label = "上传文件",
                                 modifier = Modifier.testTag("uploadFileButton"),
                                 onClick = {
+                                    showActionMenu = false
                                     showUploadMenu = false
                                     onUploadFile()
                                 },
@@ -507,19 +507,20 @@ fun UploadsScreen(
                                 label = "上传文件夹",
                                 modifier = Modifier.testTag("uploadFolderButton"),
                                 onClick = {
+                                    showActionMenu = false
                                     showUploadMenu = false
                                     onUploadFolder()
                                 },
                             )
                         }
                     }
-                    FloatingActionIconButton(
+                    FloatingAction(
                         icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
                         label = if (showUploadMenu) "收起上传选项" else "上传",
                         onClick = { showUploadMenu = !showUploadMenu },
                     )
                     if (hasCancellableTasks) {
-                        FloatingActionIconButton(
+                        FloatingAction(
                             icon = Icons.Default.Cancel,
                             label = "全部取消",
                             modifier = Modifier.testTag("cancelAllTasks"),
@@ -532,7 +533,7 @@ fun UploadsScreen(
                         )
                     }
                     if (hasClearableTasks) {
-                        FloatingActionIconButton(
+                        FloatingAction(
                             icon = Icons.Default.DeleteSweep,
                             label = "全部清除",
                             modifier = Modifier.testTag("clearTerminalTasks"),

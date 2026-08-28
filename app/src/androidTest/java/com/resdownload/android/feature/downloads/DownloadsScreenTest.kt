@@ -1,6 +1,7 @@
 package com.resdownload.android.feature.downloads
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
@@ -376,9 +377,13 @@ class DownloadsScreenTest {
         )
 
         composeRule.onNode(hasContentDescription("更多操作")).assertExists().performClick()
+        composeRule.onNodeWithText("收起菜单").assertIsDisplayed()
+        composeRule.onNodeWithText("全部取消").assertIsDisplayed()
         composeRule.onNodeWithTag("cancelAllTasks").performClick()
         composeRule.runOnIdle { assertFalse(cancelled) }
         composeRule.onNodeWithText("全部取消？").assertExists()
+        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("收起菜单")).assertDoesNotExist()
         composeRule.onNodeWithText("取消全部任务").performClick()
 
         composeRule.runOnIdle { assertTrue(cancelled) }
@@ -393,9 +398,13 @@ class DownloadsScreenTest {
         )
 
         composeRule.onNode(hasContentDescription("更多操作")).performClick()
+        composeRule.onNodeWithText("收起菜单").assertIsDisplayed()
+        composeRule.onNodeWithText("全部清除").assertIsDisplayed()
         composeRule.onNodeWithTag("clearTerminalTasks").performClick()
         composeRule.runOnIdle { assertTrue(clearLocalFiles == null) }
         composeRule.onNodeWithText("同时删除本地文件").assertExists()
+        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("收起菜单")).assertDoesNotExist()
         composeRule.onNodeWithText("清除").performClick()
 
         composeRule.runOnIdle { assertTrue(clearLocalFiles == true) }

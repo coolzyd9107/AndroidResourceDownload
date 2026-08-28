@@ -145,7 +145,6 @@ import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
-import com.resdownload.android.core.ui.FloatingActionIconButton
 import com.resdownload.android.core.ui.FloatingActionMenu
 import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.ScalePredictiveBackLayout
@@ -939,7 +938,8 @@ fun FilesScreen(
                         isAdmin &&
                         mutationState == FileMutationState.Idle &&
                         !multiSelectMode &&
-                        !searchActive
+                        !searchActive &&
+                        !showCreateDirectoryDialog
                     ) {
                         FloatingActionMenu(
                             expanded = showActionMenu,
@@ -949,10 +949,14 @@ fun FilesScreen(
                             },
                             toggleModifier = Modifier.testTag("fileActionButton"),
                         ) {
-                            FloatingActionIconButton(
+                            FloatingAction(
                                 icon = Icons.Default.CreateNewFolder,
                                 label = "新建文件夹",
-                                onClick = { showCreateDirectoryDialog = true },
+                                onClick = {
+                                    showActionMenu = false
+                                    showUploadMenu = false
+                                    showCreateDirectoryDialog = true
+                                },
                             )
                             AnimatedVisibility(visible = showUploadMenu) {
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -960,6 +964,7 @@ fun FilesScreen(
                                         icon = Icons.Default.UploadFile,
                                         label = "上传文件",
                                         onClick = {
+                                            showActionMenu = false
                                             showUploadMenu = false
                                             onUploadFile(activePath)
                                         },
@@ -968,13 +973,14 @@ fun FilesScreen(
                                         icon = Icons.Default.Folder,
                                         label = "上传文件夹",
                                         onClick = {
+                                            showActionMenu = false
                                             showUploadMenu = false
                                             onUploadFolder(activePath)
                                         },
                                     )
                                 }
                             }
-                            FloatingActionIconButton(
+                            FloatingAction(
                                 icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
                                 label = if (showUploadMenu) "收起上传选项" else "上传",
                                 onClick = { showUploadMenu = !showUploadMenu },
@@ -1599,12 +1605,12 @@ private fun FolderBackPreview(
                     expanded = false,
                     onExpandedChange = {},
                 ) {
-                    FloatingActionIconButton(
+                    FloatingAction(
                         icon = Icons.Default.CreateNewFolder,
                         label = "新建文件夹",
                         onClick = {},
                     )
-                    FloatingActionIconButton(
+                    FloatingAction(
                         icon = Icons.Default.UploadFile,
                         label = "上传",
                         onClick = {},
