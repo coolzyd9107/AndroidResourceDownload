@@ -23,6 +23,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlin.math.abs
 
 class UploadsScreenTest {
     @get:Rule
@@ -56,6 +57,29 @@ class UploadsScreenTest {
             assertTrue(fileRequested)
             assertTrue(folderRequested)
         }
+    }
+
+    @Test
+    fun expandedUploadActionAlignsWithMenuToggle() {
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = emptyList(),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("uploadActionButton").performClick()
+        val toggleBounds = composeRule.onNode(hasContentDescription("收起菜单"))
+            .fetchSemanticsNode().boundsInRoot
+        val uploadBounds = composeRule.onNode(hasContentDescription("上传"))
+            .fetchSemanticsNode().boundsInRoot
+
+        assertTrue(abs(toggleBounds.left - uploadBounds.left) < 2f)
+        assertTrue(abs(toggleBounds.right - uploadBounds.right) < 2f)
     }
 
     @Test

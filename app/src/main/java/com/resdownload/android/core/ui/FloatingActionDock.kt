@@ -133,6 +133,10 @@ private fun FloatingActionMenuLayout(
             )
         }.single().measure(childConstraints)
 
+        val actionConstraints = childConstraints.copy(
+            minWidth = toggleMeasure.width.coerceAtMost(childConstraints.maxWidth),
+        )
+
         val actionPlaceable = subcompose(FloatingActionMenuSlot.Actions) {
             Column(
                 modifier = Modifier
@@ -146,7 +150,7 @@ private fun FloatingActionMenuLayout(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 content = content,
             )
-        }.single().measure(childConstraints)
+        }.single().measure(actionConstraints)
 
         val expandedWidth = maxOf(actionPlaceable.width, toggleMeasure.width)
         val expandedHeight = actionPlaceable.height + spacing + toggleMeasure.height

@@ -263,7 +263,7 @@ fun AndroidResourceDownloadRoot(
                                         id = "mock-github-user",
                                         name = "GitHub 用户",
                                         email = "demo@qq.com",
-                                        role = Role.USER,
+                                        role = Role.ADMIN,
                                         loginType = LoginType.GITHUB,
                                     )
                                     navController.navigate(RootRoute.Main) {
