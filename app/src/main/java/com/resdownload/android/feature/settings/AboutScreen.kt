@@ -29,11 +29,14 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -53,8 +56,6 @@ import coil.request.ImageRequest
 import com.resdownload.android.BuildConfig
 import com.resdownload.android.R
 import com.resdownload.android.core.ui.AppIcon
-import com.resdownload.android.core.ui.AppTopBar
-import com.resdownload.android.core.ui.AppListItem
 import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
@@ -86,9 +87,8 @@ fun AboutScreen(
 ) {
     Scaffold(
         modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
-            AppTopBar(
+            TopAppBar(
                 title = { Text("关于") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -98,6 +98,9 @@ fun AboutScreen(
                         )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
             )
         },
     ) { innerPadding ->
@@ -120,7 +123,7 @@ fun AboutScreen(
                 style = MaterialTheme.typography.titleMediumEmphasized,
                 color = MaterialTheme.colorScheme.primary,
             )
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("检查更新") },
                 supportingContent = {
                     Text(
@@ -141,34 +144,28 @@ fun AboutScreen(
                 } else {
                     null
                 },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier.clickable(
-                        enabled = updateState != UpdateUiState.Checking,
-                        onClick = onCheckUpdate,
+                modifier = Modifier.clickable(
+                    enabled = updateState != UpdateUiState.Checking,
+                    onClick = onCheckUpdate,
                 ),
             )
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("在GitHub查看源代码") },
                 supportingContent = { Text("浏览项目代码、提交问题或参与开发") },
                 leadingContent = { SettingsIcon(Icons.Default.Code) },
                 trailingContent = {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                 },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier.clickable { onOpenUrl(SOURCE_REPOSITORY_URL) },
+                modifier = Modifier.clickable { onOpenUrl(SOURCE_REPOSITORY_URL) },
             )
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("向我们捐赠") },
                 supportingContent = { Text("支持项目持续开发与维护") },
                 leadingContent = { SettingsIcon(Icons.Default.VolunteerActivism) },
                 trailingContent = {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                 },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier.clickable { onOpenUrl(DONATION_URL) },
+                modifier = Modifier.clickable { onOpenUrl(DONATION_URL) },
             )
         }
     }

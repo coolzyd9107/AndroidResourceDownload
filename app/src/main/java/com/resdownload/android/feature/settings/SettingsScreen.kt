@@ -50,6 +50,8 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -62,6 +64,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -89,9 +94,6 @@ import com.resdownload.android.core.theme.normalizeThemeSeedArgb
 import com.resdownload.android.core.theme.seedColorScheme
 import com.resdownload.android.core.theme.themeSeedFromTone
 import com.resdownload.android.core.theme.themeToneFromArgb
-import com.resdownload.android.core.ui.AppTopBar
-import com.resdownload.android.core.ui.AppListItem
-import com.resdownload.android.core.ui.AppLeadingIcon
 import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
@@ -131,15 +133,14 @@ fun SettingsScreen(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val visibilityEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-    val visibilitySpatialSpec =
-        MaterialTheme.motionScheme.fastSpatialSpec<androidx.compose.ui.unit.IntSize>()
     Scaffold(
         modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
-            AppTopBar(
+            TopAppBar(
                 title = { Text("设置") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
             )
         },
     ) { innerPadding ->
@@ -205,7 +206,7 @@ fun SettingsScreen(
                     }
                 }
             }
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("莫奈自动取色") },
                 supportingContent = {
                     Text(
@@ -238,8 +239,6 @@ fun SettingsScreen(
                     )
                 },
                 modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier
                     .semantics { contentDescription = "莫奈自动取色开关" }
                     .toggleable(
                         value = dynamicColorAvailable && dynamicColorEnabled,
@@ -250,8 +249,8 @@ fun SettingsScreen(
             )
             AnimatedVisibility(
                 visible = !dynamicColorAvailable || !dynamicColorEnabled,
-                enter = fadeIn(visibilityEffectsSpec) + expandVertically(visibilitySpatialSpec),
-                exit = fadeOut(visibilityEffectsSpec) + shrinkVertically(visibilitySpatialSpec),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
             ) {
                 ThemeColorEditor(
                     selectedSeedColorArgb = themeSeedColorArgb,
@@ -263,13 +262,7 @@ fun SettingsScreen(
                     onCustomColor = { showCustomColor = true },
                 )
             }
-            Text(
-                text = "其他",
-                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
-                style = MaterialTheme.typography.titleMediumEmphasized,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("公告") },
                 supportingContent = {
                     Text(
@@ -287,17 +280,13 @@ fun SettingsScreen(
                 } else {
                     null
                 },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier.clickable { showNotice = true },
+                modifier = Modifier.clickable { showNotice = true },
             )
-            AppListItem(
+            ListItem(
                 headlineContent = { Text("关于") },
                 supportingContent = { Text("查看资源云盘的各项信息") },
                 leadingContent = { SettingsIcon(Icons.Default.Info) },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                interactionModifier = Modifier.clickable(onClick = onOpenAbout),
+                modifier = Modifier.clickable(onClick = onOpenAbout),
             )
         }
     }
@@ -599,14 +588,19 @@ private fun ThemeSchemeVariantDialog(
             ) {
                 ThemeSchemeVariant.entries.forEach { variant ->
                     val isSelected = variant == selected
-                    AppListItem(
+                    ListItem(
                         headlineContent = { Text(variant.displayName) },
                         leadingContent = {
                             RadioButton(selected = isSelected, onClick = null)
                         },
-                        selected = isSelected,
-                        containerColor = Color.Transparent,
-                        interactionModifier = Modifier.selectable(
+                        colors = ListItemDefaults.colors(
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            } else {
+                                Color.Transparent
+                            },
+                        ),
+                        modifier = Modifier.selectable(
                             selected = isSelected,
                             role = Role.RadioButton,
                             onClick = { onSelect(variant) },
@@ -760,11 +754,19 @@ private fun ThemeToneSlider(
 internal fun SettingsIcon(
     imageVector: ImageVector,
 ) {
-    AppLeadingIcon(
-        imageVector = imageVector,
-        containerSize = 40.dp,
-        iconSize = 22.dp,
-    )
+    Surface(
+        modifier = Modifier.size(40.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = imageVector,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+    }
 }
 
 private fun ThemeMode.shortLabel(): String = when (this) {

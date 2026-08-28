@@ -74,10 +74,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -90,6 +93,8 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -131,8 +136,6 @@ import com.resdownload.android.BuildConfig
 import com.resdownload.android.core.common.formatDate
 import com.resdownload.android.core.common.formatFileSize
 import com.resdownload.android.core.ui.ContentState
-import com.resdownload.android.core.ui.AppTopBar
-import com.resdownload.android.core.ui.AppListItem
 import com.resdownload.android.core.ui.EmptyPane
 import com.resdownload.android.core.ui.ErrorPane
 import com.resdownload.android.core.ui.ExpressiveDialog
@@ -625,7 +628,6 @@ fun FilesScreen(
         ) { foregroundModifier ->
             Scaffold(
                 modifier = foregroundModifier,
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 topBar = {
                     if (searchActive && searchingSelectedContent) {
                         SearchTopAppBar(
@@ -648,7 +650,7 @@ fun FilesScreen(
                             },
                         )
                     } else if (multiSelectMode && isAdmin) {
-                        AppTopBar(
+                        TopAppBar(
                             title = { Text("已选择 ${selectedPaths.size} 项") },
                             navigationIcon = {
                                 IconButton(onClick = ::exitFileMultiSelect) {
@@ -680,6 +682,9 @@ fun FilesScreen(
                                     )
                                 }
                             },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                            ),
                         )
                     } else if (searchActive) {
                         Column {
@@ -748,7 +753,7 @@ fun FilesScreen(
                             }
                         }
                     } else {
-                        AppTopBar(
+                        TopAppBar(
                             title = { Text("文件") },
                             subtitle = {
                                 AnimatedContent(
@@ -823,6 +828,9 @@ fun FilesScreen(
                                     }
                                 }
                             },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                            ),
                         )
                     }
                 },
@@ -1530,9 +1538,8 @@ private fun FolderBackPreview(
 ) {
     Scaffold(
         modifier = modifier.clearAndSetSemantics { },
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
-            AppTopBar(
+            TopAppBar(
                 title = { Text("文件") },
                 subtitle = {
                     Text(
@@ -1559,19 +1566,25 @@ private fun FolderBackPreview(
                         Icon(Icons.Default.Refresh, contentDescription = null)
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
             )
         },
         floatingActionButton = {
             if (isAdmin) {
-                FloatingActionDock {
-                    FloatingAction(
-                        icon = Icons.Default.CreateNewFolder,
-                        label = "新建文件夹",
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ExtendedFloatingActionButton(
+                        text = { Text("新建文件夹") },
+                        icon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                         onClick = {},
                     )
-                    FloatingAction(
-                        icon = Icons.Default.UploadFile,
-                        label = "上传",
+                    ExtendedFloatingActionButton(
+                        text = { Text("上传") },
+                        icon = { Icon(Icons.Default.UploadFile, contentDescription = null) },
                         onClick = {},
                     )
                 }
@@ -1861,7 +1874,7 @@ private fun FileList(
         ) { index ->
             val file = files[index]
             val isSelected = file.path in selectedPaths
-            AppListItem(
+            ListItem(
                 headlineContent = {
                     Text(
                         text = file.name,
@@ -1945,7 +1958,13 @@ private fun FileList(
                 } else {
                     null
                 },
-                selected = isSelected,
+                colors = ListItemDefaults.colors(
+                    containerColor = if (isSelected) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                ),
                 modifier = (if (animateItems) {
                     Modifier.animateItem(
                         fadeInSpec = itemEffectsSpec,
@@ -1954,14 +1973,15 @@ private fun FileList(
                     )
                 } else {
                     Modifier
-                }),
-                interactionModifier = Modifier.combinedClickable(
+                })
+                    .clip(MaterialTheme.shapes.small)
+                    .combinedClickable(
                         enabled = enabled,
                         onClick = { onFileClick(file) },
                         onLongClick = { onFileLongClick(file) },
                         onClickLabel = if (file.isDirectory) "打开文件夹" else "查看详情",
                         onLongClickLabel = "多选",
-                ),
+                    ),
             )
         }
     }
@@ -1985,9 +2005,6 @@ private fun FileDetailsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        shape = MaterialTheme.shapes.extraLarge,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
@@ -2217,13 +2234,11 @@ private fun FilePreviewDialog(
             color = MaterialTheme.colorScheme.background,
         ) {
             Scaffold(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 topBar = {
-                    AppTopBar(
+                    TopAppBar(
                         title = {
                             Text(
                                 text = file.name,
-                                style = MaterialTheme.typography.titleMediumEmphasized,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -2266,6 +2281,9 @@ private fun FilePreviewDialog(
                                 }
                             }
                         },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                        ),
                     )
                 },
             ) { innerPadding ->
@@ -2620,7 +2638,7 @@ private fun DestinationDirectoryDialog(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             items(directories, key = { it.second.toString() }) { (directory, path) ->
-                                AppListItem(
+                                ListItem(
                                     headlineContent = {
                                         Text(
                                             text = directory.name,
@@ -2640,9 +2658,9 @@ private fun DestinationDirectoryDialog(
                                             contentDescription = null,
                                         )
                                     },
-                                    interactionModifier = Modifier.clickable {
-                                        onOpenDirectory(path)
-                                    },
+                                    modifier = Modifier
+                                        .clip(MaterialTheme.shapes.small)
+                                        .clickable { onOpenDirectory(path) },
                                 )
                             }
                         }
@@ -2971,38 +2989,40 @@ private fun DetailLine(
     value: String,
     valueMaxLines: Int = 2,
 ) {
-    AppListItem(
-        headlineContent = {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Surface(
+            modifier = Modifier.size(40.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        },
-        supportingContent = {
             Text(
                 text = value,
+                modifier = Modifier.padding(top = 2.dp),
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = valueMaxLines,
                 overflow = TextOverflow.Ellipsis,
             )
-        },
-        leadingContent = {
-            Surface(
-                modifier = Modifier.size(40.dp),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        },
-        containerColor = Color.Transparent,
-    )
+        }
+    }
 }

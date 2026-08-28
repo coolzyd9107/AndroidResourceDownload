@@ -54,6 +54,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -79,7 +81,6 @@ import com.resdownload.android.core.common.formatFileSize
 import com.resdownload.android.core.common.formatTransferProgress
 import com.resdownload.android.core.common.formatTransferSpeed
 import com.resdownload.android.core.ui.EmptyPane
-import com.resdownload.android.core.ui.AppTopBar
 import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
@@ -266,7 +267,6 @@ fun UploadsScreen(
 
     Scaffold(
         modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
             if (searchingSelectedTasks) {
                 SearchTopAppBar(
@@ -294,7 +294,7 @@ fun UploadsScreen(
                     },
                 )
             } else if (multiSelectMode) {
-                AppTopBar(
+                TopAppBar(
                     title = { Text("已选择 ${selectedTasks.size} 项") },
                     navigationIcon = {
                         IconButton(onClick = ::exitMultiSelect) {
@@ -329,6 +329,9 @@ fun UploadsScreen(
                             )
                         }
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 )
             } else if (searchActive) {
                 SearchTopAppBar(
@@ -361,7 +364,7 @@ fun UploadsScreen(
                     },
                 )
             } else {
-                AppTopBar(
+                TopAppBar(
                     title = { Text("上传") },
                     subtitle = {
                         AnimatedContent(
@@ -389,6 +392,9 @@ fun UploadsScreen(
                             Icon(Icons.Default.Search, contentDescription = "搜索上传任务")
                         }
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 )
             }
         },

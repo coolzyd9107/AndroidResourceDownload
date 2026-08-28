@@ -12,6 +12,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -54,7 +56,7 @@ fun SearchTopAppBar(
         focusRequester.requestFocus()
     }
 
-    AppTopBar(
+    TopAppBar(
         modifier = modifier,
         title = {
             TextField(
@@ -89,7 +91,7 @@ fun SearchTopAppBar(
                 ),
             )
         },
-        subtitle = subtitle?.let { text -> { Text(text) } },
+        subtitle = { subtitle?.let { Text(it) } },
         navigationIcon = {
             IconButton(onClick = onClose) {
                 Icon(
@@ -109,5 +111,8 @@ fun SearchTopAppBar(
                 }
             }
         },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
     )
 }
