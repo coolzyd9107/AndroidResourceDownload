@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
@@ -40,6 +42,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -54,6 +57,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
@@ -71,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,6 +99,7 @@ import com.resdownload.android.core.ui.TaskActionIconButton
 import com.resdownload.android.core.ui.taskLongPress
 import com.resdownload.android.domain.model.UploadStatus
 import com.resdownload.android.domain.model.UploadTask
+import com.resdownload.android.domain.webdav.WebDavPath
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -108,6 +114,13 @@ fun UploadsScreen(
     onClearTerminal: () -> Unit = {},
     onMultiSelectModeChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
+    onUploadFile: () -> Unit = {},
+    destinationPickerState: UploadDestinationPickerState = UploadDestinationPickerState.Idle,
+    onOpenDestinationDirectory: (WebDavPath) -> Unit = {},
+    onNavigateDestinationUp: () -> Unit = {},
+    onRetryDestinationPicker: () -> Unit = {},
+    onDismissDestinationPicker: () -> Unit = {},
+    onConfirmFileUpload: (WebDavPath) -> Unit = {},
 ) {
     var showCancelAllDialog by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
@@ -199,11 +212,17 @@ fun UploadsScreen(
     val hasClearableTasks = tasks.any { task ->
         task.status in setOf(UploadStatus.FAILED, UploadStatus.CANCELLED)
     }
-    val listBottomPadding = when {
-        multiSelectMode -> 16.dp
-        hasCancellableTasks && hasClearableTasks -> 152.dp
-        hasCancellableTasks || hasClearableTasks -> 84.dp
-        else -> 16.dp
+    val floatingActionCount = if (multiSelectMode) {
+        0
+    } else {
+        1 +
+            (if (hasCancellableTasks) 1 else 0) +
+            (if (hasClearableTasks) 1 else 0)
+    }
+    val listBottomPadding = if (multiSelectMode) {
+        16.dp
+    } else {
+        (16 + floatingActionCount * 68).dp
     }
 
     fun exitMultiSelect() {
@@ -443,8 +462,14 @@ fun UploadsScreen(
             }
         },
         floatingActionButton = {
-            if (!multiSelectMode && (hasCancellableTasks || hasClearableTasks)) {
+            if (!multiSelectMode) {
                 FloatingActionDock {
+                    FloatingAction(
+                        icon = Icons.Default.UploadFile,
+                        label = "上传文件",
+                        modifier = Modifier.testTag("uploadFileButton"),
+                        onClick = onUploadFile,
+                    )
                     if (hasCancellableTasks) {
                         FloatingAction(
                             icon = Icons.Default.Cancel,
@@ -619,6 +644,173 @@ fun UploadsScreen(
             },
         )
     }
+
+    if (destinationPickerState !is UploadDestinationPickerState.Idle) {
+        UploadDestinationDialog(
+            state = destinationPickerState,
+            onOpenDirectory = onOpenDestinationDirectory,
+            onNavigateUp = onNavigateDestinationUp,
+            onRetry = onRetryDestinationPicker,
+            onDismiss = onDismissDestinationPicker,
+            onConfirm = onConfirmFileUpload,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun UploadDestinationDialog(
+    state: UploadDestinationPickerState,
+    onOpenDirectory: (WebDavPath) -> Unit,
+    onNavigateUp: () -> Unit,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: (WebDavPath) -> Unit,
+) {
+    val currentPath = state.path
+    val directories = (state as? UploadDestinationPickerState.Success)
+        ?.directories
+        .orEmpty()
+        .mapNotNull { directory ->
+            runCatching { WebDavPath.parseDecoded(directory.path) }
+                .getOrNull()
+                ?.let { path -> directory to path }
+        }
+    val canConfirm = state is UploadDestinationPickerState.Success
+
+    ExpressiveDialog(
+        onDismissRequest = onDismiss,
+        title = "选择保存位置",
+        icon = Icons.Default.UploadFile,
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = if (state.fileCount == 1) {
+                        "已选择 1 个文件"
+                    } else {
+                        "已选择 ${state.fileCount} 个文件"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        enabled = !currentPath.isRoot,
+                        onClick = onNavigateUp,
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "保存位置返回上一级",
+                        )
+                    }
+                    Text(
+                        text = currentPath.toString(),
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = "保存到：$currentPath",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                when (state) {
+                    UploadDestinationPickerState.Idle,
+                    is UploadDestinationPickerState.Loading,
+                    -> Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        LoadingIndicator()
+                    }
+                    is UploadDestinationPickerState.Error -> Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 120.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            text = state.message,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        TextButton(onClick = onRetry) { Text("重试") }
+                    }
+                    is UploadDestinationPickerState.Success -> if (directories.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "没有子文件夹",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(directories, key = { it.second.toString() }) { (directory, path) ->
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(MaterialTheme.shapes.small)
+                                        .clickable { onOpenDirectory(path) },
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(
+                                            horizontal = 12.dp,
+                                            vertical = 10.dp,
+                                        ),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Folder,
+                                            contentDescription = "打开文件夹 ${directory.name}",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(
+                                            text = directory.name,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = null,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        actions = {
+            ExpressiveDialogAction(label = "取消", onClick = onDismiss)
+            ExpressiveDialogAction(
+                label = "上传到此处",
+                enabled = canConfirm,
+                onClick = { if (canConfirm) onConfirm(currentPath) },
+                primary = true,
+            )
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)

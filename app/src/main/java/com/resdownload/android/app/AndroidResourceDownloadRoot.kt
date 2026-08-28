@@ -99,6 +99,7 @@ import com.resdownload.android.feature.settings.SettingsViewModel
 import com.resdownload.android.feature.settings.ThemeViewModel
 import com.resdownload.android.feature.settings.UpdateUiState
 import com.resdownload.android.feature.uploads.UploadsScreen
+import com.resdownload.android.feature.uploads.UploadDestinationPickerState
 import com.resdownload.android.feature.uploads.UploadsViewModel
 
 private object RootRoute {
@@ -446,6 +447,10 @@ private fun MainShell(
         ?.collectAsStateWithLifecycle()
         ?.value
         ?: 0
+    val uploadDestinationPickerState = uploadsViewModel?.destinationPickerState
+        ?.collectAsStateWithLifecycle()
+        ?.value
+        ?: UploadDestinationPickerState.Idle
     var pendingFileUploadDestination by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFileUploadOwner by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFolderUploadDestination by rememberSaveable { mutableStateOf<String?>(null) }
@@ -512,6 +517,20 @@ private fun MainShell(
         if (uris.isNotEmpty() && destination != null && owner == user.id && user.role == Role.ADMIN) {
             uploadsViewModel?.enqueueFiles(uris, destination)
             openShellRoute(ShellRoute.Uploads)
+        }
+    }
+
+    val uploadQueueFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNotEmpty() && user.role == Role.ADMIN) {
+            val viewModel = uploadsViewModel
+            if (viewModel == null) {
+                showMessage("上传功能暂不可用")
+            } else {
+                viewModel.beginFileUpload(uris)
+                openShellRoute(ShellRoute.Uploads)
+            }
         }
     }
 
@@ -735,6 +754,31 @@ private fun MainShell(
                         tasks = uploadTasks,
                         currentSpeeds = uploadSpeeds,
                         preparingSelections = preparingUploads,
+                        onUploadFile = {
+                            if (BuildConfig.DEMO_MODE) {
+                                showMessage("演示模式不执行云端文件操作")
+                            } else if (uploadsViewModel == null) {
+                                showMessage("上传功能暂不可用")
+                            } else {
+                                uploadQueueFileLauncher.launch(arrayOf("*/*"))
+                            }
+                        },
+                        destinationPickerState = uploadDestinationPickerState,
+                        onOpenDestinationDirectory = { path ->
+                            uploadsViewModel?.openDestinationDirectory(path)
+                        },
+                        onNavigateDestinationUp = {
+                            uploadsViewModel?.navigateDestinationUp()
+                        },
+                        onRetryDestinationPicker = {
+                            uploadsViewModel?.retryDestinationPicker()
+                        },
+                        onDismissDestinationPicker = {
+                            uploadsViewModel?.dismissDestinationPicker()
+                        },
+                        onConfirmFileUpload = { path ->
+                            uploadsViewModel?.confirmFileUpload(path)
+                        },
                         onRetry = { taskId -> uploadsViewModel?.retry(taskId) },
                         onCancel = { taskId -> uploadsViewModel?.cancel(taskId) },
                         onDelete = { taskId -> uploadsViewModel?.delete(taskId) },

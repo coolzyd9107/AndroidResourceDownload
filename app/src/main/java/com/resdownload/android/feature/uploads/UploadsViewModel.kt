@@ -22,16 +22,47 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.resdownload.android.data.file.FileRepository
 import com.resdownload.android.data.upload.UploadEnqueueSummary
 import com.resdownload.android.data.upload.UploadRepository
 import com.resdownload.android.data.upload.UploadSelectionException
+import com.resdownload.android.domain.model.FileNode
+import com.resdownload.android.domain.webdav.WebDavException
 import com.resdownload.android.domain.webdav.WebDavPath
 import com.resdownload.android.service.UploadQueueController
+
+sealed interface UploadDestinationPickerState {
+    val path: WebDavPath
+    val fileCount: Int
+
+    data object Idle : UploadDestinationPickerState {
+        override val path: WebDavPath = WebDavPath.root()
+        override val fileCount: Int = 0
+    }
+
+    data class Loading(
+        override val path: WebDavPath,
+        override val fileCount: Int,
+    ) : UploadDestinationPickerState
+
+    data class Success(
+        override val path: WebDavPath,
+        override val fileCount: Int,
+        val directories: List<FileNode>,
+    ) : UploadDestinationPickerState
+
+    data class Error(
+        override val path: WebDavPath,
+        override val fileCount: Int,
+        val message: String,
+    ) : UploadDestinationPickerState
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class UploadsViewModel @Inject constructor(
     private val repository: UploadRepository,
+    private val fileRepository: FileRepository,
     private val queueController: UploadQueueController,
 ) : ViewModel() {
     private val ownerId = MutableStateFlow<String?>(null)
@@ -47,8 +78,18 @@ class UploadsViewModel @Inject constructor(
     private val _currentSpeeds = MutableStateFlow<Map<String, Long>>(emptyMap())
     val currentSpeeds = _currentSpeeds.asStateFlow()
     private var speedTrackingJob: Job? = null
+    private val _destinationPickerState = MutableStateFlow<UploadDestinationPickerState>(
+        UploadDestinationPickerState.Idle,
+    )
+    val destinationPickerState = _destinationPickerState.asStateFlow()
+    private var destinationPickerJob: Job? = null
+    private var destinationPickerVersion = 0L
+    private var pendingFileUris: List<Uri> = emptyList()
 
     fun bindOwner(value: String) {
+        if (ownerId.value != null && ownerId.value != value) {
+            dismissDestinationPicker()
+        }
         queueController.activate(value)
         if (ownerId.value == value) return
         ownerId.value = value
@@ -56,6 +97,48 @@ class UploadsViewModel @Inject constructor(
             repository.reconcilePermissionReservations()
             queueController.startIfNeeded(value)
         }
+    }
+
+    fun beginFileUpload(uris: List<Uri>) {
+        val distinctUris = uris.distinct()
+        if (distinctUris.isEmpty()) return
+        pendingFileUris = distinctUris
+        loadDestinationDirectories(WebDavPath.root())
+    }
+
+    fun openDestinationDirectory(path: WebDavPath) {
+        if (pendingFileUris.isNotEmpty()) loadDestinationDirectories(path)
+    }
+
+    fun navigateDestinationUp() {
+        val path = _destinationPickerState.value.path
+        if (path.isRoot || pendingFileUris.isEmpty()) return
+        loadDestinationDirectories(
+            WebDavPath.fromDecodedSegments(path.decodedSegments.dropLast(1)),
+        )
+    }
+
+    fun retryDestinationPicker() {
+        if (pendingFileUris.isNotEmpty()) {
+            loadDestinationDirectories(_destinationPickerState.value.path)
+        }
+    }
+
+    fun dismissDestinationPicker() {
+        destinationPickerVersion++
+        destinationPickerJob?.cancel()
+        destinationPickerJob = null
+        pendingFileUris = emptyList()
+        _destinationPickerState.value = UploadDestinationPickerState.Idle
+    }
+
+    fun confirmFileUpload(destination: WebDavPath) {
+        val state = _destinationPickerState.value
+        if (state !is UploadDestinationPickerState.Success || state.path != destination) return
+        val uris = pendingFileUris
+        if (uris.isEmpty()) return
+        dismissDestinationPicker()
+        enqueueFiles(uris, destination)
     }
 
     fun enqueueFile(uri: Uri, destination: WebDavPath) = enqueueFiles(listOf(uri), destination)
@@ -190,6 +273,34 @@ class UploadsViewModel @Inject constructor(
         viewModelScope.launch { block(owner) }
     }
 
+    private fun loadDestinationDirectories(path: WebDavPath) {
+        val fileCount = pendingFileUris.size
+        if (fileCount == 0) return
+        val version = ++destinationPickerVersion
+        destinationPickerJob?.cancel()
+        _destinationPickerState.value = UploadDestinationPickerState.Loading(path, fileCount)
+        destinationPickerJob = viewModelScope.launch {
+            val nextState = try {
+                UploadDestinationPickerState.Success(
+                    path = path,
+                    fileCount = fileCount,
+                    directories = fileRepository.list(path).filter {
+                        it.isDirectory && !it.isUploadTemporary
+                    },
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                UploadDestinationPickerState.Error(
+                    path = path,
+                    fileCount = fileCount,
+                    message = error.toDestinationMessage(),
+                )
+            }
+            if (version == destinationPickerVersion) _destinationPickerState.value = nextState
+        }
+    }
+
     private fun UploadEnqueueSummary.toUserMessage(): String = when {
         added == 0 && skipped > 0 -> "所选内容已在上传队列中"
         addedDirectories == 0 && skipped == 0 -> "已加入上传队列"
@@ -202,6 +313,19 @@ class UploadsViewModel @Inject constructor(
         is SecurityException -> "所选内容的读取权限无效，请重新选择"
         is IllegalArgumentException -> message ?: "上传目标路径无效"
         else -> "无法创建上传任务，请重试"
+    }
+
+    private fun Exception.toDestinationMessage(): String = when (this) {
+        is WebDavException.AuthenticationRequired,
+        is WebDavException.CredentialUnavailable,
+        -> "登录或 WebDAV 凭据已失效"
+        is WebDavException.PermissionDenied,
+        is WebDavException.ReadWriteCredentialRequired,
+        -> "当前账户没有读取云端目录的权限"
+        is WebDavException.NotFound -> "保存位置不存在"
+        is WebDavException.Network -> "网络连接失败，请重试"
+        is WebDavException.InvalidResponse -> "云端目录响应无效，请重试"
+        else -> message?.takeIf(String::isNotBlank) ?: "无法加载保存位置"
     }
 
     private companion object {

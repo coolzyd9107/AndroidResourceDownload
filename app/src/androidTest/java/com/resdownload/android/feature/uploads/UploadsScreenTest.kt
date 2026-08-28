@@ -11,8 +11,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
+import com.resdownload.android.domain.model.FileNode
 import com.resdownload.android.domain.model.UploadStatus
 import com.resdownload.android.domain.model.UploadTask
+import com.resdownload.android.domain.webdav.WebDavPath
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -22,6 +24,61 @@ import org.junit.Test
 class UploadsScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun uploadButtonRequestsFileSelection() {
+        var requested = false
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = emptyList(),
+                    onUploadFile = { requested = true },
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("uploadFileButton").performClick()
+
+        composeRule.runOnIdle { assertTrue(requested) }
+    }
+
+    @Test
+    fun uploadDestinationDialogListsFoldersAndConfirmsCurrentPath() {
+        val root = WebDavPath.root()
+        var openedPath: WebDavPath? = null
+        var confirmedPath: WebDavPath? = null
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = emptyList(),
+                    destinationPickerState = UploadDestinationPickerState.Success(
+                        path = root,
+                        fileCount = 1,
+                        directories = listOf(
+                            FileNode("归档", "/归档", isDirectory = true),
+                        ),
+                    ),
+                    onOpenDestinationDirectory = { openedPath = it },
+                    onConfirmFileUpload = { confirmedPath = it },
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("选择保存位置").assertExists()
+        composeRule.onNode(hasContentDescription("打开文件夹 归档")).performClick()
+        composeRule.onNodeWithText("上传到此处").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(WebDavPath.parseDecoded("/归档"), openedPath)
+            assertEquals(root, confirmedPath)
+        }
+    }
 
     @Test
     fun runningTaskShowsProgressSpeedAndCancel() {
