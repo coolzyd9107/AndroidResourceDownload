@@ -3,11 +3,12 @@ package com.resdownload.android.core.ui
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandIn
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,25 +78,27 @@ fun FloatingActionMenu(
 ) {
     val effectsSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
     val sizeSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntSize>()
+    val visibilityState = remember { MutableTransitionState(expanded) }
+    visibilityState.targetState = expanded
+    val usesExpandedWidth = expanded || visibilityState.currentState
     FloatingActionDock(
         modifier = modifier.then(
-            if (expanded) {
+            if (usesExpandedWidth) {
                 Modifier.width(IntrinsicSize.Max)
             } else {
-                // AnimatedVisibility still contributes hidden content to intrinsic measurement.
                 Modifier.width(64.dp)
             },
         ),
     ) {
         AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn(effectsSpec) + expandIn(
+            visibleState = visibilityState,
+            enter = fadeIn(effectsSpec) + expandVertically(
                 animationSpec = sizeSpec,
-                expandFrom = Alignment.BottomEnd,
+                expandFrom = Alignment.Bottom,
             ),
-            exit = shrinkOut(
+            exit = fadeOut(effectsSpec) + shrinkVertically(
                 animationSpec = sizeSpec,
-                shrinkTowards = Alignment.BottomEnd,
+                shrinkTowards = Alignment.Bottom,
             ),
         ) {
             Column(
@@ -177,11 +181,7 @@ private fun FloatingActionMenuToggle(
                 }
             }
         }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn(effectsSpec),
-            exit = fadeOut(effectsSpec),
-        ) {
+        if (expanded) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.width(10.dp))
                 Text(
