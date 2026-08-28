@@ -191,6 +191,7 @@ class FilesScreenTest {
     fun adminSeesUploadRenameMoveCopyAndDeleteActions() {
         setFilesScreen(Role.ADMIN)
 
+        composeRule.onNode(hasContentDescription("更多操作")).assertExists().performClick()
         composeRule.onNode(hasContentDescription("上传")).assertExists().performClick()
         composeRule.onNode(hasContentDescription("上传文件")).assertExists()
         composeRule.onNode(hasContentDescription("上传文件夹")).assertExists()
@@ -221,6 +222,7 @@ class FilesScreenTest {
     fun newDirectoryActionOpensNameInput() {
         setFilesScreen(Role.ADMIN)
 
+        composeRule.onNode(hasContentDescription("更多操作")).performClick()
         composeRule.onNode(hasContentDescription("新建文件夹")).performClick()
 
         composeRule.onNodeWithText("文件夹名称").assertIsDisplayed()

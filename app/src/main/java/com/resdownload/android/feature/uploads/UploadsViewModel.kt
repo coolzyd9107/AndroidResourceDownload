@@ -31,31 +31,56 @@ import com.resdownload.android.domain.webdav.WebDavException
 import com.resdownload.android.domain.webdav.WebDavPath
 import com.resdownload.android.service.UploadQueueController
 
+enum class UploadSelectionKind(val label: String) {
+    FILES("文件"),
+    FOLDER("文件夹"),
+}
+
 sealed interface UploadDestinationPickerState {
     val path: WebDavPath
     val fileCount: Int
+    val selectionKind: UploadSelectionKind
 
     data object Idle : UploadDestinationPickerState {
         override val path: WebDavPath = WebDavPath.root()
         override val fileCount: Int = 0
+        override val selectionKind: UploadSelectionKind = UploadSelectionKind.FILES
     }
 
     data class Loading(
         override val path: WebDavPath,
         override val fileCount: Int,
+        override val selectionKind: UploadSelectionKind = UploadSelectionKind.FILES,
     ) : UploadDestinationPickerState
 
     data class Success(
         override val path: WebDavPath,
         override val fileCount: Int,
         val directories: List<FileNode>,
+        override val selectionKind: UploadSelectionKind = UploadSelectionKind.FILES,
     ) : UploadDestinationPickerState
 
     data class Error(
         override val path: WebDavPath,
         override val fileCount: Int,
         val message: String,
+        override val selectionKind: UploadSelectionKind = UploadSelectionKind.FILES,
     ) : UploadDestinationPickerState
+}
+
+private sealed interface PendingUploadSelection {
+    val kind: UploadSelectionKind
+    val count: Int
+
+    data class Files(val uris: List<Uri>) : PendingUploadSelection {
+        override val kind: UploadSelectionKind = UploadSelectionKind.FILES
+        override val count: Int = uris.size
+    }
+
+    data class Folder(val uri: Uri) : PendingUploadSelection {
+        override val kind: UploadSelectionKind = UploadSelectionKind.FOLDER
+        override val count: Int = 1
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -84,7 +109,7 @@ class UploadsViewModel @Inject constructor(
     val destinationPickerState = _destinationPickerState.asStateFlow()
     private var destinationPickerJob: Job? = null
     private var destinationPickerVersion = 0L
-    private var pendingFileUris: List<Uri> = emptyList()
+    private var pendingUploadSelection: PendingUploadSelection? = null
 
     fun bindOwner(value: String) {
         if (ownerId.value != null && ownerId.value != value) {
@@ -102,24 +127,29 @@ class UploadsViewModel @Inject constructor(
     fun beginFileUpload(uris: List<Uri>) {
         val distinctUris = uris.distinct()
         if (distinctUris.isEmpty()) return
-        pendingFileUris = distinctUris
+        pendingUploadSelection = PendingUploadSelection.Files(distinctUris)
+        loadDestinationDirectories(WebDavPath.root())
+    }
+
+    fun beginFolderUpload(uri: Uri) {
+        pendingUploadSelection = PendingUploadSelection.Folder(uri)
         loadDestinationDirectories(WebDavPath.root())
     }
 
     fun openDestinationDirectory(path: WebDavPath) {
-        if (pendingFileUris.isNotEmpty()) loadDestinationDirectories(path)
+        if (pendingUploadSelection != null) loadDestinationDirectories(path)
     }
 
     fun navigateDestinationUp() {
         val path = _destinationPickerState.value.path
-        if (path.isRoot || pendingFileUris.isEmpty()) return
+        if (path.isRoot || pendingUploadSelection == null) return
         loadDestinationDirectories(
             WebDavPath.fromDecodedSegments(path.decodedSegments.dropLast(1)),
         )
     }
 
     fun retryDestinationPicker() {
-        if (pendingFileUris.isNotEmpty()) {
+        if (pendingUploadSelection != null) {
             loadDestinationDirectories(_destinationPickerState.value.path)
         }
     }
@@ -128,17 +158,24 @@ class UploadsViewModel @Inject constructor(
         destinationPickerVersion++
         destinationPickerJob?.cancel()
         destinationPickerJob = null
-        pendingFileUris = emptyList()
+        pendingUploadSelection = null
         _destinationPickerState.value = UploadDestinationPickerState.Idle
     }
 
     fun confirmFileUpload(destination: WebDavPath) {
         val state = _destinationPickerState.value
-        if (state !is UploadDestinationPickerState.Success || state.path != destination) return
-        val uris = pendingFileUris
-        if (uris.isEmpty()) return
+        val selection = pendingUploadSelection
+        if (
+            state !is UploadDestinationPickerState.Success ||
+            state.path != destination ||
+            selection == null ||
+            state.selectionKind != selection.kind
+        ) return
         dismissDestinationPicker()
-        enqueueFiles(uris, destination)
+        when (selection) {
+            is PendingUploadSelection.Files -> enqueueFiles(selection.uris, destination)
+            is PendingUploadSelection.Folder -> enqueueTree(selection.uri, destination)
+        }
     }
 
     fun enqueueFile(uri: Uri, destination: WebDavPath) = enqueueFiles(listOf(uri), destination)
@@ -274,11 +311,16 @@ class UploadsViewModel @Inject constructor(
     }
 
     private fun loadDestinationDirectories(path: WebDavPath) {
-        val fileCount = pendingFileUris.size
-        if (fileCount == 0) return
+        val selection = pendingUploadSelection ?: return
+        val fileCount = selection.count
+        val selectionKind = selection.kind
         val version = ++destinationPickerVersion
         destinationPickerJob?.cancel()
-        _destinationPickerState.value = UploadDestinationPickerState.Loading(path, fileCount)
+        _destinationPickerState.value = UploadDestinationPickerState.Loading(
+            path = path,
+            fileCount = fileCount,
+            selectionKind = selectionKind,
+        )
         destinationPickerJob = viewModelScope.launch {
             val nextState = try {
                 UploadDestinationPickerState.Success(
@@ -287,6 +329,7 @@ class UploadsViewModel @Inject constructor(
                     directories = fileRepository.list(path).filter {
                         it.isDirectory && !it.isUploadTemporary
                     },
+                    selectionKind = selectionKind,
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -295,6 +338,7 @@ class UploadsViewModel @Inject constructor(
                     path = path,
                     fileCount = fileCount,
                     message = error.toDestinationMessage(),
+                    selectionKind = selectionKind,
                 )
             }
             if (version == destinationPickerVersion) _destinationPickerState.value = nextState

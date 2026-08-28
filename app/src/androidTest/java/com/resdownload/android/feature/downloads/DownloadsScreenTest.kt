@@ -360,6 +360,7 @@ class DownloadsScreenTest {
         composeRule.onNode(hasSetTextAction()).performTextReplacement("visible")
         composeRule.onNodeWithText("hidden.txt").assertDoesNotExist()
 
+        composeRule.onNode(hasContentDescription("更多操作")).performClick()
         composeRule.onNodeWithTag("cancelAllTasks").performClick()
         composeRule.onNodeWithText("取消全部任务").performClick()
 
@@ -374,7 +375,7 @@ class DownloadsScreenTest {
             onCancelAll = { cancelled = true },
         )
 
-        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("更多操作")).assertExists().performClick()
         composeRule.onNodeWithTag("cancelAllTasks").performClick()
         composeRule.runOnIdle { assertFalse(cancelled) }
         composeRule.onNodeWithText("全部取消？").assertExists()
@@ -391,6 +392,7 @@ class DownloadsScreenTest {
             onClearTerminal = { clearLocalFiles = it },
         )
 
+        composeRule.onNode(hasContentDescription("更多操作")).performClick()
         composeRule.onNodeWithTag("clearTerminalTasks").performClick()
         composeRule.runOnIdle { assertTrue(clearLocalFiles == null) }
         composeRule.onNodeWithText("同时删除本地文件").assertExists()
@@ -403,6 +405,7 @@ class DownloadsScreenTest {
     fun taskListViewportContinuesBehindFloatingActionButton() {
         setScreen(task("failed", DownloadStatus.FAILED))
 
+        composeRule.onNode(hasContentDescription("更多操作")).performClick()
         val listBottom = composeRule.onNodeWithTag("downloadTaskList")
             .fetchSemanticsNode().boundsInRoot.bottom
         val floatingActionTop = composeRule.onNodeWithTag("clearTerminalTasks")

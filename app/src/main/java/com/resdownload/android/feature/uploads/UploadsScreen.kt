@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Error
@@ -90,7 +92,8 @@ import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
-import com.resdownload.android.core.ui.FloatingActionDock
+import com.resdownload.android.core.ui.FloatingActionIconButton
+import com.resdownload.android.core.ui.FloatingActionMenu
 import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
@@ -115,6 +118,7 @@ fun UploadsScreen(
     onMultiSelectModeChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     onUploadFile: () -> Unit = {},
+    onUploadFolder: () -> Unit = {},
     destinationPickerState: UploadDestinationPickerState = UploadDestinationPickerState.Idle,
     onOpenDestinationDirectory: (WebDavPath) -> Unit = {},
     onNavigateDestinationUp: () -> Unit = {},
@@ -131,6 +135,8 @@ fun UploadsScreen(
     var selectedSearchTaskIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var hasObservedTasks by remember { mutableStateOf(tasks.isNotEmpty()) }
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
+    var showUploadMenu by rememberSaveable { mutableStateOf(false) }
+    var showActionMenu by rememberSaveable { mutableStateOf(false) }
     SideEffect { onMultiSelectModeChange(multiSelectMode) }
     DisposableEffect(Unit) {
         onDispose { onMultiSelectModeChange(false) }
@@ -216,8 +222,14 @@ fun UploadsScreen(
         0
     } else {
         1 +
-            (if (hasCancellableTasks) 1 else 0) +
-            (if (hasClearableTasks) 1 else 0)
+            if (showActionMenu) {
+                1 +
+                    (if (showUploadMenu) 2 else 0) +
+                    (if (hasCancellableTasks) 1 else 0) +
+                    (if (hasClearableTasks) 1 else 0)
+            } else {
+                0
+            }
     }
     val listBottomPadding = if (multiSelectMode) {
         16.dp
@@ -283,6 +295,14 @@ fun UploadsScreen(
         enabled = multiSelectMode && !searchingSelectedTasks,
         onBack = ::exitMultiSelect,
     )
+
+    BackHandler(enabled = showActionMenu || showUploadMenu) {
+        if (showUploadMenu) {
+            showUploadMenu = false
+        } else {
+            showActionMenu = false
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -463,28 +483,64 @@ fun UploadsScreen(
         },
         floatingActionButton = {
             if (!multiSelectMode) {
-                FloatingActionDock {
-                    FloatingAction(
-                        icon = Icons.Default.UploadFile,
-                        label = "上传文件",
-                        modifier = Modifier.testTag("uploadFileButton"),
-                        onClick = onUploadFile,
+                FloatingActionMenu(
+                    expanded = showActionMenu,
+                    onExpandedChange = { expanded ->
+                        showActionMenu = expanded
+                        if (!expanded) showUploadMenu = false
+                    },
+                    toggleModifier = Modifier.testTag("uploadActionButton"),
+                ) {
+                    AnimatedVisibility(visible = showUploadMenu) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            FloatingAction(
+                                icon = Icons.Default.UploadFile,
+                                label = "上传文件",
+                                modifier = Modifier.testTag("uploadFileButton"),
+                                onClick = {
+                                    showUploadMenu = false
+                                    onUploadFile()
+                                },
+                            )
+                            FloatingAction(
+                                icon = Icons.Default.Folder,
+                                label = "上传文件夹",
+                                modifier = Modifier.testTag("uploadFolderButton"),
+                                onClick = {
+                                    showUploadMenu = false
+                                    onUploadFolder()
+                                },
+                            )
+                        }
+                    }
+                    FloatingActionIconButton(
+                        icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
+                        label = if (showUploadMenu) "收起上传选项" else "上传",
+                        onClick = { showUploadMenu = !showUploadMenu },
                     )
                     if (hasCancellableTasks) {
-                        FloatingAction(
+                        FloatingActionIconButton(
                             icon = Icons.Default.Cancel,
                             label = "全部取消",
                             modifier = Modifier.testTag("cancelAllTasks"),
-                            onClick = { showCancelAllDialog = true },
+                            onClick = {
+                                showActionMenu = false
+                                showUploadMenu = false
+                                showCancelAllDialog = true
+                            },
                             destructive = true,
                         )
                     }
                     if (hasClearableTasks) {
-                        FloatingAction(
+                        FloatingActionIconButton(
                             icon = Icons.Default.DeleteSweep,
                             label = "全部清除",
                             modifier = Modifier.testTag("clearTerminalTasks"),
-                            onClick = { showClearDialog = true },
+                            onClick = {
+                                showActionMenu = false
+                                showUploadMenu = false
+                                showClearDialog = true
+                            },
                             destructive = true,
                         )
                     }
@@ -681,15 +737,15 @@ private fun UploadDestinationDialog(
     ExpressiveDialog(
         onDismissRequest = onDismiss,
         title = "选择保存位置",
-        icon = Icons.Default.UploadFile,
+        icon = if (state.selectionKind == UploadSelectionKind.FOLDER) {
+            Icons.Default.Folder
+        } else {
+            Icons.Default.UploadFile
+        },
         content = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = if (state.fileCount == 1) {
-                        "已选择 1 个文件"
-                    } else {
-                        "已选择 ${state.fileCount} 个文件"
-                    },
+                    text = "已选择 ${state.fileCount} 个${state.selectionKind.label}",
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Row(

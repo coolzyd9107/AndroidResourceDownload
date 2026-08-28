@@ -85,7 +85,8 @@ import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
-import com.resdownload.android.core.ui.FloatingActionDock
+import com.resdownload.android.core.ui.FloatingActionIconButton
+import com.resdownload.android.core.ui.FloatingActionMenu
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
 import com.resdownload.android.core.ui.SelectionBottomBar
@@ -119,6 +120,7 @@ fun DownloadsScreen(
     var selectedTaskIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var selectedSearchTaskIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var hasObservedTasks by remember { mutableStateOf(tasks.isNotEmpty()) }
+    var showActionMenu by rememberSaveable { mutableStateOf(false) }
     SideEffect { onMultiSelectModeChange(multiSelectMode) }
     DisposableEffect(Unit) {
         onDispose { onMultiSelectModeChange(false) }
@@ -179,11 +181,22 @@ fun DownloadsScreen(
             DownloadStatus.CANCELLED,
         )
     }
-    val listBottomPadding = when {
-        multiSelectMode -> 16.dp
-        hasCancellableTasks && hasClearableTasks -> 152.dp
-        hasCancellableTasks || hasClearableTasks -> 84.dp
-        else -> 16.dp
+    val floatingActionCount = if (multiSelectMode ||
+        (!hasCancellableTasks && !hasClearableTasks)
+    ) {
+        0
+    } else {
+        1 + if (showActionMenu) {
+            (if (hasCancellableTasks) 1 else 0) +
+                (if (hasClearableTasks) 1 else 0)
+        } else {
+            0
+        }
+    }
+    val listBottomPadding = if (floatingActionCount == 0) {
+        16.dp
+    } else {
+        (16 + floatingActionCount * 68).dp
     }
 
     fun exitMultiSelect() {
@@ -244,6 +257,10 @@ fun DownloadsScreen(
         enabled = multiSelectMode && !searchingSelectedTasks,
         onBack = ::exitMultiSelect,
     )
+
+    BackHandler(enabled = showActionMenu) {
+        showActionMenu = false
+    }
 
     Scaffold(
         modifier = modifier,
@@ -405,22 +422,30 @@ fun DownloadsScreen(
         },
         floatingActionButton = {
             if (!multiSelectMode && (hasCancellableTasks || hasClearableTasks)) {
-                FloatingActionDock {
+                FloatingActionMenu(
+                    expanded = showActionMenu,
+                    onExpandedChange = { showActionMenu = it },
+                    toggleModifier = Modifier.testTag("downloadActionButton"),
+                ) {
                     if (hasCancellableTasks) {
-                        FloatingAction(
+                        FloatingActionIconButton(
                             icon = Icons.Default.Cancel,
                             label = "全部取消",
                             modifier = Modifier.testTag("cancelAllTasks"),
-                            onClick = { showCancelAllDialog = true },
+                            onClick = {
+                                showActionMenu = false
+                                showCancelAllDialog = true
+                            },
                             destructive = true,
                         )
                     }
                     if (hasClearableTasks) {
-                        FloatingAction(
+                        FloatingActionIconButton(
                             icon = Icons.Default.DeleteSweep,
                             label = "全部清除",
                             modifier = Modifier.testTag("clearTerminalTasks"),
                             onClick = {
+                                showActionMenu = false
                                 clearLocalFiles = true
                                 showClearDialog = true
                             },

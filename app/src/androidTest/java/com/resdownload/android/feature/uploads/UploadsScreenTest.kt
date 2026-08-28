@@ -26,13 +26,15 @@ class UploadsScreenTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun uploadButtonRequestsFileSelection() {
-        var requested = false
+    fun uploadButtonsRequestTheMatchingSelection() {
+        var fileRequested = false
+        var folderRequested = false
         composeRule.setContent {
             MaterialTheme {
                 UploadsScreen(
                     tasks = emptyList(),
-                    onUploadFile = { requested = true },
+                    onUploadFile = { fileRequested = true },
+                    onUploadFolder = { folderRequested = true },
                     onRetry = {},
                     onCancel = {},
                     onDelete = {},
@@ -40,9 +42,16 @@ class UploadsScreenTest {
             }
         }
 
+        composeRule.onNodeWithTag("uploadActionButton").performClick()
+        composeRule.onNode(hasContentDescription("上传")).performClick()
+        composeRule.onNodeWithTag("uploadFolderButton").performClick()
+        composeRule.onNode(hasContentDescription("上传")).performClick()
         composeRule.onNodeWithTag("uploadFileButton").performClick()
 
-        composeRule.runOnIdle { assertTrue(requested) }
+        composeRule.runOnIdle {
+            assertTrue(fileRequested)
+            assertTrue(folderRequested)
+        }
     }
 
     @Test
@@ -60,6 +69,7 @@ class UploadsScreenTest {
                         directories = listOf(
                             FileNode("归档", "/归档", isDirectory = true),
                         ),
+                        selectionKind = UploadSelectionKind.FOLDER,
                     ),
                     onOpenDestinationDirectory = { openedPath = it },
                     onConfirmFileUpload = { confirmedPath = it },
@@ -71,6 +81,7 @@ class UploadsScreenTest {
         }
 
         composeRule.onNodeWithText("选择保存位置").assertExists()
+        composeRule.onNodeWithText("已选择 1 个文件夹").assertExists()
         composeRule.onNode(hasContentDescription("打开文件夹 归档")).performClick()
         composeRule.onNodeWithText("上传到此处").performClick()
 
@@ -441,6 +452,7 @@ class UploadsScreenTest {
         composeRule.onNode(hasSetTextAction()).performTextReplacement("visible")
         composeRule.onNodeWithText("hidden.bin").assertDoesNotExist()
 
+        composeRule.onNodeWithTag("uploadActionButton").performClick()
         composeRule.onNodeWithTag("cancelAllTasks").performClick()
         composeRule.onNodeWithText("取消全部任务").performClick()
 
@@ -455,7 +467,7 @@ class UploadsScreenTest {
             onCancelAll = { cancelled = true },
         )
 
-        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNode(hasContentDescription("更多操作")).assertExists().performClick()
         composeRule.onNodeWithTag("cancelAllTasks").performClick()
         composeRule.runOnIdle { assertFalse(cancelled) }
         composeRule.onNodeWithText("全部取消？").assertExists()
@@ -472,6 +484,7 @@ class UploadsScreenTest {
             onClearTerminal = { cleared = true },
         )
 
+        composeRule.onNode(hasContentDescription("更多操作")).performClick()
         composeRule.onNodeWithTag("clearTerminalTasks").performClick()
         composeRule.runOnIdle { assertFalse(cleared) }
         composeRule.onNodeWithText("全部清除？").assertExists()
@@ -484,6 +497,7 @@ class UploadsScreenTest {
     fun taskListViewportContinuesBehindFloatingActionButton() {
         setScreen(task("failed", UploadStatus.FAILED))
 
+        composeRule.onNode(hasContentDescription("更多操作")).performClick()
         val listBottom = composeRule.onNodeWithTag("uploadTaskList")
             .fetchSemanticsNode().boundsInRoot.bottom
         val floatingActionTop = composeRule.onNodeWithTag("clearTerminalTasks")

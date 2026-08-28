@@ -74,7 +74,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -95,7 +94,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -116,9 +117,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -142,7 +145,8 @@ import com.resdownload.android.core.ui.ExpressiveDialog
 import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
-import com.resdownload.android.core.ui.FloatingActionDock
+import com.resdownload.android.core.ui.FloatingActionIconButton
+import com.resdownload.android.core.ui.FloatingActionMenu
 import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.ScalePredictiveBackLayout
 import com.resdownload.android.core.ui.SearchTopAppBar
@@ -186,6 +190,7 @@ fun FilesScreen(
     var deleteTarget by remember { mutableStateOf<FileNode?>(null) }
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
     var showUploadMenu by remember { mutableStateOf(false) }
+    var showActionMenu by rememberSaveable { mutableStateOf(false) }
     var searchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedSearchScope by rememberSaveable {
@@ -212,6 +217,7 @@ fun FilesScreen(
     val realSearchState = viewModel?.searchState?.collectAsStateWithLifecycle()?.value
     val isAdmin = role == Role.ADMIN
     val isRefreshing = viewModel?.isRefreshing?.collectAsStateWithLifecycle()?.value ?: false
+    val pullToRefreshState = rememberPullToRefreshState()
     val multiSelectMode = viewModel?.multiSelectMode?.collectAsStateWithLifecycle()?.value
         ?: demoMultiSelectMode
     val selectedFileMap = viewModel?.selectedFiles?.collectAsStateWithLifecycle()?.value
@@ -229,6 +235,7 @@ fun FilesScreen(
             deleteTarget = null
             showCreateDirectoryDialog = false
             showUploadMenu = false
+            showActionMenu = false
             demoMultiSelectMode = false
             demoSelectedFiles = emptyMap()
             selectedSearchRoots = emptyList()
@@ -556,6 +563,23 @@ fun FilesScreen(
     val visibleFilePaneState = cachedNavigationPane?.takeIf { cachedPane ->
         cachedPane.path == filePaneState.path && filePaneState.content is FilePaneContent.Loading
     } ?: filePaneState
+    val fileActionCount = if (
+        isAdmin &&
+        mutationState == FileMutationState.Idle &&
+        !multiSelectMode &&
+        !searchActive
+    ) {
+        1 +
+            (if (showActionMenu) 2 else 0) +
+            (if (showActionMenu && showUploadMenu) 2 else 0)
+    } else {
+        0
+    }
+    val fileActionBottomPadding = if (fileActionCount == 0) {
+        112.dp
+    } else {
+        (16 + fileActionCount * 68).dp
+    }
     val frozenBackPreview = predictiveFolderTransition?.let { transition ->
         cachedNavigationPane?.takeIf { it.path == transition.destination }
     }
@@ -591,6 +615,7 @@ fun FilesScreen(
         renameTarget == null &&
         deleteTarget == null &&
         !showCreateDirectoryDialog &&
+        !showActionMenu &&
         !showUploadMenu &&
         !multiSelectMode &&
         !searchActive &&
@@ -809,23 +834,18 @@ fun FilesScreen(
                                     )
                                 }
                                 IconButton(onClick = {
-                                    if (viewModel == null) {
-                                        state = fileStateForPath(currentPath)
-                                    } else {
-                                        viewModel.refresh()
+                                    if (!isRefreshing) {
+                                        if (viewModel == null) {
+                                            state = fileStateForPath(currentPath)
+                                        } else {
+                                            viewModel.refresh()
+                                        }
                                     }
-                                }, enabled = !isRefreshing) {
-                                    if (isRefreshing) {
-                                        LoadingIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Default.Refresh,
-                                            contentDescription = "刷新文件列表",
-                                        )
-                                    }
+                                }) {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "刷新文件列表",
+                                    )
                                 }
                             },
                             colors = TopAppBarDefaults.topAppBarColors(
@@ -921,8 +941,15 @@ fun FilesScreen(
                         !multiSelectMode &&
                         !searchActive
                     ) {
-                        FloatingActionDock {
-                            FloatingAction(
+                        FloatingActionMenu(
+                            expanded = showActionMenu,
+                            onExpandedChange = { expanded ->
+                                showActionMenu = expanded
+                                if (!expanded) showUploadMenu = false
+                            },
+                            toggleModifier = Modifier.testTag("fileActionButton"),
+                        ) {
+                            FloatingActionIconButton(
                                 icon = Icons.Default.CreateNewFolder,
                                 label = "新建文件夹",
                                 onClick = { showCreateDirectoryDialog = true },
@@ -947,7 +974,7 @@ fun FilesScreen(
                                     )
                                 }
                             }
-                            FloatingAction(
+                            FloatingActionIconButton(
                                 icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
                                 label = if (showUploadMenu) "收起上传选项" else "上传",
                                 onClick = { showUploadMenu = !showUploadMenu },
@@ -1065,6 +1092,7 @@ fun FilesScreen(
                             )
                             is FilePaneContent.Files -> PullToRefreshBox(
                                 isRefreshing = isRefreshing,
+                                state = pullToRefreshState,
                                 onRefresh = {
                                     if (viewModel == null) {
                                         state = fileStateForPath(currentPath)
@@ -1073,22 +1101,11 @@ fun FilesScreen(
                                     }
                                 },
                                 indicator = {
-                                    if (isRefreshing) {
-                                        Surface(
-                                            modifier = Modifier
-                                                .align(Alignment.TopCenter)
-                                                .padding(top = 8.dp)
-                                                .size(48.dp),
-                                            shape = MaterialTheme.shapes.large,
-                                            color = MaterialTheme.colorScheme.secondaryContainer,
-                                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            shadowElevation = 3.dp,
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                LoadingIndicator(modifier = Modifier.size(28.dp))
-                                            }
-                                        }
-                                    }
+                                    PullToRefreshDefaults.LoadingIndicator(
+                                        state = pullToRefreshState,
+                                        isRefreshing = isRefreshing,
+                                        modifier = Modifier.align(Alignment.TopCenter),
+                                    )
                                 },
                                 modifier = contentModifier,
                             ) {
@@ -1124,6 +1141,7 @@ fun FilesScreen(
                                             toggleFileSelection(file)
                                         }
                                     },
+                                    adminActionSpace = fileActionBottomPadding,
                                 )
                             }
                         }
@@ -1133,8 +1151,12 @@ fun FilesScreen(
         }
     }
 
-    BackHandler(enabled = showUploadMenu) {
-        showUploadMenu = false
+    BackHandler(enabled = showActionMenu || showUploadMenu) {
+        if (showUploadMenu) {
+            showUploadMenu = false
+        } else {
+            showActionMenu = false
+        }
     }
 
     BackHandler(enabled = multiSelectMode && !searchingSelectedContent) {
@@ -1573,18 +1595,18 @@ private fun FolderBackPreview(
         },
         floatingActionButton = {
             if (isAdmin) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                FloatingActionMenu(
+                    expanded = false,
+                    onExpandedChange = {},
                 ) {
-                    ExtendedFloatingActionButton(
-                        text = { Text("新建文件夹") },
-                        icon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
+                    FloatingActionIconButton(
+                        icon = Icons.Default.CreateNewFolder,
+                        label = "新建文件夹",
                         onClick = {},
                     )
-                    ExtendedFloatingActionButton(
-                        text = { Text("上传") },
-                        icon = { Icon(Icons.Default.UploadFile, contentDescription = null) },
+                    FloatingActionIconButton(
+                        icon = Icons.Default.UploadFile,
+                        label = "上传",
                         onClick = {},
                     )
                 }
@@ -1853,6 +1875,7 @@ private fun FileList(
     onFileLongClick: (FileNode) -> Unit = {},
     showPath: Boolean = false,
     reserveAdminActionSpace: Boolean = true,
+    adminActionSpace: Dp = 184.dp,
     visibleCount: Int = files.size,
     animateItems: Boolean = true,
 ) {
@@ -1864,7 +1887,11 @@ private fun FileList(
             start = 12.dp,
             top = 8.dp,
             end = 12.dp,
-            bottom = if (reserveAdminActionSpace && isAdmin && !multiSelectMode) 184.dp else 112.dp,
+            bottom = if (reserveAdminActionSpace && isAdmin && !multiSelectMode) {
+                adminActionSpace
+            } else {
+                112.dp
+            },
         ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {

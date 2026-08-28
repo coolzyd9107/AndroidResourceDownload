@@ -534,6 +534,20 @@ private fun MainShell(
         }
     }
 
+    val uploadQueueFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null && user.role == Role.ADMIN) {
+            val viewModel = uploadsViewModel
+            if (viewModel == null) {
+                showMessage("上传功能暂不可用")
+            } else {
+                viewModel.beginFolderUpload(uri)
+                openShellRoute(ShellRoute.Uploads)
+            }
+        }
+    }
+
     val uploadFolderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -761,6 +775,15 @@ private fun MainShell(
                                 showMessage("上传功能暂不可用")
                             } else {
                                 uploadQueueFileLauncher.launch(arrayOf("*/*"))
+                            }
+                        },
+                        onUploadFolder = {
+                            if (BuildConfig.DEMO_MODE) {
+                                showMessage("演示模式不执行云端文件操作")
+                            } else if (uploadsViewModel == null) {
+                                showMessage("上传功能暂不可用")
+                            } else {
+                                uploadQueueFolderLauncher.launch(null)
                             }
                         },
                         destinationPickerState = uploadDestinationPickerState,
