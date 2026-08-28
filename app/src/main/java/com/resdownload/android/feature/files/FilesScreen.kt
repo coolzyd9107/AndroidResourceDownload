@@ -9,6 +9,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -17,6 +18,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -958,7 +960,19 @@ fun FilesScreen(
                                     showCreateDirectoryDialog = true
                                 },
                             )
-                            AnimatedVisibility(visible = showUploadMenu) {
+                            AnimatedVisibility(
+                                visible = showUploadMenu,
+                                enter = fadeIn(folderEffectsSpec) + expandVertically(
+                                    animationSpec = MaterialTheme.motionScheme
+                                        .defaultSpatialSpec<androidx.compose.ui.unit.IntSize>(),
+                                    expandFrom = Alignment.Bottom,
+                                ),
+                                exit = fadeOut(folderEffectsSpec) + shrinkVertically(
+                                    animationSpec = MaterialTheme.motionScheme
+                                        .defaultSpatialSpec<androidx.compose.ui.unit.IntSize>(),
+                                    shrinkTowards = Alignment.Bottom,
+                                ),
+                            ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     FloatingAction(
                                         icon = Icons.Default.UploadFile,
