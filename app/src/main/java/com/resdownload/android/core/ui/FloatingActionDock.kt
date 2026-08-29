@@ -1,10 +1,13 @@
 package com.resdownload.android.core.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -70,6 +73,7 @@ import kotlin.math.roundToInt
 
 internal const val FloatingActionMenuAnimationDurationMillis = 320
 private const val FloatingActionContentAnimationDurationMillis = 180
+private const val FloatingActionSubmenuAnimationDurationMillis = 220
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -143,6 +147,51 @@ fun FloatingActionMenu(
             state = layoutState,
             toggleModifier = toggleModifier,
             onExpandedChange = onExpandedChange,
+            content = content,
+        )
+    }
+}
+
+@Composable
+fun FloatingActionSubmenu(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val sizeSpec = tween<IntSize>(
+        durationMillis = FloatingActionSubmenuAnimationDurationMillis,
+        easing = FastOutSlowInEasing,
+    )
+    val offsetSpec = tween<IntOffset>(
+        durationMillis = FloatingActionSubmenuAnimationDurationMillis,
+        easing = FastOutSlowInEasing,
+    )
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(
+            animationSpec = tween(
+                durationMillis = 160,
+                delayMillis = 20,
+                easing = FastOutSlowInEasing,
+            ),
+        ) + expandVertically(
+            animationSpec = sizeSpec,
+            expandFrom = Alignment.Bottom,
+        ) + slideInVertically(offsetSpec) { height -> height / 8 },
+        exit = fadeOut(
+            animationSpec = tween(
+                durationMillis = 160,
+                delayMillis = 60,
+                easing = FastOutSlowInEasing,
+            ),
+        ) + shrinkVertically(
+            animationSpec = sizeSpec,
+            shrinkTowards = Alignment.Bottom,
+        ) + slideOutVertically(offsetSpec) { height -> height / 10 },
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
             content = content,
         )
     }

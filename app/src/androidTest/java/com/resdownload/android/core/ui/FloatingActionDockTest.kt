@@ -274,4 +274,49 @@ class FloatingActionDockTest {
         composeRule.onNodeWithText("上传").assertDoesNotExist()
         composeRule.onNodeWithText("收起上传选项").assertExists()
     }
+
+    @Test
+    fun submenuCollapseDoesNotLeaveALateGap() {
+        composeRule.mainClock.autoAdvance = false
+        var submenuVisible by mutableStateOf(true)
+        composeRule.setContent {
+            MaterialTheme {
+                FloatingActionDock {
+                    FloatingActionSubmenu(visible = submenuVisible) {
+                        FloatingAction(
+                            icon = Icons.Default.UploadFile,
+                            label = "上传文件",
+                            onClick = {},
+                        )
+                        FloatingAction(
+                            icon = Icons.Default.UploadFile,
+                            label = "上传文件夹",
+                            onClick = {},
+                            modifier = Modifier.testTag("lastSubmenuAction"),
+                        )
+                    }
+                    FloatingAction(
+                        icon = Icons.Default.UploadFile,
+                        label = "上传",
+                        onClick = {},
+                        modifier = Modifier.testTag("lowerAction"),
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle { submenuVisible = false }
+        composeRule.mainClock.advanceTimeBy(280)
+
+        composeRule.onNodeWithTag("lastSubmenuAction").assertDoesNotExist()
+        val settledTop = composeRule.onNodeWithTag("lowerAction")
+            .fetchSemanticsNode().boundsInRoot.top
+
+        composeRule.mainClock.advanceTimeBy(500)
+        val laterTop = composeRule.onNodeWithTag("lowerAction")
+            .fetchSemanticsNode().boundsInRoot.top
+
+        assertEquals(settledTop, laterTop, 1f)
+    }
 }

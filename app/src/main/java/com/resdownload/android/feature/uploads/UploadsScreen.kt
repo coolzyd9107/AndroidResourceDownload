@@ -3,12 +3,9 @@ package com.resdownload.android.feature.uploads
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
@@ -84,7 +81,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.resdownload.android.core.common.formatFileSize
@@ -96,6 +92,7 @@ import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
 import com.resdownload.android.core.ui.FloatingActionMenu
+import com.resdownload.android.core.ui.FloatingActionSubmenu
 import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
@@ -149,7 +146,6 @@ fun UploadsScreen(
     }
     val itemEffectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val itemSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
-    val actionSizeSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntSize>()
     val contentSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val countSpatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
     val searchingSelectedTasks = multiSelectMode && searchActive && selectedSearchTaskIds.isNotEmpty()
@@ -506,39 +502,29 @@ fun UploadsScreen(
                     modifier = Modifier.trackFloatingActionMenuBounds(actionMenuBounds),
                     toggleModifier = Modifier.testTag("uploadActionButton"),
                 ) {
-                    AnimatedVisibility(
+                    FloatingActionSubmenu(
                         visible = showUploadMenu,
-                        enter = fadeIn(itemEffectsSpec) + expandVertically(
-                            animationSpec = actionSizeSpec,
-                            expandFrom = androidx.compose.ui.Alignment.Bottom,
-                        ) + slideInVertically(itemSpatialSpec) { height -> height / 8 },
-                        exit = fadeOut(itemEffectsSpec) + shrinkVertically(
-                            animationSpec = actionSizeSpec,
-                            shrinkTowards = androidx.compose.ui.Alignment.Bottom,
-                        ) + slideOutVertically(itemSpatialSpec) { height -> height / 10 },
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            FloatingAction(
-                                icon = Icons.Default.UploadFile,
-                                label = "上传文件",
-                                modifier = Modifier.testTag("uploadFileButton"),
-                                onClick = {
-                                    showActionMenu = false
-                                    showUploadMenu = false
-                                    onUploadFile()
-                                },
-                            )
-                            FloatingAction(
-                                icon = Icons.Default.Folder,
-                                label = "上传文件夹",
-                                modifier = Modifier.testTag("uploadFolderButton"),
-                                onClick = {
-                                    showActionMenu = false
-                                    showUploadMenu = false
-                                    onUploadFolder()
-                                },
-                            )
-                        }
+                        FloatingAction(
+                            icon = Icons.Default.UploadFile,
+                            label = "上传文件",
+                            modifier = Modifier.testTag("uploadFileButton"),
+                            onClick = {
+                                showActionMenu = false
+                                showUploadMenu = false
+                                onUploadFile()
+                            },
+                        )
+                        FloatingAction(
+                            icon = Icons.Default.Folder,
+                            label = "上传文件夹",
+                            modifier = Modifier.testTag("uploadFolderButton"),
+                            onClick = {
+                                showActionMenu = false
+                                showUploadMenu = false
+                                onUploadFolder()
+                            },
+                        )
                     }
                     FloatingAction(
                         icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,

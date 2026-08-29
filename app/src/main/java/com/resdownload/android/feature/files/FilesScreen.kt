@@ -9,7 +9,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -18,7 +17,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -150,6 +148,7 @@ import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
 import com.resdownload.android.core.ui.FloatingActionMenu
 import com.resdownload.android.core.ui.FloatingActionMenuAnimationDurationMillis
+import com.resdownload.android.core.ui.FloatingActionSubmenu
 import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.ScalePredictiveBackLayout
 import com.resdownload.android.core.ui.SearchTopAppBar
@@ -983,39 +982,27 @@ fun FilesScreen(
                                     showCreateDirectoryDialog = true
                                 },
                             )
-                            AnimatedVisibility(
+                            FloatingActionSubmenu(
                                 visible = showUploadMenu,
-                                enter = fadeIn(folderEffectsSpec) + expandVertically(
-                                    animationSpec = MaterialTheme.motionScheme
-                                        .defaultSpatialSpec<androidx.compose.ui.unit.IntSize>(),
-                                    expandFrom = Alignment.Bottom,
-                                ) + slideInVertically(folderSpatialSpec) { height -> height / 8 },
-                                exit = fadeOut(folderEffectsSpec) + shrinkVertically(
-                                    animationSpec = MaterialTheme.motionScheme
-                                        .defaultSpatialSpec<androidx.compose.ui.unit.IntSize>(),
-                                    shrinkTowards = Alignment.Bottom,
-                                ) + slideOutVertically(folderSpatialSpec) { height -> height / 10 },
                             ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    FloatingAction(
-                                        icon = Icons.Default.UploadFile,
-                                        label = "上传文件",
-                                        onClick = {
-                                            showActionMenu = false
-                                            showUploadMenu = false
-                                            onUploadFile(activePath)
-                                        },
-                                    )
-                                    FloatingAction(
-                                        icon = Icons.Default.Folder,
-                                        label = "上传文件夹",
-                                        onClick = {
-                                            showActionMenu = false
-                                            showUploadMenu = false
-                                            onUploadFolder(activePath)
-                                        },
-                                    )
-                                }
+                                FloatingAction(
+                                    icon = Icons.Default.UploadFile,
+                                    label = "上传文件",
+                                    onClick = {
+                                        showActionMenu = false
+                                        showUploadMenu = false
+                                        onUploadFile(activePath)
+                                    },
+                                )
+                                FloatingAction(
+                                    icon = Icons.Default.Folder,
+                                    label = "上传文件夹",
+                                    onClick = {
+                                        showActionMenu = false
+                                        showUploadMenu = false
+                                        onUploadFolder(activePath)
+                                    },
+                                )
                             }
                             FloatingAction(
                                 icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
