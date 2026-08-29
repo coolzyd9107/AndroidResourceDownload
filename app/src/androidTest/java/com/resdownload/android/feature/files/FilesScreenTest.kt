@@ -2,10 +2,9 @@ package com.resdownload.android.feature.files
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -22,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeDown
 import androidx.test.espresso.Espresso
 import kotlin.math.abs
@@ -78,21 +78,56 @@ class FilesScreenTest {
     @Test
     fun emptyFolderSupportsPullToRefresh() {
         assertPaneSupportsPullToRefresh {
-            EmptyPane(
-                message = "此目录为空",
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            )
+            FileStateScrollContent { EmptyPane(message = "此目录为空") }
         }
     }
 
     @Test
     fun fileErrorSupportsPullToRefresh() {
         assertPaneSupportsPullToRefresh {
-            ErrorPane(
-                message = "暂时无法加载此目录",
-                onRetry = {},
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            )
+            FileStateScrollContent {
+                ErrorPane(message = "暂时无法加载此目录", onRetry = {})
+            }
+        }
+    }
+
+    @Test
+    fun scrollableEmptyPaneRemainsVerticallyCentered() {
+        composeRule.setContent {
+            MaterialTheme {
+                FilePullToRefreshBox(
+                    isRefreshing = false,
+                    onRefresh = {},
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("filePullToRefresh"),
+                ) {
+                    FileStateScrollContent { EmptyPane(message = "此目录为空") }
+                }
+            }
+        }
+
+        val rootBounds = composeRule.onNodeWithTag("filePullToRefresh")
+            .fetchSemanticsNode().boundsInRoot
+        val messageBounds = composeRule.onNodeWithText("此目录为空")
+            .fetchSemanticsNode().boundsInRoot
+
+        assertEquals(rootBounds.center.y, messageBounds.center.y, 120f)
+    }
+
+    @Test
+    fun emptyPaneSupportsPullToRefreshFromBlankAreas() {
+        assertPaneSupportsPullToRefreshFromBlankArea {
+            FileStateScrollContent { EmptyPane(message = "此目录为空") }
+        }
+    }
+
+    @Test
+    fun errorPaneSupportsPullToRefreshFromBlankAreas() {
+        assertPaneSupportsPullToRefreshFromBlankArea {
+            FileStateScrollContent {
+                ErrorPane(message = "暂时无法加载此目录", onRetry = {})
+            }
         }
     }
 
@@ -442,6 +477,34 @@ class FilesScreenTest {
         }
 
         composeRule.onNodeWithTag("filePullToRefresh").performTouchInput { swipeDown() }
+
+        composeRule.runOnIdle { assertEquals(1, refreshRequests) }
+    }
+
+    private fun assertPaneSupportsPullToRefreshFromBlankArea(content: @Composable () -> Unit) {
+        var refreshRequests = 0
+        composeRule.setContent {
+            MaterialTheme {
+                FilePullToRefreshBox(
+                    isRefreshing = false,
+                    onRefresh = { refreshRequests++ },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("filePullToRefresh"),
+                ) {
+                    content()
+                }
+            }
+        }
+
+        val size = composeRule.onNodeWithTag("filePullToRefresh")
+            .fetchSemanticsNode().size
+        composeRule.onNodeWithTag("filePullToRefresh").performTouchInput {
+            swipe(
+                start = Offset(8f, 8f),
+                end = Offset(8f, size.height / 2f),
+            )
+        }
 
         composeRule.runOnIdle { assertEquals(1, refreshRequests) }
     }

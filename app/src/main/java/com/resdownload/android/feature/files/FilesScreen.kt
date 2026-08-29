@@ -1115,28 +1115,28 @@ fun FilesScreen(
                                 onRefresh = refreshFiles,
                                 modifier = contentModifier,
                             ) {
-                                EmptyPane(
-                                    message = content.message,
-                                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                                )
+                                FileStateScrollContent {
+                                    EmptyPane(message = content.message)
+                                }
                             }
                             is FilePaneContent.Error -> FilePullToRefreshBox(
                                 isRefreshing = isRefreshing,
                                 onRefresh = refreshFiles,
                                 modifier = contentModifier,
                             ) {
-                                ErrorPane(
-                                    message = content.message,
-                                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                                    enabled = isTargetContent,
-                                    onRetry = {
-                                        if (viewModel == null) {
-                                            state = fileStateForPath(currentPath)
-                                        } else {
-                                            viewModel.retry()
-                                        }
-                                    },
-                                )
+                                FileStateScrollContent {
+                                    ErrorPane(
+                                        message = content.message,
+                                        enabled = isTargetContent,
+                                        onRetry = {
+                                            if (viewModel == null) {
+                                                state = fileStateForPath(currentPath)
+                                            } else {
+                                                viewModel.retry()
+                                            }
+                                        },
+                                    )
+                                }
                             }
                             is FilePaneContent.Files -> FilePullToRefreshBox(
                                 isRefreshing = isRefreshing,
@@ -1555,6 +1555,25 @@ internal fun FilePullToRefreshBox(
         modifier = modifier,
     ) {
         content()
+    }
+}
+
+@Composable
+internal fun FileStateScrollContent(content: @Composable () -> Unit) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        item {
+            Box(
+                modifier = Modifier
+                    .fillParentMaxSize()
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                content()
+            }
+        }
     }
 }
 
