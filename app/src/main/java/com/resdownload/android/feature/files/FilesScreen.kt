@@ -223,7 +223,13 @@ fun FilesScreen(
     val realSearchState = viewModel?.searchState?.collectAsStateWithLifecycle()?.value
     val isAdmin = role == Role.ADMIN
     val isRefreshing = viewModel?.isRefreshing?.collectAsStateWithLifecycle()?.value ?: false
-    val pullToRefreshState = rememberPullToRefreshState()
+    val refreshFiles = {
+        if (viewModel == null) {
+            state = fileStateForPath(currentPath)
+        } else {
+            viewModel.refresh()
+        }
+    }
     val multiSelectMode = viewModel?.multiSelectMode?.collectAsStateWithLifecycle()?.value
         ?: demoMultiSelectMode
     val selectedFileMap = viewModel?.selectedFiles?.collectAsStateWithLifecycle()?.value
@@ -850,11 +856,7 @@ fun FilesScreen(
                                 }
                                 IconButton(onClick = {
                                     if (!isRefreshing) {
-                                        if (viewModel == null) {
-                                            state = fileStateForPath(currentPath)
-                                        } else {
-                                            viewModel.refresh()
-                                        }
+                                        refreshFiles()
                                     }
                                 }) {
                                     Icon(
@@ -1108,39 +1110,37 @@ fun FilesScreen(
                         }
                         when (val content = pane.content) {
                             FilePaneContent.Loading -> LoadingPane(contentModifier)
-                            is FilePaneContent.Empty -> EmptyPane(
-                                message = content.message,
-                                modifier = contentModifier,
-                            )
-                            is FilePaneContent.Error -> ErrorPane(
-                                message = content.message,
-                                modifier = contentModifier,
-                                enabled = isTargetContent,
-                                onRetry = {
-                                    if (viewModel == null) {
-                                        state = fileStateForPath(currentPath)
-                                    } else {
-                                        viewModel.retry()
-                                    }
-                                },
-                            )
-                            is FilePaneContent.Files -> PullToRefreshBox(
+                            is FilePaneContent.Empty -> FilePullToRefreshBox(
                                 isRefreshing = isRefreshing,
-                                state = pullToRefreshState,
-                                onRefresh = {
-                                    if (viewModel == null) {
-                                        state = fileStateForPath(currentPath)
-                                    } else {
-                                        viewModel.refresh()
-                                    }
-                                },
-                                indicator = {
-                                    PullToRefreshDefaults.LoadingIndicator(
-                                        state = pullToRefreshState,
-                                        isRefreshing = isRefreshing,
-                                        modifier = Modifier.align(Alignment.TopCenter),
-                                    )
-                                },
+                                onRefresh = refreshFiles,
+                                modifier = contentModifier,
+                            ) {
+                                EmptyPane(
+                                    message = content.message,
+                                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                                )
+                            }
+                            is FilePaneContent.Error -> FilePullToRefreshBox(
+                                isRefreshing = isRefreshing,
+                                onRefresh = refreshFiles,
+                                modifier = contentModifier,
+                            ) {
+                                ErrorPane(
+                                    message = content.message,
+                                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                                    enabled = isTargetContent,
+                                    onRetry = {
+                                        if (viewModel == null) {
+                                            state = fileStateForPath(currentPath)
+                                        } else {
+                                            viewModel.retry()
+                                        }
+                                    },
+                                )
+                            }
+                            is FilePaneContent.Files -> FilePullToRefreshBox(
+                                isRefreshing = isRefreshing,
+                                onRefresh = refreshFiles,
                                 modifier = contentModifier,
                             ) {
                                 FileList(
@@ -1530,6 +1530,32 @@ private sealed interface FilePaneContent {
     data class Empty(val message: String) : FilePaneContent
     data class Error(val message: String) : FilePaneContent
     data class Files(val value: List<FileNode>) : FilePaneContent
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun FilePullToRefreshBox(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val state = rememberPullToRefreshState()
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        state = state,
+        onRefresh = onRefresh,
+        indicator = {
+            PullToRefreshDefaults.LoadingIndicator(
+                state = state,
+                isRefreshing = isRefreshing,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+        },
+        modifier = modifier,
+    ) {
+        content()
+    }
 }
 
 @Composable

@@ -1,6 +1,12 @@
 package com.resdownload.android.feature.files
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -11,13 +17,18 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.test.espresso.Espresso
 import kotlin.math.abs
 import com.resdownload.android.domain.model.Role
+import com.resdownload.android.core.ui.EmptyPane
+import com.resdownload.android.core.ui.ErrorPane
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -62,6 +73,27 @@ class FilesScreenTest {
 
         composeRule.onNode(hasContentDescription("刷新文件列表")).assertExists()
         composeRule.onNode(hasContentDescription("个人中心")).assertDoesNotExist()
+    }
+
+    @Test
+    fun emptyFolderSupportsPullToRefresh() {
+        assertPaneSupportsPullToRefresh {
+            EmptyPane(
+                message = "此目录为空",
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            )
+        }
+    }
+
+    @Test
+    fun fileErrorSupportsPullToRefresh() {
+        assertPaneSupportsPullToRefresh {
+            ErrorPane(
+                message = "暂时无法加载此目录",
+                onRetry = {},
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            )
+        }
     }
 
     @Test
@@ -392,5 +424,25 @@ class FilesScreenTest {
                 )
             }
         }
+    }
+
+    private fun assertPaneSupportsPullToRefresh(content: @Composable () -> Unit) {
+        var refreshRequests = 0
+        composeRule.setContent {
+            MaterialTheme {
+                FilePullToRefreshBox(
+                    isRefreshing = false,
+                    onRefresh = { refreshRequests++ },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("filePullToRefresh"),
+                    content = content,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("filePullToRefresh").performTouchInput { swipeDown() }
+
+        composeRule.runOnIdle { assertEquals(1, refreshRequests) }
     }
 }
