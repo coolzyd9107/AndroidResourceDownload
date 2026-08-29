@@ -1,5 +1,8 @@
 # Android Resource Download
 
+> [!IMPORTANT]
+> 因大学报到和军训，本仓库暂时归档至 2026 年 10 月 1 日，届时恢复维护。
+
 这是一个面向 Android 的 WebDAV 文件客户端项目，当前按 v1.1 追加方案建设：Android 登录后获取后端下发的角色凭据，直接连接 WebDAV 完成列表、下载和管理员写操作。产品与技术范围以 [Dev.md](Dev.md) 与 [FRONTEND_APPEND_V1_1.md](docs/FRONTEND_APPEND_V1_1.md) 为准。
 
 ## 当前状态

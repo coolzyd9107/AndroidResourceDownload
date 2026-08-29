@@ -2,6 +2,8 @@ package com.resdownload.android.core.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -27,16 +29,29 @@ class ExpressiveSnackbarTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun snackbarIsCompactAndClearsTheFloatingActionArea() {
+    fun snackbarCentersOnCollapsedFloatingActionButton() {
         val message = "已清除 3 个已结束任务"
         composeRule.setContent {
             val hostState = remember { SnackbarHostState() }
             MaterialTheme {
                 Box(
                     modifier = Modifier.fillMaxSize().testTag("snackbarRoot"),
-                    contentAlignment = Alignment.BottomCenter,
                 ) {
-                    ExpressiveSnackbarHost(hostState)
+                    ExpressiveSnackbarHost(
+                        hostState = hostState,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 16.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .testTag("collapsedFloatingActionButton"),
+                        )
+                    }
                 }
             }
             LaunchedEffect(hostState) {
@@ -49,12 +64,14 @@ class ExpressiveSnackbarTest {
             .fetchSemanticsNode().boundsInRoot
         val snackbarBounds = composeRule.onNodeWithTag("expressiveSnackbar")
             .fetchSemanticsNode().boundsInRoot
+        val floatingActionBounds = composeRule.onNodeWithTag("collapsedFloatingActionButton")
+            .fetchSemanticsNode().boundsInRoot
 
         with(composeRule.density) {
             assertTrue(snackbarBounds.width <= 320.dp.toPx() + 1f)
             assertTrue(snackbarBounds.width < rootBounds.width - 32.dp.toPx())
-            assertTrue(rootBounds.bottom - snackbarBounds.bottom >= 70.dp.toPx())
         }
+        assertEquals(floatingActionBounds.center.y, snackbarBounds.center.y, 1f)
     }
 
     @Test

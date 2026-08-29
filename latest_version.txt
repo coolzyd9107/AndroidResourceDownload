@@ -1,2 +1,2 @@
-latest_version=2.3.8
-update_url=https://github.com/zhuzhuzihan/AndroidResourceDownload/releases/download/v2.3.8/app-release.apk
+latest_version=2.3.9
+update_url=https://github.com/zhuzhuzihan/AndroidResourceDownload/releases/download/v2.3.9/app-release.apk

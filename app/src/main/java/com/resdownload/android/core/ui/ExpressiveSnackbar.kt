@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -32,20 +34,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 private val ExpressiveSnackbarMaxWidth = 320.dp
-private val ExpressiveSnackbarBottomOffset = 72.dp
+private val ExpressiveSnackbarFabCenterOffset = 48.dp
 
 @Composable
 fun ExpressiveSnackbarHost(
     hostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
-    SnackbarHost(
-        hostState = hostState,
+    // Scaffold places the 64.dp collapsed dock 16.dp above the bottom bar.
+    Box(
         modifier = modifier
+            .height(ExpressiveSnackbarFabCenterOffset * 2)
             .padding(horizontal = 16.dp)
-            .padding(bottom = ExpressiveSnackbarBottomOffset),
-    ) { data ->
-        ExpressiveSnackbar(data)
+            .fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        SnackbarHost(hostState = hostState) { data ->
+            ExpressiveSnackbar(data)
+        }
     }
 }
 
