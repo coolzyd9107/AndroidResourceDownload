@@ -96,13 +96,60 @@ class UploadsScreenTest {
             }
         }
 
-        composeRule.onNodeWithTag("uploadActionButton").performClick()
+        composeRule.onNodeWithTag("uploadActionButton").performTouchInput { click() }
         composeRule.onNode(hasContentDescription("收起菜单")).assertIsDisplayed()
 
         composeRule.onNodeWithText("暂无上传任务").performTouchInput { click() }
 
         composeRule.onNode(hasContentDescription("更多操作")).assertIsDisplayed()
         composeRule.onNode(hasContentDescription("收起菜单")).assertDoesNotExist()
+    }
+
+    @Test
+    fun tappingControlOutsideMenuClosesItAndRunsTheControl() {
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = emptyList(),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("uploadActionButton").performTouchInput { click() }
+        composeRule.onNode(hasContentDescription("收起菜单")).assertIsDisplayed()
+
+        composeRule.onNode(hasContentDescription("搜索上传任务")).performTouchInput { click() }
+
+        composeRule.onNode(hasContentDescription("关闭上传搜索")).assertIsDisplayed()
+        composeRule.onNode(hasContentDescription("更多操作")).assertIsDisplayed()
+        composeRule.onNode(hasContentDescription("收起菜单")).assertDoesNotExist()
+    }
+
+    @Test
+    fun uploadSubmenuKeepsActionMenuWidthStable() {
+        composeRule.setContent {
+            MaterialTheme {
+                UploadsScreen(
+                    tasks = emptyList(),
+                    onRetry = {},
+                    onCancel = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("uploadActionButton").performTouchInput { click() }
+        val initialWidth = composeRule.onNode(hasContentDescription("收起菜单"))
+            .fetchSemanticsNode().boundsInRoot.width
+
+        composeRule.onNode(hasContentDescription("上传")).performClick()
+        val submenuWidth = composeRule.onNode(hasContentDescription("收起菜单"))
+            .fetchSemanticsNode().boundsInRoot.width
+
+        assertTrue(abs(initialWidth - submenuWidth) < 2f)
     }
 
     @Test

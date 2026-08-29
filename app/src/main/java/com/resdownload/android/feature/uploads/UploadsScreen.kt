@@ -101,7 +101,10 @@ import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
 import com.resdownload.android.core.ui.SelectionBottomBar
 import com.resdownload.android.core.ui.TaskActionIconButton
+import com.resdownload.android.core.ui.dismissFloatingActionMenuOnOutsideTap
+import com.resdownload.android.core.ui.rememberFloatingActionMenuBoundsState
 import com.resdownload.android.core.ui.taskLongPress
+import com.resdownload.android.core.ui.trackFloatingActionMenuBounds
 import com.resdownload.android.domain.model.UploadStatus
 import com.resdownload.android.domain.model.UploadTask
 import com.resdownload.android.domain.webdav.WebDavPath
@@ -139,6 +142,7 @@ fun UploadsScreen(
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var showUploadMenu by rememberSaveable { mutableStateOf(false) }
     var showActionMenu by rememberSaveable { mutableStateOf(false) }
+    val actionMenuBounds = rememberFloatingActionMenuBoundsState()
     SideEffect { onMultiSelectModeChange(multiSelectMode) }
     DisposableEffect(Unit) {
         onDispose { onMultiSelectModeChange(false) }
@@ -308,7 +312,14 @@ fun UploadsScreen(
     }
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.dismissFloatingActionMenuOnOutsideTap(
+            enabled = showActionMenu,
+            menuBounds = actionMenuBounds,
+            onDismiss = {
+                showActionMenu = false
+                showUploadMenu = false
+            },
+        ),
         topBar = {
             if (searchingSelectedTasks) {
                 SearchTopAppBar(
@@ -492,6 +503,7 @@ fun UploadsScreen(
                         showActionMenu = expanded
                         if (!expanded) showUploadMenu = false
                     },
+                    modifier = Modifier.trackFloatingActionMenuBounds(actionMenuBounds),
                     toggleModifier = Modifier.testTag("uploadActionButton"),
                 ) {
                     AnimatedVisibility(
@@ -531,6 +543,7 @@ fun UploadsScreen(
                     FloatingAction(
                         icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
                         label = if (showUploadMenu) "收起上传选项" else "上传",
+                        widthReferenceLabel = "收起上传选项",
                         onClick = { showUploadMenu = !showUploadMenu },
                     )
                     if (hasCancellableTasks) {

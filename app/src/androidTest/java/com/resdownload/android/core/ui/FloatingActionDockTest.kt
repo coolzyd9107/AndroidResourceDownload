@@ -162,4 +162,80 @@ class FloatingActionDockTest {
             composeRule.onAllNodesWithTag("floatingActionToggle").fetchSemanticsNodes().size,
         )
     }
+
+    @Test
+    fun collapseKeepsToggleLabelUntilAnimationFinishes() {
+        composeRule.mainClock.autoAdvance = false
+        var expanded by mutableStateOf(true)
+        composeRule.setContent {
+            MaterialTheme {
+                FloatingActionMenu(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it },
+                ) {
+                    FloatingAction(
+                        icon = Icons.Default.Delete,
+                        label = "Action",
+                        onClick = {},
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle { expanded = false }
+        composeRule.mainClock.advanceTimeBy(100)
+
+        composeRule.onNodeWithText("收起菜单").assertExists()
+
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.onNodeWithText("收起菜单").assertDoesNotExist()
+    }
+
+    @Test
+    fun collapseRetainsWidthWhenActionContentShrinks() {
+        composeRule.mainClock.autoAdvance = false
+        var expanded by mutableStateOf(true)
+        var useLongLabel by mutableStateOf(true)
+        composeRule.setContent {
+            MaterialTheme {
+                FloatingActionMenu(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it },
+                    modifier = Modifier.testTag("floatingActionDock"),
+                ) {
+                    FloatingAction(
+                        icon = Icons.Default.Delete,
+                        label = if (useLongLabel) "A very long action label" else "A",
+                        onClick = {},
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        val expandedWidth = composeRule.onNodeWithTag("floatingActionDock")
+            .fetchSemanticsNode().boundsInRoot.width
+
+        composeRule.runOnIdle {
+            useLongLabel = false
+            expanded = false
+        }
+        composeRule.mainClock.advanceTimeBy(16)
+        val firstCollapseFrameWidth = composeRule.onNodeWithTag("floatingActionDock")
+            .fetchSemanticsNode().boundsInRoot.width
+
+        with(composeRule.density) {
+            assertTrue(
+                "expanded=$expandedWidth first=$firstCollapseFrameWidth",
+                firstCollapseFrameWidth > expandedWidth - 12.dp.toPx(),
+            )
+        }
+
+        composeRule.mainClock.advanceTimeBy(500)
+        val collapsedWidth = composeRule.onNodeWithTag("floatingActionDock")
+            .fetchSemanticsNode().boundsInRoot.width
+        with(composeRule.density) {
+            assertEquals(64.dp.toPx(), collapsedWidth, 1f)
+        }
+    }
 }

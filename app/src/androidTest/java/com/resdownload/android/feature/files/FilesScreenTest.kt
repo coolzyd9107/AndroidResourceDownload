@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.espresso.Espresso
 import kotlin.math.abs
 import com.resdownload.android.domain.model.Role
@@ -228,6 +230,28 @@ class FilesScreenTest {
 
         assertTrue(abs(toggleBounds.left - actionBounds.left) < 2f)
         assertTrue(abs(toggleBounds.right - actionBounds.right) < 2f)
+    }
+
+    @Test
+    fun openingSearchLetsExpandedMenuFinishCollapsing() {
+        composeRule.mainClock.autoAdvance = false
+        setFilesScreen(Role.ADMIN)
+        composeRule.mainClock.advanceTimeBy(500)
+
+        composeRule.onNode(hasContentDescription("更多操作")).performTouchInput { click() }
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.onNodeWithText("收起菜单").assertIsDisplayed()
+
+        composeRule.onNode(hasContentDescription("搜索文件和文件夹"))
+            .performTouchInput { click() }
+        composeRule.mainClock.advanceTimeBy(100)
+
+        composeRule.onNode(hasContentDescription("关闭文件搜索")).assertExists()
+        composeRule.onNodeWithText("收起菜单").assertExists()
+
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.onNode(hasContentDescription("更多操作")).assertDoesNotExist()
+        composeRule.onNodeWithText("收起菜单").assertDoesNotExist()
     }
 
     @Test

@@ -90,7 +90,10 @@ import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
 import com.resdownload.android.core.ui.SelectionBottomBar
 import com.resdownload.android.core.ui.TaskActionIconButton
+import com.resdownload.android.core.ui.dismissFloatingActionMenuOnOutsideTap
+import com.resdownload.android.core.ui.rememberFloatingActionMenuBoundsState
 import com.resdownload.android.core.ui.taskLongPress
+import com.resdownload.android.core.ui.trackFloatingActionMenuBounds
 import com.resdownload.android.domain.model.DownloadStatus
 import com.resdownload.android.domain.model.DownloadTask
 
@@ -120,6 +123,7 @@ fun DownloadsScreen(
     var selectedSearchTaskIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var hasObservedTasks by remember { mutableStateOf(tasks.isNotEmpty()) }
     var showActionMenu by rememberSaveable { mutableStateOf(false) }
+    val actionMenuBounds = rememberFloatingActionMenuBoundsState()
     SideEffect { onMultiSelectModeChange(multiSelectMode) }
     DisposableEffect(Unit) {
         onDispose { onMultiSelectModeChange(false) }
@@ -262,7 +266,11 @@ fun DownloadsScreen(
     }
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.dismissFloatingActionMenuOnOutsideTap(
+            enabled = showActionMenu,
+            menuBounds = actionMenuBounds,
+            onDismiss = { showActionMenu = false },
+        ),
         topBar = {
             if (searchingSelectedTasks) {
                 SearchTopAppBar(
@@ -428,6 +436,7 @@ fun DownloadsScreen(
                 FloatingActionMenu(
                     expanded = showActionMenu,
                     onExpandedChange = { showActionMenu = it },
+                    modifier = Modifier.trackFloatingActionMenuBounds(actionMenuBounds),
                     toggleModifier = Modifier.testTag("downloadActionButton"),
                 ) {
                     if (hasCancellableTasks) {

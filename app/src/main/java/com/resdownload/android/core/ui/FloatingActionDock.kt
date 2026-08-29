@@ -5,6 +5,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,33 +25,42 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrain
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
-import androidx.compose.runtime.getValue
 import kotlin.math.roundToInt
+
+internal const val FloatingActionMenuAnimationDurationMillis = 320
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -75,6 +86,26 @@ fun FloatingActionDock(
     }
 }
 
+internal class FloatingActionMenuBoundsState internal constructor() {
+    internal var boundsInWindow: Rect = Rect.Zero
+}
+
+@Composable
+internal fun rememberFloatingActionMenuBoundsState(): FloatingActionMenuBoundsState =
+    remember { FloatingActionMenuBoundsState() }
+
+internal fun Modifier.trackFloatingActionMenuBounds(
+    state: FloatingActionMenuBoundsState,
+): Modifier = onGloballyPositioned { state.boundsInWindow = it.boundsInWindow() }
+
+private class FloatingActionMenuLayoutState {
+    var retainedExpandedSize: IntSize = IntSize.Zero
+}
+
+private class FloatingActionMenuHostState {
+    var positionInWindow: Offset = Offset.Zero
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun FloatingActionMenu(
@@ -85,66 +116,58 @@ fun FloatingActionMenu(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val transition = updateTransition(targetState = expanded, label = "floatingActionMenu")
+    val layoutState = remember { FloatingActionMenuLayoutState() }
     val progress by transition.animateFloat(
-        transitionSpec = { tween(durationMillis = 320, easing = FastOutSlowInEasing) },
+        transitionSpec = {
+            tween(
+                durationMillis = FloatingActionMenuAnimationDurationMillis,
+                easing = FastOutSlowInEasing,
+            )
+        },
         label = "floatingActionMenuProgress",
     ) { isExpanded -> if (isExpanded) 1f else 0f }
 
-    Box(
-        modifier = Modifier.size(64.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (transition.currentState || transition.targetState) {
-            Popup(
-                alignment = Alignment.BottomEnd,
-                onDismissRequest = { onExpandedChange(false) },
-                properties = PopupProperties(
-                    focusable = true,
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = true,
-                    clippingEnabled = false,
-                ),
-            ) {
-                FloatingActionMenuDock(
-                    progress = progress,
-                    expanded = expanded,
-                    modifier = modifier,
-                    toggleModifier = toggleModifier,
-                    onExpandedChange = onExpandedChange,
-                    content = content,
-                )
-            }
-        } else {
-            FloatingActionMenuDock(
-                progress = progress,
-                expanded = expanded,
-                modifier = modifier,
-                toggleModifier = toggleModifier,
-                onExpandedChange = onExpandedChange,
-                content = content,
-            )
-        }
-    }
-}
-
-@Composable
-private fun FloatingActionMenuDock(
-    progress: Float,
-    expanded: Boolean,
-    modifier: Modifier,
-    toggleModifier: Modifier,
-    onExpandedChange: (Boolean) -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-) {
     FloatingActionDock(modifier = modifier) {
         FloatingActionMenuLayout(
             progress = progress,
             expanded = expanded,
+            state = layoutState,
             toggleModifier = toggleModifier,
             onExpandedChange = onExpandedChange,
             content = content,
         )
     }
+}
+
+@Composable
+internal fun Modifier.dismissFloatingActionMenuOnOutsideTap(
+    enabled: Boolean,
+    menuBounds: FloatingActionMenuBoundsState,
+    onDismiss: () -> Unit,
+): Modifier {
+    val hostState = remember { FloatingActionMenuHostState() }
+    val currentEnabled by rememberUpdatedState(enabled)
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    return this
+        .onGloballyPositioned { hostState.positionInWindow = it.positionInWindow() }
+        .pointerInput(Unit) {
+            // Observe the whole gesture without consuming it so the tapped control still runs.
+            awaitEachGesture {
+                val down = awaitFirstDown(
+                    requireUnconsumed = false,
+                    pass = PointerEventPass.Initial,
+                )
+                val positionInWindow = down.position + hostState.positionInWindow
+                val currentMenuBounds = menuBounds.boundsInWindow
+                if (
+                    currentEnabled &&
+                    currentMenuBounds != Rect.Zero &&
+                    !currentMenuBounds.contains(positionInWindow)
+                ) {
+                    currentOnDismiss()
+                }
+            }
+        }
 }
 
 private enum class FloatingActionMenuSlot {
@@ -157,6 +180,7 @@ private enum class FloatingActionMenuSlot {
 private fun FloatingActionMenuLayout(
     progress: Float,
     expanded: Boolean,
+    state: FloatingActionMenuLayoutState,
     toggleModifier: Modifier,
     onExpandedChange: (Boolean) -> Unit,
     content: @Composable ColumnScope.() -> Unit,
@@ -198,8 +222,21 @@ private fun FloatingActionMenuLayout(
             )
         }.single().measure(actionConstraints)
 
-        val expandedWidth = maxOf(actionPlaceable.width, toggleMeasure.width)
-        val expandedHeight = actionPlaceable.height + spacing + toggleMeasure.height
+        val naturalExpandedSize = IntSize(
+            width = maxOf(actionPlaceable.width, toggleMeasure.width),
+            height = actionPlaceable.height + spacing + toggleMeasure.height,
+        )
+        val expandedSize = if (!expanded && progress > 0f) {
+            val retainedSize = state.retainedExpandedSize
+            IntSize(
+                width = maxOf(retainedSize.width, naturalExpandedSize.width),
+                height = maxOf(retainedSize.height, naturalExpandedSize.height),
+            ).also { state.retainedExpandedSize = it }
+        } else {
+            naturalExpandedSize.also { state.retainedExpandedSize = it }
+        }
+        val expandedWidth = expandedSize.width
+        val expandedHeight = expandedSize.height
         val width = lerpInt(collapsedWidth, expandedWidth, progress)
         val height = lerpInt(collapsedHeight, expandedHeight, progress)
         val boundedSize = constraints.constrain(IntSize(width, height))
@@ -243,12 +280,9 @@ private fun FloatingActionMenuToggle(
     val label = if (expanded) "收起菜单" else "更多操作"
     val containerColor = MaterialTheme.colorScheme.secondaryContainer
     val contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-    val labelProgress = if (expanded) {
-        ((progress - 0.7f) / 0.3f).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    Row(
+    val showExpandedLabel = expanded || progress > 0f
+    val labelProgress = smoothStep(((progress - 0.25f) / 0.75f).coerceIn(0f, 1f))
+    Layout(
         modifier = modifier
             .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier.wrapContentWidth())
             .widthIn(min = 56.dp)
@@ -259,45 +293,74 @@ private fun FloatingActionMenuToggle(
                 role = Role.Button,
                 onClickLabel = label,
                 onClick = { onExpandedChange(!expanded) },
-            )
-            .padding(
-                horizontal = if (expanded) 12.dp else 0.dp,
-                vertical = 8.dp,
             ),
-        horizontalArrangement = if (expanded) {
-            Arrangement.End
-        } else {
-            Arrangement.Center
-        },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (expanded) {
-            Text(
-                text = "收起菜单",
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.labelLargeEmphasized,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-                modifier = Modifier.graphicsLayer {
-                    alpha = labelProgress
-                    translationX = (1f - labelProgress) * 12.dp.toPx()
-                },
-            )
-            Spacer(Modifier.width(10.dp))
-        }
-        Surface(
-            modifier = Modifier.size(36.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = containerColor,
-            contentColor = contentColor,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                FloatingActionMenuIcon(
-                    progress = progress,
-                    color = contentColor,
-                    modifier = Modifier.size(20.dp),
+        content = {
+            if (showExpandedLabel) {
+                Text(
+                    text = "收起菜单",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelLargeEmphasized,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = labelProgress
+                        translationX = (1f - labelProgress) * 12.dp.toPx()
+                    },
                 )
+            }
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = containerColor,
+                contentColor = contentColor,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    FloatingActionMenuIcon(
+                        progress = progress,
+                        color = contentColor,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        },
+    ) { measurables, constraints ->
+        val childConstraints = constraints.copy(
+            minWidth = 0,
+            maxWidth = Constraints.Infinity,
+            minHeight = 0,
+        )
+        val iconPlaceable = measurables.last().measure(childConstraints)
+        val labelPlaceable = if (showExpandedLabel) {
+            measurables.first().measure(childConstraints)
+        } else {
+            null
+        }
+        val collapsedInset = 10.dp.roundToPx()
+        val expandedInset = 12.dp.roundToPx()
+        val labelSpacing = 10.dp.roundToPx()
+        val desiredWidth = if (labelPlaceable == null) {
+            collapsedInset * 2 + iconPlaceable.width
+        } else {
+            expandedInset * 2 + labelPlaceable.width + labelSpacing + iconPlaceable.width
+        }
+        val desiredHeight = maxOf(
+            56.dp.roundToPx(),
+            iconPlaceable.height,
+            labelPlaceable?.height ?: 0,
+        )
+        val size = constraints.constrain(IntSize(desiredWidth, desiredHeight))
+
+        layout(size.width, size.height) {
+            val iconInset = lerpInt(collapsedInset, expandedInset, progress)
+            val iconX = (size.width - iconInset - iconPlaceable.width).coerceAtLeast(0)
+            val iconY = (size.height - iconPlaceable.height) / 2
+            iconPlaceable.placeRelative(iconX, iconY)
+
+            labelPlaceable?.let { placeable ->
+                val labelX = iconX - labelSpacing - placeable.width
+                val labelY = (size.height - placeable.height) / 2
+                placeable.placeRelative(labelX, labelY)
             }
         }
     }
@@ -411,6 +474,7 @@ fun FloatingAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     destructive: Boolean = false,
+    widthReferenceLabel: String = label,
 ) {
     val containerColor = if (destructive) {
         MaterialTheme.colorScheme.errorContainer
@@ -447,10 +511,26 @@ fun FloatingAction(
             }
         }
         Spacer(Modifier.width(10.dp))
-        Text(
-            text = label,
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.labelLargeEmphasized,
-        )
+        Box {
+            if (widthReferenceLabel != label) {
+                Text(
+                    text = widthReferenceLabel,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelLargeEmphasized,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .clearAndSetSemantics { }
+                        .graphicsLayer { alpha = 0f },
+                )
+            }
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelLargeEmphasized,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
     }
 }

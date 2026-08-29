@@ -20,6 +20,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -148,11 +149,15 @@ import com.resdownload.android.core.ui.ExpressiveDialogAction
 import com.resdownload.android.core.ui.ExpressiveDialogTone
 import com.resdownload.android.core.ui.FloatingAction
 import com.resdownload.android.core.ui.FloatingActionMenu
+import com.resdownload.android.core.ui.FloatingActionMenuAnimationDurationMillis
 import com.resdownload.android.core.ui.LoadingPane
 import com.resdownload.android.core.ui.ScalePredictiveBackLayout
 import com.resdownload.android.core.ui.SearchTopAppBar
 import com.resdownload.android.core.ui.SelectionAction
 import com.resdownload.android.core.ui.SelectionBottomBar
+import com.resdownload.android.core.ui.dismissFloatingActionMenuOnOutsideTap
+import com.resdownload.android.core.ui.rememberFloatingActionMenuBoundsState
+import com.resdownload.android.core.ui.trackFloatingActionMenuBounds
 import com.resdownload.android.data.mock.mockFilesForPath
 import com.resdownload.android.data.mock.mockPreviewForFile
 import com.resdownload.android.domain.model.FileNode
@@ -192,6 +197,7 @@ fun FilesScreen(
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
     var showUploadMenu by remember { mutableStateOf(false) }
     var showActionMenu by rememberSaveable { mutableStateOf(false) }
+    val actionMenuBounds = rememberFloatingActionMenuBoundsState()
     var searchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedSearchScope by rememberSaveable {
@@ -625,7 +631,16 @@ fun FilesScreen(
         !activePath.isRoot
 
     Surface(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .dismissFloatingActionMenuOnOutsideTap(
+                enabled = showActionMenu,
+                menuBounds = actionMenuBounds,
+                onDismiss = {
+                    showActionMenu = false
+                    showUploadMenu = false
+                },
+            ),
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         ScalePredictiveBackLayout(
@@ -936,12 +951,19 @@ fun FilesScreen(
                     }
                 },
                 floatingActionButton = {
-                    if (
-                        isAdmin &&
+                    val actionsVisible = isAdmin &&
                         mutationState == FileMutationState.Idle &&
                         !multiSelectMode &&
                         !searchActive &&
                         !showCreateDirectoryDialog
+                    AnimatedVisibility(
+                        visible = actionsVisible,
+                        enter = fadeIn(folderEffectsSpec),
+                        exit = fadeOut(
+                            animationSpec = tween(
+                                durationMillis = FloatingActionMenuAnimationDurationMillis,
+                            ),
+                        ),
                     ) {
                         FloatingActionMenu(
                             expanded = showActionMenu,
@@ -949,6 +971,7 @@ fun FilesScreen(
                                 showActionMenu = expanded
                                 if (!expanded) showUploadMenu = false
                             },
+                            modifier = Modifier.trackFloatingActionMenuBounds(actionMenuBounds),
                             toggleModifier = Modifier.testTag("fileActionButton"),
                         ) {
                             FloatingAction(
@@ -997,6 +1020,7 @@ fun FilesScreen(
                             FloatingAction(
                                 icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
                                 label = if (showUploadMenu) "收起上传选项" else "上传",
+                                widthReferenceLabel = "收起上传选项",
                                 onClick = { showUploadMenu = !showUploadMenu },
                             )
                         }
