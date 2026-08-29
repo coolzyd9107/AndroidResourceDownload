@@ -1,7 +1,9 @@
 package com.resdownload.android.core.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -237,5 +239,39 @@ class FloatingActionDockTest {
         with(composeRule.density) {
             assertEquals(64.dp.toPx(), collapsedWidth, 1f)
         }
+    }
+
+    @Test
+    fun dynamicActionCrossfadesLabelWithoutChangingWidth() {
+        composeRule.mainClock.autoAdvance = false
+        var submenuExpanded by mutableStateOf(false)
+        composeRule.setContent {
+            MaterialTheme {
+                FloatingAction(
+                    icon = if (submenuExpanded) Icons.Default.Close else Icons.Default.UploadFile,
+                    label = if (submenuExpanded) "收起上传选项" else "上传",
+                    widthReferenceLabel = "收起上传选项",
+                    animateContentChanges = true,
+                    onClick = { submenuExpanded = !submenuExpanded },
+                    modifier = Modifier.testTag("dynamicAction"),
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        val initialWidth = composeRule.onNodeWithTag("dynamicAction")
+            .fetchSemanticsNode().boundsInRoot.width
+
+        composeRule.runOnIdle { submenuExpanded = true }
+        composeRule.mainClock.advanceTimeBy(90)
+
+        composeRule.onNodeWithText("上传").assertExists()
+        composeRule.onNodeWithText("收起上传选项").assertExists()
+        val transitionWidth = composeRule.onNodeWithTag("dynamicAction")
+            .fetchSemanticsNode().boundsInRoot.width
+        assertEquals(initialWidth, transitionWidth, 1f)
+
+        composeRule.mainClock.advanceTimeBy(300)
+        composeRule.onNodeWithText("上传").assertDoesNotExist()
+        composeRule.onNodeWithText("收起上传选项").assertExists()
     }
 }

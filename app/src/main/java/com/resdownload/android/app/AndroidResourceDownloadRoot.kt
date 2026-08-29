@@ -38,7 +38,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -76,6 +75,7 @@ import com.resdownload.android.core.theme.AndroidResourceDownloadTheme
 import com.resdownload.android.core.theme.ThemeMode
 import com.resdownload.android.core.theme.ThemeSettings
 import com.resdownload.android.core.theme.ThemeSchemeVariant
+import com.resdownload.android.core.ui.ExpressiveSnackbarHost
 import com.resdownload.android.core.ui.ScalePredictiveBackLayout
 import com.resdownload.android.data.mock.initialMockDownloads
 import com.resdownload.android.data.mock.mockTaskForFile
@@ -634,7 +634,7 @@ private fun MainShell(
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             modifier = if (showAbout) Modifier.clearAndSetSemantics { } else Modifier,
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = { ExpressiveSnackbarHost(snackbarHostState) },
             bottomBar = {
                 if (
                     !showMultiSelectBar &&

@@ -511,11 +511,11 @@ fun UploadsScreen(
                         enter = fadeIn(itemEffectsSpec) + expandVertically(
                             animationSpec = actionSizeSpec,
                             expandFrom = androidx.compose.ui.Alignment.Bottom,
-                        ),
+                        ) + slideInVertically(itemSpatialSpec) { height -> height / 8 },
                         exit = fadeOut(itemEffectsSpec) + shrinkVertically(
                             animationSpec = actionSizeSpec,
                             shrinkTowards = androidx.compose.ui.Alignment.Bottom,
-                        ),
+                        ) + slideOutVertically(itemSpatialSpec) { height -> height / 10 },
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             FloatingAction(
@@ -544,6 +544,7 @@ fun UploadsScreen(
                         icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
                         label = if (showUploadMenu) "收起上传选项" else "上传",
                         widthReferenceLabel = "收起上传选项",
+                        animateContentChanges = true,
                         onClick = { showUploadMenu = !showUploadMenu },
                     )
                     if (hasCancellableTasks) {

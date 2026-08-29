@@ -1,5 +1,13 @@
 package com.resdownload.android.core.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
@@ -61,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 internal const val FloatingActionMenuAnimationDurationMillis = 320
+private const val FloatingActionContentAnimationDurationMillis = 180
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -475,6 +484,7 @@ fun FloatingAction(
     modifier: Modifier = Modifier,
     destructive: Boolean = false,
     widthReferenceLabel: String = label,
+    animateContentChanges: Boolean = false,
 ) {
     val containerColor = if (destructive) {
         MaterialTheme.colorScheme.errorContainer
@@ -486,6 +496,14 @@ fun FloatingAction(
     } else {
         MaterialTheme.colorScheme.onSecondaryContainer
     }
+    val contentEffectsSpec = tween<Float>(
+        durationMillis = FloatingActionContentAnimationDurationMillis,
+        easing = FastOutSlowInEasing,
+    )
+    val contentOffsetSpec = tween<IntOffset>(
+        durationMillis = FloatingActionContentAnimationDurationMillis,
+        easing = FastOutSlowInEasing,
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -503,11 +521,36 @@ fun FloatingAction(
             contentColor = contentColor,
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
+                if (animateContentChanges) {
+                    AnimatedContent(
+                        targetState = icon,
+                        transitionSpec = {
+                            (fadeIn(contentEffectsSpec) + scaleIn(
+                                contentEffectsSpec,
+                                initialScale = 0.82f,
+                            )).togetherWith(
+                                fadeOut(contentEffectsSpec) + scaleOut(
+                                    contentEffectsSpec,
+                                    targetScale = 0.82f,
+                                ),
+                            )
+                        },
+                        contentAlignment = Alignment.Center,
+                        label = "floatingActionIcon",
+                    ) { animatedIcon ->
+                        Icon(
+                            imageVector = animatedIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
         Spacer(Modifier.width(10.dp))
@@ -524,13 +567,39 @@ fun FloatingAction(
                         .graphicsLayer { alpha = 0f },
                 )
             }
-            Text(
-                text = label,
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.labelLargeEmphasized,
-                maxLines = 1,
-                softWrap = false,
-            )
+            if (animateContentChanges) {
+                AnimatedContent(
+                    targetState = label,
+                    modifier = Modifier.fillMaxWidth(),
+                    transitionSpec = {
+                        (fadeIn(contentEffectsSpec) + slideInVertically(
+                            contentOffsetSpec,
+                        ) { height -> height / 3 }).togetherWith(
+                            fadeOut(contentEffectsSpec) + slideOutVertically(
+                                contentOffsetSpec,
+                            ) { height -> -height / 3 },
+                        )
+                    },
+                    contentAlignment = Alignment.CenterStart,
+                    label = "floatingActionLabel",
+                ) { animatedLabel ->
+                    FloatingActionLabel(animatedLabel)
+                }
+            } else {
+                FloatingActionLabel(label)
+            }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun FloatingActionLabel(label: String) {
+    Text(
+        text = label,
+        color = MaterialTheme.colorScheme.onSurface,
+        style = MaterialTheme.typography.labelLargeEmphasized,
+        maxLines = 1,
+        softWrap = false,
+    )
 }
