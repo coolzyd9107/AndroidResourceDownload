@@ -1,18 +1,16 @@
 package com.resdownload.android.core.ui
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.clickable
@@ -42,6 +40,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -73,7 +72,8 @@ import kotlin.math.roundToInt
 
 internal const val FloatingActionMenuAnimationDurationMillis = 320
 private const val FloatingActionContentAnimationDurationMillis = 180
-private const val FloatingActionSubmenuAnimationDurationMillis = 220
+private const val FloatingActionSubmenuSpringStiffness = 1_200f
+private const val FloatingActionSubmenuVisibilityThreshold = 0.002f
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -112,7 +112,54 @@ internal fun Modifier.trackFloatingActionMenuBounds(
 ): Modifier = onGloballyPositioned { state.boundsInWindow = it.boundsInWindow() }
 
 private class FloatingActionMenuLayoutState {
-    var retainedExpandedSize: IntSize = IntSize.Zero
+    private var targetExpanded: Boolean? = null
+    private var segmentStartProgress = 0f
+    private var segmentStartSize = IntSize.Zero
+    private var currentSize = IntSize.Zero
+
+    fun resolveSize(
+        progress: Float,
+        expanded: Boolean,
+        collapsedSize: IntSize,
+        naturalExpandedSize: IntSize,
+    ): IntSize {
+        if (targetExpanded == null) {
+            targetExpanded = expanded
+            currentSize = if (expanded) naturalExpandedSize else collapsedSize
+            segmentStartProgress = progress
+            segmentStartSize = currentSize
+            return currentSize
+        }
+
+        if (targetExpanded != expanded) {
+            targetExpanded = expanded
+            segmentStartProgress = progress
+            segmentStartSize = currentSize
+        }
+
+        currentSize = when {
+            expanded && progress >= 1f -> naturalExpandedSize
+            !expanded && progress <= 0f -> collapsedSize
+            expanded -> {
+                val remainingProgress = 1f - segmentStartProgress
+                val fraction = if (remainingProgress > 0f) {
+                    (progress - segmentStartProgress) / remainingProgress
+                } else {
+                    1f
+                }
+                lerpIntSize(segmentStartSize, naturalExpandedSize, fraction)
+            }
+            else -> {
+                val fraction = if (segmentStartProgress > 0f) {
+                    (segmentStartProgress - progress) / segmentStartProgress
+                } else {
+                    1f
+                }
+                lerpIntSize(segmentStartSize, collapsedSize, fraction)
+            }
+        }
+        return currentSize
+    }
 }
 
 private class FloatingActionMenuHostState {
@@ -156,44 +203,60 @@ fun FloatingActionMenu(
 fun FloatingActionSubmenu(
     visible: Boolean,
     modifier: Modifier = Modifier,
+    toggle: @Composable () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val sizeSpec = tween<IntSize>(
-        durationMillis = FloatingActionSubmenuAnimationDurationMillis,
-        easing = FastOutSlowInEasing,
-    )
-    val offsetSpec = tween<IntOffset>(
-        durationMillis = FloatingActionSubmenuAnimationDurationMillis,
-        easing = FastOutSlowInEasing,
-    )
-    AnimatedVisibility(
-        visible = visible,
+    val transition = updateTransition(targetState = visible, label = "floatingActionSubmenu")
+    val animatedProgress by transition.animateFloat(
+        transitionSpec = {
+            spring(
+                dampingRatio = 1f,
+                stiffness = FloatingActionSubmenuSpringStiffness,
+                visibilityThreshold = FloatingActionSubmenuVisibilityThreshold,
+            )
+        },
+        label = "floatingActionSubmenuProgress",
+    ) { isVisible -> if (isVisible) 1f else 0f }
+    val progress = animatedProgress.coerceIn(0f, 1f)
+
+    Column(
         modifier = modifier,
-        enter = fadeIn(
-            animationSpec = tween(
-                durationMillis = 160,
-                delayMillis = 20,
-                easing = FastOutSlowInEasing,
-            ),
-        ) + expandVertically(
-            animationSpec = sizeSpec,
-            expandFrom = Alignment.Bottom,
-        ) + slideInVertically(offsetSpec) { height -> height / 8 },
-        exit = fadeOut(
-            animationSpec = tween(
-                durationMillis = 160,
-                delayMillis = 60,
-                easing = FastOutSlowInEasing,
-            ),
-        ) + shrinkVertically(
-            animationSpec = sizeSpec,
-            shrinkTowards = Alignment.Bottom,
-        ) + slideOutVertically(offsetSpec) { height -> height / 10 },
+        horizontalAlignment = Alignment.End,
     ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            content = content,
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (visible) Modifier else Modifier.clearAndSetSemantics { })
+                .clipToBounds()
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints.copy(minHeight = 0))
+                    val spacing = 2.dp.roundToPx()
+                    val animatedHeight = lerpInt(
+                        start = 0,
+                        end = placeable.height + spacing,
+                        fraction = progress,
+                    )
+                    layout(placeable.width, animatedHeight) {
+                        placeable.placeRelative(
+                            x = 0,
+                            y = animatedHeight - spacing - placeable.height,
+                        )
+                    }
+                },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        alpha = progress
+                        translationY = (1f - progress) * 8.dp.toPx()
+                    },
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                content = content,
+            )
+        }
+        toggle()
     }
 }
 
@@ -284,20 +347,13 @@ private fun FloatingActionMenuLayout(
             width = maxOf(actionPlaceable.width, toggleMeasure.width),
             height = actionPlaceable.height + spacing + toggleMeasure.height,
         )
-        val expandedSize = if (!expanded && progress > 0f) {
-            val retainedSize = state.retainedExpandedSize
-            IntSize(
-                width = maxOf(retainedSize.width, naturalExpandedSize.width),
-                height = maxOf(retainedSize.height, naturalExpandedSize.height),
-            ).also { state.retainedExpandedSize = it }
-        } else {
-            naturalExpandedSize.also { state.retainedExpandedSize = it }
-        }
-        val expandedWidth = expandedSize.width
-        val expandedHeight = expandedSize.height
-        val width = lerpInt(collapsedWidth, expandedWidth, progress)
-        val height = lerpInt(collapsedHeight, expandedHeight, progress)
-        val boundedSize = constraints.constrain(IntSize(width, height))
+        val animatedSize = state.resolveSize(
+            progress = progress,
+            expanded = expanded,
+            collapsedSize = IntSize(collapsedWidth, collapsedHeight),
+            naturalExpandedSize = naturalExpandedSize,
+        )
+        val boundedSize = constraints.constrain(animatedSize)
 
         val togglePlaceable = subcompose(FloatingActionMenuSlot.Toggle) {
             FloatingActionMenuToggle(
@@ -324,7 +380,12 @@ private fun FloatingActionMenuLayout(
 }
 
 private fun lerpInt(start: Int, end: Int, fraction: Float): Int =
-    (start + (end - start) * fraction).roundToInt()
+    (start + (end - start) * fraction.coerceIn(0f, 1f)).roundToInt()
+
+private fun lerpIntSize(start: IntSize, end: IntSize, fraction: Float): IntSize = IntSize(
+    width = lerpInt(start.width, end.width, fraction),
+    height = lerpInt(start.height, end.height, fraction),
+)
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

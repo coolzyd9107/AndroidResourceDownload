@@ -282,7 +282,17 @@ class FloatingActionDockTest {
         composeRule.setContent {
             MaterialTheme {
                 FloatingActionDock {
-                    FloatingActionSubmenu(visible = submenuVisible) {
+                    FloatingActionSubmenu(
+                        visible = submenuVisible,
+                        toggle = {
+                            FloatingAction(
+                                icon = Icons.Default.UploadFile,
+                                label = "上传",
+                                onClick = {},
+                                modifier = Modifier.testTag("lowerAction"),
+                            )
+                        },
+                    ) {
                         FloatingAction(
                             icon = Icons.Default.UploadFile,
                             label = "上传文件",
@@ -295,12 +305,6 @@ class FloatingActionDockTest {
                             modifier = Modifier.testTag("lastSubmenuAction"),
                         )
                     }
-                    FloatingAction(
-                        icon = Icons.Default.UploadFile,
-                        label = "上传",
-                        onClick = {},
-                        modifier = Modifier.testTag("lowerAction"),
-                    )
                 }
             }
         }
@@ -318,5 +322,108 @@ class FloatingActionDockTest {
             .fetchSemanticsNode().boundsInRoot.top
 
         assertEquals(settledTop, laterTop, 1f)
+    }
+
+    @Test
+    fun submenuReversalKeepsCurrentGeometry() {
+        composeRule.mainClock.autoAdvance = false
+        var submenuVisible by mutableStateOf(true)
+        composeRule.setContent {
+            MaterialTheme {
+                FloatingActionDock {
+                    FloatingActionSubmenu(
+                        visible = submenuVisible,
+                        toggle = {
+                            FloatingAction(
+                                icon = Icons.Default.UploadFile,
+                                label = "上传",
+                                onClick = {},
+                                modifier = Modifier.testTag("submenuToggle"),
+                            )
+                        },
+                    ) {
+                        FloatingAction(
+                            icon = Icons.Default.UploadFile,
+                            label = "上传文件",
+                            onClick = {},
+                        )
+                        FloatingAction(
+                            icon = Icons.Default.UploadFile,
+                            label = "上传文件夹",
+                            onClick = {},
+                        )
+                    }
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle { submenuVisible = false }
+        composeRule.mainClock.advanceTimeBy(80)
+        val collapsingTop = composeRule.onNodeWithTag("submenuToggle")
+            .fetchSemanticsNode().boundsInRoot.top
+
+        composeRule.runOnIdle { submenuVisible = true }
+        val reversedTop = composeRule.onNodeWithTag("submenuToggle")
+            .fetchSemanticsNode().boundsInRoot.top
+        assertEquals(collapsingTop, reversedTop, 1f)
+
+        composeRule.mainClock.advanceTimeBy(64)
+        val expandingTop = composeRule.onNodeWithTag("submenuToggle")
+            .fetchSemanticsNode().boundsInRoot.top
+        composeRule.runOnIdle { submenuVisible = false }
+        val secondReversalTop = composeRule.onNodeWithTag("submenuToggle")
+            .fetchSemanticsNode().boundsInRoot.top
+        assertEquals(expandingTop, secondReversalTop, 1f)
+    }
+
+    @Test
+    fun reversingMenuCollapseDoesNotSnapToShrunkenContent() {
+        composeRule.mainClock.autoAdvance = false
+        var expanded by mutableStateOf(true)
+        var showExtraAction by mutableStateOf(true)
+        composeRule.setContent {
+            MaterialTheme {
+                FloatingActionMenu(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it },
+                    modifier = Modifier.testTag("floatingActionDock"),
+                ) {
+                    if (showExtraAction) {
+                        FloatingAction(
+                            icon = Icons.Default.UploadFile,
+                            label = "上传文件",
+                            onClick = {},
+                        )
+                    }
+                    FloatingAction(
+                        icon = Icons.Default.UploadFile,
+                        label = "上传",
+                        onClick = {},
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        val fullHeight = composeRule.onNodeWithTag("floatingActionDock")
+            .fetchSemanticsNode().boundsInRoot.height
+
+        composeRule.runOnIdle {
+            showExtraAction = false
+            expanded = false
+        }
+        composeRule.mainClock.advanceTimeBy(96)
+        val collapsingHeight = composeRule.onNodeWithTag("floatingActionDock")
+            .fetchSemanticsNode().boundsInRoot.height
+
+        composeRule.runOnIdle { expanded = true }
+        val reversedHeight = composeRule.onNodeWithTag("floatingActionDock")
+            .fetchSemanticsNode().boundsInRoot.height
+        assertEquals(collapsingHeight, reversedHeight, 1f)
+
+        composeRule.mainClock.advanceTimeBy(500)
+        val settledHeight = composeRule.onNodeWithTag("floatingActionDock")
+            .fetchSemanticsNode().boundsInRoot.height
+        assertTrue("full=$fullHeight settled=$settledHeight", settledHeight < fullHeight)
     }
 }

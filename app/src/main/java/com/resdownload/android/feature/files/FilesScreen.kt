@@ -984,6 +984,15 @@ fun FilesScreen(
                             )
                             FloatingActionSubmenu(
                                 visible = showUploadMenu,
+                                toggle = {
+                                    FloatingAction(
+                                        icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
+                                        label = if (showUploadMenu) "收起上传选项" else "上传",
+                                        widthReferenceLabel = "收起上传选项",
+                                        animateContentChanges = true,
+                                        onClick = { showUploadMenu = !showUploadMenu },
+                                    )
+                                },
                             ) {
                                 FloatingAction(
                                     icon = Icons.Default.UploadFile,
@@ -1004,13 +1013,6 @@ fun FilesScreen(
                                     },
                                 )
                             }
-                            FloatingAction(
-                                icon = if (showUploadMenu) Icons.Default.Close else Icons.Default.UploadFile,
-                                label = if (showUploadMenu) "收起上传选项" else "上传",
-                                widthReferenceLabel = "收起上传选项",
-                                animateContentChanges = true,
-                                onClick = { showUploadMenu = !showUploadMenu },
-                            )
                         }
                     }
                 },
